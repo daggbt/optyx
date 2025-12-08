@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Intuitive symbolic interface for constrained optimization problems"
 readme = "README.md"
 authors = [
-    { name = "Dagmawi B. Tadesse", email = "51195080+daggbt@users.noreply.github.com" }
+    { name = "Dagmawi B. Tadesse", email = "daggbt@gmail.com" }
 ]
 requires-python = ">=3.12"
 dependencies = [

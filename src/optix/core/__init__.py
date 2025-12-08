@@ -1,9 +1,11 @@
-"""Optix: Symbolic optimization without the boilerplate."""
+"""Core expression system for optix."""
 
 from optix.core.expressions import (
     Expression,
     Variable,
     Constant,
+    BinaryOp,
+    UnaryOp,
 )
 from optix.core.functions import (
     sin,
@@ -17,15 +19,19 @@ from optix.core.functions import (
     sinh,
     cosh,
 )
-
-__version__ = "0.1.0"
+from optix.core.compiler import (
+    compile_expression,
+    compile_to_dict_function,
+    compile_gradient,
+    CompiledExpression,
+)
 
 __all__ = [
-    # Core
     "Expression",
     "Variable",
     "Constant",
-    # Functions
+    "BinaryOp",
+    "UnaryOp",
     "sin",
     "cos",
     "tan",
@@ -36,5 +42,8 @@ __all__ = [
     "tanh",
     "sinh",
     "cosh",
+    "compile_expression",
+    "compile_to_dict_function",
+    "compile_gradient",
+    "CompiledExpression",
 ]
-
