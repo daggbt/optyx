@@ -1,0 +1,26 @@
+[project]
+name = "optix"
+version = "0.1.0"
+description = "Intuitive symbolic interface for constrained optimization problems"
+readme = "README.md"
+authors = [
+    { name = "Dagmawi B. Tadesse", email = "51195080+daggbt@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.10.7",
+    "numpy>=2.3.5",
+    "scipy>=1.16.3",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.16,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.19.0",
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.14.8",
+]
