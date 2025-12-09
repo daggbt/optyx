@@ -1,0 +1,268 @@
+"""Gradient verification utilities.
+
+Provides tools for verifying symbolic gradients against numerical
+differentiation using finite differences.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+import numpy as np
+
+if TYPE_CHECKING:
+    from optix.core.expressions import Expression, Variable
+
+
+def numerical_gradient(
+    expr: Expression,
+    wrt: Variable,
+    point: dict[str, float],
+    eps: float = 1e-7,
+) -> float:
+    """Compute the numerical gradient using central differences.
+    
+    Args:
+        expr: The expression to differentiate.
+        wrt: The variable to differentiate with respect to.
+        point: Dictionary of variable values.
+        eps: Finite difference step size.
+        
+    Returns:
+        The numerical derivative at the given point.
+    """
+    point_plus = point.copy()
+    point_minus = point.copy()
+    
+    point_plus[wrt.name] = point[wrt.name] + eps
+    point_minus[wrt.name] = point[wrt.name] - eps
+    
+    f_plus = expr.evaluate(point_plus)
+    f_minus = expr.evaluate(point_minus)
+    
+    return (f_plus - f_minus) / (2 * eps)
+
+
+def numerical_gradient_array(
+    expr: Expression,
+    variables: list[Variable],
+    x: np.ndarray,
+    eps: float = 1e-7,
+) -> np.ndarray:
+    """Compute the numerical gradient as an array.
+    
+    Args:
+        expr: The expression to differentiate.
+        variables: List of variables (defines ordering).
+        x: Array of variable values.
+        eps: Finite difference step size.
+        
+    Returns:
+        Array of partial derivatives.
+    """
+    n = len(variables)
+    grad = np.zeros(n)
+    
+    for i in range(n):
+        x_plus = x.copy()
+        x_minus = x.copy()
+        x_plus[i] += eps
+        x_minus[i] -= eps
+        
+        point_plus = {v.name: x_plus[j] for j, v in enumerate(variables)}
+        point_minus = {v.name: x_minus[j] for j, v in enumerate(variables)}
+        
+        f_plus = expr.evaluate(point_plus)
+        f_minus = expr.evaluate(point_minus)
+        
+        grad[i] = (f_plus - f_minus) / (2 * eps)
+    
+    return grad
+
+
+def verify_gradient(
+    expr: Expression,
+    wrt: Variable,
+    point: dict[str, float],
+    tol: float = 1e-5,
+) -> bool:
+    """Verify that the symbolic gradient matches numerical differentiation.
+    
+    Args:
+        expr: The expression to check.
+        wrt: The variable to differentiate with respect to.
+        point: Dictionary of variable values.
+        tol: Tolerance for comparison.
+        
+    Returns:
+        True if gradients match within tolerance.
+    """
+    from optix.core.autodiff import gradient
+    
+    # Compute symbolic gradient
+    grad_expr = gradient(expr, wrt)
+    symbolic_grad = grad_expr.evaluate(point)
+    
+    # Compute numerical gradient
+    numerical_grad = numerical_gradient(expr, wrt, point)
+    
+    # Compare
+    return abs(symbolic_grad - numerical_grad) < tol
+
+
+def verify_gradient_array(
+    expr: Expression,
+    variables: list[Variable],
+    x: np.ndarray,
+    tol: float = 1e-5,
+) -> tuple[bool, np.ndarray, np.ndarray]:
+    """Verify gradient for all variables at once.
+    
+    Args:
+        expr: The expression to check.
+        variables: List of variables.
+        x: Array of variable values.
+        tol: Tolerance for comparison.
+        
+    Returns:
+        Tuple of (all_match, symbolic_grad, numerical_grad).
+    """
+    from optix.core.autodiff import gradient
+    
+    point = {v.name: x[i] for i, v in enumerate(variables)}
+    n = len(variables)
+    
+    symbolic_grad = np.zeros(n)
+    for i, var in enumerate(variables):
+        grad_expr = gradient(expr, var)
+        symbolic_grad[i] = grad_expr.evaluate(point)
+    
+    numerical_grad = numerical_gradient_array(expr, variables, x)
+    
+    all_match = np.allclose(symbolic_grad, numerical_grad, atol=tol)
+    
+    return all_match, symbolic_grad, numerical_grad
+
+
+@dataclass
+class GradientCheckResult:
+    """Result of a gradient check over multiple samples."""
+    
+    n_samples: int
+    n_checks: int  # Total number of gradient checks (samples × variables)
+    n_passed: int
+    n_failed: int
+    max_error: float
+    mean_error: float
+    failed_points: list[dict]
+    
+    @property
+    def all_passed(self) -> bool:
+        return self.n_failed == 0
+    
+    def __repr__(self) -> str:
+        status = "PASSED" if self.all_passed else "FAILED"
+        return (
+            f"GradientCheckResult({status}: {self.n_passed}/{self.n_checks} checks passed, "
+            f"max_error={self.max_error:.2e}, mean_error={self.mean_error:.2e})"
+        )
+
+
+def gradient_check(
+    expr: Expression,
+    variables: list[Variable],
+    n_samples: int = 100,
+    bounds: tuple[float, float] = (-10.0, 10.0),
+    tol: float = 1e-5,
+    seed: int | None = None,
+) -> GradientCheckResult:
+    """Perform gradient checking over multiple random points.
+    
+    Args:
+        expr: The expression to check.
+        variables: List of variables.
+        n_samples: Number of random points to test.
+        bounds: Range for random values (min, max).
+        tol: Tolerance for comparison.
+        seed: Random seed for reproducibility.
+        
+    Returns:
+        GradientCheckResult with detailed statistics.
+    """
+    from optix.core.autodiff import gradient
+    
+    rng = np.random.default_rng(seed)
+    n_vars = len(variables)
+    
+    errors = []
+    failed_points = []
+    
+    for _ in range(n_samples):
+        # Generate random point
+        x = rng.uniform(bounds[0], bounds[1], size=n_vars)
+        
+        # Avoid problematic values for certain functions
+        x = np.clip(x, 0.1, bounds[1]) if _has_log_or_sqrt(expr) else x
+        
+        point = {v.name: x[i] for i, v in enumerate(variables)}
+        
+        for i, var in enumerate(variables):
+            grad_expr = gradient(expr, var)
+            
+            try:
+                symbolic = float(grad_expr.evaluate(point))
+                numerical = numerical_gradient(expr, var, point)
+                
+                error = abs(symbolic - numerical)
+                errors.append(error)
+                
+                if error > tol:
+                    failed_points.append({
+                        "point": point.copy(),
+                        "variable": var.name,
+                        "symbolic": symbolic,
+                        "numerical": numerical,
+                        "error": error,
+                    })
+            except Exception as e:
+                # Skip points that cause numerical issues
+                continue
+    
+    if not errors:
+        return GradientCheckResult(
+            n_samples=n_samples,
+            n_checks=0,
+            n_passed=0,
+            n_failed=0,
+            max_error=0.0,
+            mean_error=0.0,
+            failed_points=[],
+        )
+    
+    errors_array = np.array(errors)
+    n_failed = len(failed_points)
+    n_checks = len(errors)
+    
+    return GradientCheckResult(
+        n_samples=n_samples,
+        n_checks=n_checks,
+        n_passed=n_checks - n_failed,
+        n_failed=n_failed,
+        max_error=float(np.max(errors_array)),
+        mean_error=float(np.mean(errors_array)),
+        failed_points=failed_points[:10],  # Limit to first 10
+    )
+
+
+def _has_log_or_sqrt(expr: Expression) -> bool:
+    """Check if expression contains log or sqrt (domain-sensitive)."""
+    from optix.core.expressions import BinaryOp, UnaryOp
+    
+    if isinstance(expr, UnaryOp):
+        if expr.op in ("log", "sqrt"):
+            return True
+        return _has_log_or_sqrt(expr.operand)
+    elif isinstance(expr, BinaryOp):
+        return _has_log_or_sqrt(expr.left) or _has_log_or_sqrt(expr.right)
+    return False
