@@ -10,7 +10,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from optix.core.expressions import Expression, Variable
+    from optyx.core.expressions import Expression, Variable
 
 
 def gradient(expr: Expression, wrt: Variable) -> Expression:
@@ -34,8 +34,8 @@ def gradient(expr: Expression, wrt: Variable) -> Expression:
 @lru_cache(maxsize=4096)
 def _gradient_cached(expr: Expression, wrt: Variable) -> Expression:
     """Cached gradient computation."""
-    from optix.core.expressions import BinaryOp, Constant, UnaryOp, Variable as Var
-    from optix.core.functions import cos, sin, exp, log, sqrt, cosh, sinh
+    from optyx.core.expressions import BinaryOp, Constant, UnaryOp, Variable as Var
+    from optyx.core.functions import cos, sin, exp, log, sqrt, cosh, sinh
     
     # Constant: d/dx(c) = 0
     if isinstance(expr, Constant):
@@ -171,13 +171,13 @@ def _gradient_cached(expr: Expression, wrt: Variable) -> Expression:
 
 def _is_zero(expr: Expression) -> bool:
     """Check if expression is constant zero."""
-    from optix.core.expressions import Constant
+    from optyx.core.expressions import Constant
     return isinstance(expr, Constant) and expr.value == 0.0
 
 
 def _is_one(expr: Expression) -> bool:
     """Check if expression is constant one."""
-    from optix.core.expressions import Constant
+    from optyx.core.expressions import Constant
     return isinstance(expr, Constant) and expr.value == 1.0
 
 
@@ -201,7 +201,7 @@ def _simplify_sub(left: Expression, right: Expression) -> Expression:
 
 def _simplify_mul(left: Expression, right: Expression) -> Expression:
     """Simplify multiplication: 0 * x -> 0, 1 * x -> x, x * 0 -> 0, x * 1 -> x."""
-    from optix.core.expressions import Constant
+    from optyx.core.expressions import Constant
     if _is_zero(left) or _is_zero(right):
         return Constant(0.0)
     if _is_one(left):
@@ -213,7 +213,7 @@ def _simplify_mul(left: Expression, right: Expression) -> Expression:
 
 def _simplify_div(left: Expression, right: Expression) -> Expression:
     """Simplify division: 0 / x -> 0, x / 1 -> x."""
-    from optix.core.expressions import Constant
+    from optyx.core.expressions import Constant
     if _is_zero(left):
         return Constant(0.0)
     if _is_one(right):
@@ -223,7 +223,7 @@ def _simplify_div(left: Expression, right: Expression) -> Expression:
 
 def _simplify_neg(expr: Expression) -> Expression:
     """Simplify negation: -0 -> 0, -(-x) -> x."""
-    from optix.core.expressions import Constant, UnaryOp
+    from optyx.core.expressions import Constant, UnaryOp
     if _is_zero(expr):
         return Constant(0.0)
     if isinstance(expr, UnaryOp) and expr.op == "neg":
@@ -233,7 +233,7 @@ def _simplify_neg(expr: Expression) -> Expression:
 
 def _simplify_pow(base: Expression, exp: Expression) -> Expression:
     """Simplify power: x^0 -> 1, x^1 -> x, 0^n -> 0 (n>0), 1^n -> 1."""
-    from optix.core.expressions import Constant
+    from optyx.core.expressions import Constant
     if _is_zero(exp):
         return Constant(1.0)
     if _is_one(exp):
@@ -316,7 +316,7 @@ def compile_jacobian(
         A callable that takes a 1D array and returns the Jacobian as a 2D array.
     """
     import numpy as np
-    from optix.core.compiler import compile_expression
+    from optyx.core.compiler import compile_expression
     
     jacobian_exprs = compute_jacobian(exprs, variables)
     m = len(exprs)
@@ -352,7 +352,7 @@ def compile_hessian(
         A callable that takes a 1D array and returns the Hessian as a 2D array.
     """
     import numpy as np
-    from optix.core.compiler import compile_expression
+    from optyx.core.compiler import compile_expression
     
     hessian_exprs = compute_hessian(expr, variables)
     n = len(variables)

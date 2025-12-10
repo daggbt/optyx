@@ -14,7 +14,7 @@ import numpy as np
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
-    from optix.core.expressions import Expression, Variable
+    from optyx.core.expressions import Expression, Variable
 
 
 def compile_expression(
@@ -74,7 +74,7 @@ def _build_evaluator(
     This approach avoids dictionary lookups during evaluation by
     pre-computing array indices and creating closures.
     """
-    from optix.core.expressions import BinaryOp, Constant, UnaryOp, Variable
+    from optyx.core.expressions import BinaryOp, Constant, UnaryOp, Variable
     
     if isinstance(expr, Constant):
         value = expr.value

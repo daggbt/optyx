@@ -85,7 +85,7 @@ class Expression(ABC):
         return self
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(...)"
+        return f"{self.__class__.__name__}(... )"
 
 
 class Constant(Expression):

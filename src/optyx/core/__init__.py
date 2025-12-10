@@ -1,13 +1,13 @@
-"""Core expression system for optix."""
+"""Core expression system for optyx."""
 
-from optix.core.expressions import (
+from optyx.core.expressions import (
     Expression,
     Variable,
     Constant,
     BinaryOp,
     UnaryOp,
 )
-from optix.core.functions import (
+from optyx.core.functions import (
     sin,
     cos,
     tan,
@@ -19,20 +19,20 @@ from optix.core.functions import (
     sinh,
     cosh,
 )
-from optix.core.compiler import (
+from optyx.core.compiler import (
     compile_expression,
     compile_to_dict_function,
     compile_gradient,
     CompiledExpression,
 )
-from optix.core.autodiff import (
+from optyx.core.autodiff import (
     gradient,
     compute_jacobian,
     compute_hessian,
     compile_jacobian,
     compile_hessian,
 )
-from optix.core.verification import (
+from optyx.core.verification import (
     numerical_gradient,
     verify_gradient,
     gradient_check,

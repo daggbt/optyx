@@ -1,11 +1,11 @@
-"""Optix: Symbolic optimization without the boilerplate."""
+"""Optyx: Symbolic optimization without the boilerplate."""
 
-from optix.core.expressions import (
+from optyx.core.expressions import (
     Expression,
     Variable,
     Constant,
 )
-from optix.core.functions import (
+from optyx.core.functions import (
     sin,
     cos,
     tan,
@@ -37,4 +37,3 @@ __all__ = [
     "sinh",
     "cosh",
 ]
-

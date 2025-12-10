@@ -5,8 +5,8 @@ import time
 import numpy as np
 import pytest
 
-from optix import Variable, sin, cos, exp, log, sqrt
-from optix.core.compiler import (
+from optyx import Variable, sin, cos, exp, log, sqrt
+from optyx.core.compiler import (
     compile_expression,
     compile_to_dict_function,
     compile_gradient,

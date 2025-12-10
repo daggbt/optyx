@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from optix import Variable, Constant, sin, cos, exp, log, sqrt, abs_, tanh
+from optyx import Variable, Constant, sin, cos, exp, log, sqrt, abs_, tanh
 
 
 class TestConstant:
