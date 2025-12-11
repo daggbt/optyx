@@ -197,4 +197,48 @@ def gradient_check(
     
     errors = []
     failed_points = []
+    n_failed = 0
+    n_checks = n_samples * n_vars
     
+    for _ in range(n_samples):
+        # Sample a random point
+        x = rng.uniform(bounds[0], bounds[1], size=n_vars)
+        point = {v.name: float(x[i]) for i, v in enumerate(variables)}
+
+        # Compute symbolic gradient for each variable
+        symbolic_grad = np.zeros(n_vars)
+        for i, var in enumerate(variables):
+            grad_expr = gradient(expr, var)
+            symbolic_grad[i] = grad_expr.evaluate(point)
+
+        # Numerical gradient
+        numerical_grad = numerical_gradient_array(expr, variables, x)
+
+        # Per-variable absolute errors
+        abs_errors = np.abs(symbolic_grad - numerical_grad)
+        errors.append(float(np.max(abs_errors)))
+
+        # Track failed variable checks
+        n_failed += int(np.count_nonzero(abs_errors > tol))
+        if np.any(abs_errors > tol):
+            failed_points.append({
+                "point": point,
+                "symbolic": symbolic_grad.tolist(),
+                "numerical": numerical_grad.tolist(),
+                "errors": abs_errors.tolist(),
+            })
+    
+    # Summary statistics
+    max_error = float(max(errors) if errors else 0.0)
+    mean_error = float(np.mean(errors) if errors else 0.0)
+    n_passed = n_checks - n_failed
+    
+    return GradientCheckResult(
+        n_samples=n_samples,
+        n_checks=n_checks,
+        n_passed=n_passed,
+        n_failed=n_failed,
+        max_error=max_error,
+        mean_error=mean_error,
+        failed_points=failed_points,
+    )
