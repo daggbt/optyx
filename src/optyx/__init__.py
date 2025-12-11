@@ -17,6 +17,9 @@ from optyx.core.functions import (
     sinh,
     cosh,
 )
+from optyx.constraints import Constraint
+from optyx.problem import Problem
+from optyx.solution import Solution, SolverStatus
 
 __version__ = "0.1.0"
 
@@ -36,4 +39,9 @@ __all__ = [
     "tanh",
     "sinh",
     "cosh",
+    # Problem definition
+    "Constraint",
+    "Problem",
+    "Solution",
+    "SolverStatus",
 ]
