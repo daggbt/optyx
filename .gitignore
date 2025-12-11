@@ -1,5 +1,6 @@
 # Planning docs (local only)
 ephemerals/
+optyx-project/
 
 # Python
 __pycache__/
