@@ -3,15 +3,42 @@ name = "optyx"
 version = "0.1.0"
 description = "Intuitive symbolic interface for constrained optimization problems"
 readme = "README.md"
+license = "MIT"
 authors = [
     { name = "Dagmawi B. Tadesse", email = "daggbt@gmail.com" }
 ]
 requires-python = ">=3.12"
+keywords = [
+    "optimization",
+    "autodiff",
+    "symbolic",
+    "automatic-differentiation",
+    "gradient",
+    "constraints",
+    "mathematical-optimization",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
 dependencies = [
     "matplotlib>=3.10.7",
     "numpy>=2.3.5",
     "scipy>=1.16.3",
 ]
+
+[project.urls]
+Homepage = "https://github.com/daggbt/optyx"
+Repository = "https://github.com/daggbt/optyx"
+Issues = "https://github.com/daggbt/optyx/issues"
 
 [build-system]
 requires = ["uv_build>=0.9.16,<0.10.0"]
