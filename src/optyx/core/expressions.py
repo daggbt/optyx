@@ -9,6 +9,7 @@ import numpy as np
 
 if TYPE_CHECKING:
     from numpy.typing import ArrayLike, NDArray
+    from optyx.constraints import Constraint
 
 
 class Expression(ABC):
@@ -83,6 +84,27 @@ class Expression(ABC):
 
     def __pos__(self) -> Expression:
         return self
+
+    # Comparison operators - create constraints
+    
+    def __le__(self, other: Expression | float | int) -> Constraint:
+        """Create a <= constraint: self <= other."""
+        from optyx.constraints import _make_constraint
+        return _make_constraint(self, "<=", other)
+    
+    def __ge__(self, other: Expression | float | int) -> Constraint:
+        """Create a >= constraint: self >= other."""
+        from optyx.constraints import _make_constraint
+        return _make_constraint(self, ">=", other)
+    
+    def constraint_eq(self, other: Expression | float | int) -> Constraint:
+        """Create an == constraint: self == other.
+        
+        Note: We use constraint_eq() instead of __eq__ because __eq__ is used
+        for object identity comparison which is needed for sets/dicts.
+        """
+        from optyx.constraints import _make_constraint
+        return _make_constraint(self, "==", other)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(... )"
