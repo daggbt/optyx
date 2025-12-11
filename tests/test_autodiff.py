@@ -3,15 +3,15 @@
 import numpy as np
 import pytest
 
-from optix import Variable, Constant, sin, cos, tan, exp, log, sqrt, abs_, tanh, sinh, cosh
-from optix.core.autodiff import (
+from optyx import Variable, Constant, sin, cos, tan, exp, log, sqrt, abs_, tanh, sinh, cosh
+from optyx.core.autodiff import (
     gradient,
     compute_jacobian,
     compute_hessian,
     compile_jacobian,
     compile_hessian,
 )
-from optix.core.verification import (
+from optyx.core.verification import (
     numerical_gradient,
     verify_gradient,
     gradient_check,

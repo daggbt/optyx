@@ -1,13 +1,13 @@
 """Test script to demonstrate Phase 1 and Phase 2 implementations."""
 
 import numpy as np
-from optix import Variable, Constant, sin, cos, exp, log, sqrt, tanh
-from optix.core.compiler import compile_expression, CompiledExpression
-from optix.core.autodiff import gradient, compute_jacobian, compute_hessian, compile_jacobian, compile_hessian
-from optix.core.verification import verify_gradient, gradient_check
+from optyx import Variable, Constant, sin, cos, exp, log, sqrt, tanh
+from optyx.core.compiler import compile_expression, CompiledExpression
+from optyx.core.autodiff import gradient, compute_jacobian, compute_hessian, compile_jacobian, compile_hessian
+from optyx.core.verification import verify_gradient, gradient_check
 
 print("=" * 60)
-print("OPTIX - Phase 1 & 2 Demo")
+print("OPTYX - Phase 1 & 2 Demo")
 print("=" * 60)
 
 # =============================================================================

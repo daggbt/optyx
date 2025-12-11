@@ -1,10 +1,10 @@
-# optix
+# optyx
 
 Symbolic optimization for people who hate writing gradients.
 
 ```python
-from optix import Variable, sin, exp, log
-from optix.core.autodiff import gradient
+from optyx import Variable, sin, exp, log
+from optyx.core.autodiff import gradient
 
 x = Variable("x", lb=0, ub=10)
 y = Variable("y", lb=0)
@@ -24,7 +24,7 @@ print(df_dx.evaluate({"x": 1.5, "y": 2.5}))  # 3.669072
 ## Install
 
 ```bash
-pip install git+https://github.com/daggbt/optix.git
+pip install git+https://github.com/daggbt/optyx.git
 ```
 
 ## Features

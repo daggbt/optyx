@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from optix import Variable, Constant, sin, cos, exp, log, sqrt, abs_, tanh
+from optyx import Variable, Constant, sin, cos, exp, log, sqrt, abs_, tanh
 
 
 class TestConstant:
@@ -246,18 +246,21 @@ class TestVectorizedEvaluation:
 class TestEdgeCases:
     """Tests for edge cases and special values."""
 
+    @pytest.mark.filterwarnings("ignore:divide by zero:RuntimeWarning")
     def test_division_by_zero(self):
         x = Variable("x")
         expr = 1 / x
         result = expr.evaluate({"x": 0.0})
         assert np.isinf(result)
 
+    @pytest.mark.filterwarnings("ignore:divide by zero:RuntimeWarning")
     def test_log_of_zero(self):
         x = Variable("x")
         expr = log(x)
         result = expr.evaluate({"x": 0.0})
         assert np.isneginf(result)
 
+    @pytest.mark.filterwarnings("ignore:invalid value:RuntimeWarning")
     def test_sqrt_of_negative(self):
         x = Variable("x")
         expr = sqrt(x)

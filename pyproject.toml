@@ -1,5 +1,5 @@
 [project]
-name = "optix"
+name = "optyx"
 version = "0.1.0"
 description = "Intuitive symbolic interface for constrained optimization problems"
 readme = "README.md"

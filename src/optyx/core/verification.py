@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
-    from optix.core.expressions import Expression, Variable
+    from optyx.core.expressions import Expression, Variable
 
 
 def numerical_gradient(
@@ -98,7 +98,7 @@ def verify_gradient(
     Returns:
         True if gradients match within tolerance.
     """
-    from optix.core.autodiff import gradient
+    from optyx.core.autodiff import gradient
     
     # Compute symbolic gradient
     grad_expr = gradient(expr, wrt)
@@ -128,7 +128,7 @@ def verify_gradient_array(
     Returns:
         Tuple of (all_match, symbolic_grad, numerical_grad).
     """
-    from optix.core.autodiff import gradient
+    from optyx.core.autodiff import gradient
     
     point = {v.name: x[i] for i, v in enumerate(variables)}
     n = len(variables)
@@ -190,79 +190,55 @@ def gradient_check(
     Returns:
         GradientCheckResult with detailed statistics.
     """
-    from optix.core.autodiff import gradient
+    from optyx.core.autodiff import gradient
     
     rng = np.random.default_rng(seed)
     n_vars = len(variables)
     
     errors = []
     failed_points = []
+    n_failed = 0
+    n_checks = n_samples * n_vars
     
     for _ in range(n_samples):
-        # Generate random point
+        # Sample a random point
         x = rng.uniform(bounds[0], bounds[1], size=n_vars)
-        
-        # Avoid problematic values for certain functions
-        x = np.clip(x, 0.1, bounds[1]) if _has_log_or_sqrt(expr) else x
-        
-        point = {v.name: x[i] for i, v in enumerate(variables)}
-        
+        point = {v.name: float(x[i]) for i, v in enumerate(variables)}
+
+        # Compute symbolic gradient for each variable
+        symbolic_grad = np.zeros(n_vars)
         for i, var in enumerate(variables):
             grad_expr = gradient(expr, var)
-            
-            try:
-                symbolic = float(grad_expr.evaluate(point))
-                numerical = numerical_gradient(expr, var, point)
-                
-                error = abs(symbolic - numerical)
-                errors.append(error)
-                
-                if error > tol:
-                    failed_points.append({
-                        "point": point.copy(),
-                        "variable": var.name,
-                        "symbolic": symbolic,
-                        "numerical": numerical,
-                        "error": error,
-                    })
-            except Exception as e:
-                # Skip points that cause numerical issues
-                continue
+            symbolic_grad[i] = grad_expr.evaluate(point)
+
+        # Numerical gradient
+        numerical_grad = numerical_gradient_array(expr, variables, x)
+
+        # Per-variable absolute errors
+        abs_errors = np.abs(symbolic_grad - numerical_grad)
+        errors.append(float(np.max(abs_errors)))
+
+        # Track failed variable checks
+        n_failed += int(np.count_nonzero(abs_errors > tol))
+        if np.any(abs_errors > tol):
+            failed_points.append({
+                "point": point,
+                "symbolic": symbolic_grad.tolist(),
+                "numerical": numerical_grad.tolist(),
+                "errors": abs_errors.tolist(),
+            })
     
-    if not errors:
-        return GradientCheckResult(
-            n_samples=n_samples,
-            n_checks=0,
-            n_passed=0,
-            n_failed=0,
-            max_error=0.0,
-            mean_error=0.0,
-            failed_points=[],
-        )
-    
-    errors_array = np.array(errors)
-    n_failed = len(failed_points)
-    n_checks = len(errors)
+    # Summary statistics
+    max_error = float(max(errors) if errors else 0.0)
+    mean_error = float(np.mean(errors) if errors else 0.0)
+    n_passed = n_checks - n_failed
     
     return GradientCheckResult(
         n_samples=n_samples,
         n_checks=n_checks,
-        n_passed=n_checks - n_failed,
+        n_passed=n_passed,
         n_failed=n_failed,
-        max_error=float(np.max(errors_array)),
-        mean_error=float(np.mean(errors_array)),
-        failed_points=failed_points[:10],  # Limit to first 10
+        max_error=max_error,
+        mean_error=mean_error,
+        failed_points=failed_points,
     )
-
-
-def _has_log_or_sqrt(expr: Expression) -> bool:
-    """Check if expression contains log or sqrt (domain-sensitive)."""
-    from optix.core.expressions import BinaryOp, UnaryOp
-    
-    if isinstance(expr, UnaryOp):
-        if expr.op in ("log", "sqrt"):
-            return True
-        return _has_log_or_sqrt(expr.operand)
-    elif isinstance(expr, BinaryOp):
-        return _has_log_or_sqrt(expr.left) or _has_log_or_sqrt(expr.right)
-    return False

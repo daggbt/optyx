@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from optix.core.expressions import Expression, UnaryOp, _ensure_expr
+from optyx.core.expressions import Expression, UnaryOp, _ensure_expr
 
 if TYPE_CHECKING:
     pass
