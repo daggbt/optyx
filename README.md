@@ -56,7 +56,7 @@ uv sync  # or: pip install -e .
 
 **Optyx is ideal when you want:**
 - Clean, readable optimization code without boilerplate
-- Automatic differentiation without thinking about it
+- Automatic differentiation without thinking about it *(gradients, Jacobians, and Hessians computed symbolically)*
 - Quick prototyping with SciPy solvers (no installation headaches)
 - Debuggable symbolic expressions you can inspect
 
