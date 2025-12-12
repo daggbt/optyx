@@ -6,6 +6,7 @@ Maps Optyx problems to scipy.optimize.minimize for solving.
 from __future__ import annotations
 
 import time
+import warnings
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -115,7 +116,22 @@ def solve_scipy(
     # Solve
     start_time = time.perf_counter()
     
+    # Track if we see the linear problem warning
+    linear_problem_detected = False
+    
+    def warning_handler(message, category, filename, lineno, file=None, line=None):
+        nonlocal linear_problem_detected
+        if "delta_grad == 0.0" in str(message):
+            linear_problem_detected = True
+            return  # Suppress this specific warning
+        # Let other warnings through
+        warnings.showwarning(message, category, filename, lineno, file, line)
+
     try:
+        # Temporarily override warning handling during solve
+        old_showwarning = warnings.showwarning
+        warnings.showwarning = warning_handler
+        
         result = minimize(
             fun=objective,
             x0=x0,
@@ -128,11 +144,14 @@ def solve_scipy(
             **kwargs,
         )
     except Exception as e:
+        warnings.showwarning = old_showwarning
         return Solution(
             status=SolverStatus.FAILED,
             message=str(e),
             solve_time=time.perf_counter() - start_time,
         )
+    finally:
+        warnings.showwarning = old_showwarning
     
     solve_time = time.perf_counter() - start_time
     
@@ -151,12 +170,17 @@ def solve_scipy(
     if problem.sense == "maximize":
         obj_value = -obj_value
     
+    # Build message, noting if problem appears linear
+    message = result.message if hasattr(result, 'message') else ""
+    if linear_problem_detected:
+        message = f"{message} (Note: problem appears linear)"
+    
     return Solution(
         status=status,
         objective_value=obj_value,
         values={v.name: float(result.x[i]) for i, v in enumerate(variables)},
         iterations=result.nit if hasattr(result, 'nit') else None,
-        message=result.message if hasattr(result, 'message') else "",
+        message=message,
         solve_time=solve_time,
     )
 
