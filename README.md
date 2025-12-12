@@ -43,6 +43,59 @@ uv sync  # or: pip install -e .
 
 ---
 
+## Why Optyx?
+
+| Feature | Optyx | SciPy | CVXPY | Pyomo |
+|---------|-------|-------|-------|-------|
+| **Natural Python syntax** | ✅ `x + y >= 1` | ❌ Manual arrays | ⚠️ DSL-like | ⚠️ Verbose |
+| **Automatic gradients** | ✅ Built-in | ❌ Manual/finite diff | ✅ For convex | ❌ Manual |
+| **No solver install** | ✅ Uses SciPy | ✅ | ❌ Needs solvers | ❌ Needs solvers |
+| **Inspect expressions** | ✅ Symbolic trees | ❌ | ⚠️ Limited | ⚠️ Limited |
+| **Fast re-optimization** | ✅ ~3ms | ✅ | ✅ | ⚠️ Slower |
+| **Learning curve** | Low | Medium | Medium | High |
+
+**Optyx is ideal when you want:**
+- Clean, readable optimization code without boilerplate
+- Automatic differentiation without thinking about it
+- Quick prototyping with SciPy solvers (no installation headaches)
+- Debuggable symbolic expressions you can inspect
+
+**Consider alternatives when you need:**
+- Convex optimization guarantees → CVXPY
+- Mixed-integer programming → PuLP, Pyomo, or Gurobi
+- Large-scale industrial optimization → Pyomo + commercial solvers
+
+---
+
+## Use Cases
+
+Optyx excels at **nonlinear programming (NLP)** problems where you want automatic gradients and clean syntax:
+
+### Resource Allocation & Scheduling
+- Production scheduling with capacity constraints
+- Multi-period planning with NPV optimization
+- Equipment assignment and dispatch optimization
+
+### Portfolio & Risk Optimization
+- Mean-variance portfolio optimization
+- Risk-constrained return maximization
+- Efficient frontier computation
+- Scenario analysis and rebalancing
+
+### Engineering Design
+- Parameter optimization with physical constraints
+- Multi-objective trade-off analysis
+- Sensitivity and what-if analysis
+
+### Operations Research
+- Supply chain optimization
+- Blending and mixing problems
+- Facility location and routing
+
+*See the [examples/](examples/) folder for complete working demos in mining operations and quantitative finance.*
+
+---
+
 ## Features
 
 ### ✅ Expression System
@@ -65,7 +118,7 @@ Symbolic gradients via chain rule. No manual derivatives.
 
 ```python
 from optyx import Variable
-from optyx.core.autodiff import gradient, jacobian, hessian
+from optyx.core.autodiff import gradient
 
 x = Variable("x")
 f = x**3 + 2*x**2 - 5*x + 3
@@ -209,7 +262,7 @@ hessian(expr, vars)           # Matrix of second derivatives
 | Phase 1 | Core Expressions | ✅ Complete | 46 |
 | Phase 2 | Autodiff | ✅ Complete | 40 |
 | Phase 3 | Constraints & Solvers | ✅ Complete | 75 |
-| Phase 4 | Demos & Polish | 🔲 In Progress | - |
+| Phase 4 | Demos & Polish | ✅ Complete | - |
 
 **Total: 161 tests passing**
 
@@ -227,6 +280,39 @@ uv run python examples/expressions_and_autodiff.py
 
 # Constraints and solvers
 uv run python examples/constraints_and_solvers.py
+
+# Mining production scheduling (NPV optimization)
+uv run python examples/mine_scheduling.py
+
+# Fleet dispatch optimization (truck-shovel assignment)
+uv run python examples/fleet_dispatch.py
+
+# Portfolio optimization (mean-variance, efficient frontier)
+uv run python examples/portfolio_optimization.py
+```
+
+### Domain-Specific Demos
+
+#### 🏗️ Mining Production Scheduling
+Multi-period pit production planning with grade blending and capacity constraints.
+```python
+# 9 blocks, 4 periods, NPV maximization
+# Precedence constraints, grade blending (1.0-2.0% Cu)
+solution = prob.solve()  # NPV: $50,222k
+```
+
+#### 🚚 Fleet Dispatch Optimization
+Real-time truck-shovel assignment for maximum throughput.
+```python
+# 12 trucks, 4 shovels, 8,055 t/h optimal
+# Re-optimization in 3ms after equipment breakdown
+```
+
+#### 📈 Portfolio Optimization
+Mean-variance optimization with efficient frontier.
+```python
+# 6 commodities, 12.47% return, 20% volatility
+# Automatic rebalancing on price shocks
 ```
 
 ---
