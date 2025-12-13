@@ -255,21 +255,6 @@ hessian(expr, vars)           # Matrix of second derivatives
 
 ---
 
-## Project Status
-
-| Phase | Description | Status | Tests |
-|-------|-------------|--------|-------|
-| Phase 1 | Core Expressions | ✅ Complete | 46 |
-| Phase 2 | Autodiff | ✅ Complete | 40 |
-| Phase 3 | Constraints & Solvers | ✅ Complete | 75 |
-| Phase 4 | Demos & Polish | ✅ Complete | - |
-
-**Total: 161 tests passing**
-
-See [ROADMAP.md](optyx-project/ROADMAP.md) for future plans (v2.0+).
-
----
-
 ## Examples
 
 Run the demo scripts:
@@ -319,7 +304,7 @@ Mean-variance optimization with efficient frontier.
 
 ## Contributing
 
-Contributions welcome! Please see [optyx-project/docs_plan.md](optyx-project/docs_plan.md) for documentation standards.
+Contributions welcome! Please see the documentation site for contribution and documentation standards: https://daggbt.github.io/optyx/contributing.html
 
 ```bash
 # Run tests
