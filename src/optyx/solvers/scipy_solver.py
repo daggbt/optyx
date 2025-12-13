@@ -54,6 +54,18 @@ def solve_scipy(
             message="Problem has no variables",
         )
     
+    # Warn if any variables have non-continuous domains
+    non_continuous = [v for v in variables if v.domain != "continuous"]
+    if non_continuous:
+        names = ", ".join(v.name for v in non_continuous)
+        warnings.warn(
+            f"Variables [{names}] have integer/binary domains but will be relaxed "
+            f"to continuous. SciPy solver does not support integer programming. "
+            f"For true MIP, consider PuLP or Pyomo.",
+            UserWarning,
+            stacklevel=3,
+        )
+    
     # Build objective function
     obj_expr = problem.objective
     if problem.sense == "maximize":

@@ -1,11 +1,61 @@
 """Tests for the SciPy solver integration."""
 
+import warnings
 import pytest
 import numpy as np
 
 from optyx import Variable
 from optyx.problem import Problem
 from optyx.solution import SolverStatus
+
+
+class TestIntegerBinaryWarning:
+    """Tests for warnings when using integer/binary variables with SciPy."""
+    
+    def test_binary_variable_emits_warning(self):
+        """Binary variables should emit a warning about relaxation."""
+        x = Variable("x", domain="binary")
+        prob = Problem().minimize((x - 0.5)**2)
+        
+        with pytest.warns(UserWarning, match="integer/binary domains"):
+            sol = prob.solve()
+        
+        assert sol.is_optimal
+        # Solution is relaxed to continuous [0, 1]
+        assert 0 <= sol["x"] <= 1
+    
+    def test_integer_variable_emits_warning(self):
+        """Integer variables should emit a warning about relaxation."""
+        x = Variable("x", lb=0, ub=10, domain="integer")
+        prob = Problem().minimize((x - 3.7)**2)
+        
+        with pytest.warns(UserWarning, match="integer/binary domains"):
+            sol = prob.solve()
+        
+        assert sol.is_optimal
+        # Solution is relaxed, not rounded to integer
+        assert abs(sol["x"] - 3.7) < 1e-4
+    
+    def test_warning_lists_variable_names(self):
+        """Warning should list all affected variable names."""
+        a = Variable("a", domain="binary")
+        b = Variable("b", domain="integer", lb=0, ub=5)
+        c = Variable("c")  # continuous, no warning
+        prob = Problem().minimize(a + b + c**2)
+        
+        with pytest.warns(UserWarning, match=r"\[a, b\]"):
+            prob.solve()
+    
+    def test_continuous_no_warning(self):
+        """Continuous variables should not emit a warning."""
+        x = Variable("x")
+        prob = Problem().minimize(x**2)
+        
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # Fail if any warning is raised
+            sol = prob.solve()
+        
+        assert sol.is_optimal
 
 
 class TestUnconstrainedOptimization:
