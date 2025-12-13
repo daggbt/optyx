@@ -1,0 +1,282 @@
+---
+title: "Fleet Dispatch Optimization"
+description: "Truck-shovel assignment for mining operations"
+execute:
+  warning: false
+---
+
+## Problem Statement
+
+An open-pit mining operation needs to assign haul trucks to loading units (shovels/excavators) to:
+
+- **Maximize throughput** (tonnes per hour)
+- **Balance utilization** across equipment
+- **Respond quickly** to equipment breakdowns
+
+This is a classic **assignment/dispatch optimization** problem.
+
+---
+
+## Mining Operations Context
+
+In open-pit mining:
+- **Shovels** load ore/waste into trucks
+- **Trucks** haul material to dumps/crushers
+- **Cycle time** = travel + queue + load + haul + dump
+- **Throughput** limited by slower of shovel dig rate or truck delivery rate
+
+---
+
+## Problem Data
+
+```{python}
+import numpy as np
+from optyx import Variable, Problem
+import time
+
+# Fleet configuration
+n_shovels = 4
+shovel_names = ["Shovel A", "Shovel B", "Excavator C", "Excavator D"]
+shovel_dig_rates = np.array([3500, 4000, 2800, 3200])  # t/h capacity
+shovel_locations = ["Pit North", "Pit South", "Pit East", "Pit West"]
+
+# Trucks
+n_trucks = 12
+truck_payload = 220  # tonnes per load (CAT 793 class)
+
+# Cycle times (minutes)
+cycle_times = np.array([18, 22, 25, 20])
+
+# Crusher capacity
+crusher_capacity = 10000  # t/h max
+
+print("Fleet Configuration:")
+print(f"  Shovels: {n_shovels}")
+print(f"  Trucks:  {n_trucks}")
+print(f"  Payload: {truck_payload} tonnes")
+print(f"  Crusher: {crusher_capacity} t/h capacity")
+print()
+print("Shovel Details:")
+print(f"{'Unit':<15} {'Location':<12} {'Dig Rate':>10} {'Cycle':>8}")
+print("-" * 47)
+for i in range(n_shovels):
+    print(f"{shovel_names[i]:<15} {shovel_locations[i]:<12} "
+          f"{shovel_dig_rates[i]:>8} t/h {cycle_times[i]:>6} min")
+```
+
+---
+
+## Mathematical Formulation
+
+**Decision variables:** $x_i$ = trucks assigned to shovel $i$
+
+**Objective:** Maximize total throughput
+
+$$
+\max \sum_{i=1}^{n} x_i \cdot \frac{\text{payload} \times 60}{\text{cycle}_i}
+$$
+
+**Subject to:**
+
+$$
+\begin{aligned}
+\sum_i x_i &\leq n_{trucks} & \text{(fleet size)} \\
+x_i \cdot \frac{\text{payload} \times 60}{\text{cycle}_i} &\leq \text{dig\_rate}_i & \text{(shovel capacity)} \\
+\sum_i \text{throughput}_i &\leq \text{crusher\_capacity} & \text{(destination)} \\
+x_i &\geq 0 & \text{(non-negative)}
+\end{aligned}
+$$
+
+---
+
+## Implementation
+
+```{python}
+# Decision variables: trucks per shovel (continuous relaxation)
+x = [Variable(f"trucks_{i}", lb=0, ub=n_trucks) for i in range(n_shovels)]
+
+# Throughput from each shovel
+throughputs = [
+    x[i] * truck_payload * 60 / cycle_times[i] 
+    for i in range(n_shovels)
+]
+total_throughput = sum(throughputs)
+
+# Constraints
+fleet_constraint = sum(x) <= n_trucks
+crusher_constraint = total_throughput <= crusher_capacity
+shovel_constraints = [throughputs[i] <= shovel_dig_rates[i] for i in range(n_shovels)]
+
+# Build problem
+prob = Problem("fleet_dispatch").maximize(total_throughput)
+prob.subject_to(fleet_constraint)
+prob.subject_to(crusher_constraint)
+for c in shovel_constraints:
+    prob.subject_to(c)
+
+# Add minimum trucks per active shovel
+min_trucks = 1
+for i in range(n_shovels):
+    prob.subject_to(x[i] >= min_trucks)
+```
+
+---
+
+## Solving
+
+```{python}
+start = time.time()
+solution = prob.solve()
+solve_time = (time.time() - start) * 1000
+
+print("=" * 55)
+print("FLEET DISPATCH SOLUTION")
+print("=" * 55)
+print(f"Status: {solution.status.name}")
+print(f"Solve time: {solve_time:.1f}ms")
+print()
+
+print("Optimal Truck Assignments:")
+print(f"{'Shovel':<15} {'Trucks':>8} {'Throughput':>12} {'Utilization':>12}")
+print("-" * 50)
+
+total_trucks = 0
+for i in range(n_shovels):
+    trucks = solution[f"trucks_{i}"]
+    throughput = trucks * truck_payload * 60 / cycle_times[i]
+    utilization = throughput / shovel_dig_rates[i] * 100
+    total_trucks += trucks
+    print(f"{shovel_names[i]:<15} {trucks:>8.1f} {throughput:>10.0f} t/h {utilization:>10.0f}%")
+
+print("-" * 50)
+print(f"{'TOTAL':<15} {total_trucks:>8.1f} {solution.objective_value:>10.0f} t/h")
+```
+
+---
+
+## Real-Time Re-Optimization
+
+One of Optyx's strengths is fast re-solving when conditions change.
+
+### Scenario: Shovel B Breaks Down
+
+```{python}
+# Shovel B (index 1) is down
+active_shovels = [0, 2, 3]  # A, C, D only
+n_active = len(active_shovels)
+
+# Rebuild with reduced fleet
+x2 = [Variable(f"trucks_{i}", lb=0, ub=n_trucks) for i in active_shovels]
+
+throughputs2 = [
+    x2[j] * truck_payload * 60 / cycle_times[active_shovels[j]] 
+    for j in range(n_active)
+]
+total_throughput2 = sum(throughputs2)
+
+prob2 = Problem("dispatch_breakdown").maximize(total_throughput2)
+prob2.subject_to(sum(x2) <= n_trucks)
+prob2.subject_to(total_throughput2 <= crusher_capacity)
+
+for j in range(n_active):
+    i = active_shovels[j]
+    prob2.subject_to(throughputs2[j] <= shovel_dig_rates[i])
+    prob2.subject_to(x2[j] >= 1)
+
+start = time.time()
+solution2 = prob2.solve()
+reopt_time = (time.time() - start) * 1000
+
+print("\n" + "=" * 55)
+print("RE-OPTIMIZED (Shovel B down)")
+print("=" * 55)
+print(f"Re-optimization time: {reopt_time:.1f}ms")
+print()
+
+print("New Assignments:")
+for j, i in enumerate(active_shovels):
+    trucks = solution2[f"trucks_{i}"]
+    print(f"  {shovel_names[i]:<15}: {trucks:.1f} trucks")
+
+loss = solution.objective_value - solution2.objective_value
+print(f"\nThroughput: {solution2.objective_value:,.0f} t/h")
+print(f"Loss from breakdown: {loss:,.0f} t/h ({loss/solution.objective_value*100:.1f}%)")
+```
+
+---
+
+## Shift Change Scenario
+
+At shift change, crew availability drops. Re-dispatch with fewer trucks:
+
+```{python}
+n_trucks_shift = 8  # Reduced crew
+
+x3 = [Variable(f"trucks_{i}", lb=0, ub=n_trucks_shift) for i in range(n_shovels)]
+throughputs3 = [x3[i] * truck_payload * 60 / cycle_times[i] for i in range(n_shovels)]
+
+solution3 = (
+    Problem("shift_change")
+    .maximize(sum(throughputs3))
+    .subject_to(sum(x3) <= n_trucks_shift)
+    .subject_to(sum(throughputs3) <= crusher_capacity)
+    .solve()
+)
+
+print("\nShift Change (8 trucks available):")
+print(f"  Throughput: {solution3.objective_value:,.0f} t/h")
+print(f"  Efficiency: {solution3.objective_value/n_trucks_shift:,.0f} t/h per truck")
+```
+
+---
+
+## Analysis: Bottleneck Identification
+
+Where is the constraint binding?
+
+```{python}
+print("\nBottleneck Analysis:")
+print("-" * 40)
+
+# Check fleet utilization
+fleet_used = sum(solution[f"trucks_{i}"] for i in range(n_shovels))
+print(f"Fleet utilization: {fleet_used:.1f}/{n_trucks} trucks ({fleet_used/n_trucks*100:.0f}%)")
+
+# Check crusher utilization
+print(f"Crusher utilization: {solution.objective_value:,.0f}/{crusher_capacity} t/h "
+      f"({solution.objective_value/crusher_capacity*100:.0f}%)")
+
+# Check individual shovels
+print("\nShovel utilizations:")
+for i in range(n_shovels):
+    trucks = solution[f"trucks_{i}"]
+    throughput = trucks * truck_payload * 60 / cycle_times[i]
+    if throughput >= shovel_dig_rates[i] * 0.99:
+        status = "← BOTTLENECK"
+    else:
+        status = ""
+    print(f"  {shovel_names[i]:<15}: {throughput:,.0f}/{shovel_dig_rates[i]} t/h {status}")
+```
+
+---
+
+## Key Takeaways
+
+1. **Fast re-optimization**: ~3ms allows real-time dispatch updates
+2. **Continuous relaxation**: Fractional trucks are fine for planning; round for execution
+3. **Bottleneck detection**: Easy to identify which constraints are binding
+4. **Scenario analysis**: Quick what-if for breakdowns, shift changes, etc.
+
+---
+
+## Extensions
+
+This model can be extended with:
+
+- **Integer constraints** for discrete truck counts (requires MILP solver)
+- **Multiple destinations** (crusher, stockpile, waste dump)
+- **Fuel costs** in objective
+- **Stochastic cycle times** for robust optimization
+- **Multi-period scheduling** with shift patterns
+
+See the [Portfolio Optimization](portfolio.qmd) example for a finance application.

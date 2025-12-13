@@ -1,0 +1,321 @@
+---
+title: "Working with Constraints"
+description: "Advanced constraint patterns and techniques"
+---
+
+## Introduction
+
+This tutorial covers advanced constraint techniques:
+
+- Different constraint types
+- Modeling tricks
+- Handling infeasibility
+- Constraint debugging
+
+---
+
+## Constraint Types
+
+### Inequality Constraints
+
+The most common type—limit something to be above or below a threshold:
+
+```{python}
+from optyx import Variable
+
+x = Variable("x")
+y = Variable("y")
+
+# Greater-than-or-equal
+c1 = x + y >= 10        # x + y ≥ 10
+
+# Less-than-or-equal
+c2 = x**2 + y**2 <= 25  # x² + y² ≤ 25
+
+print(f"c1 sense: {c1.sense}")
+print(f"c2 sense: {c2.sense}")
+```
+
+### Equality Constraints
+
+When something must be exactly equal:
+
+```{python}
+from optyx import Variable
+
+x = Variable("x")
+y = Variable("y")
+
+# Use .constraint_eq() for equality
+c = (x + y).constraint_eq(1)  # x + y = 1
+
+print(f"Equality sense: {c.sense}")
+```
+
+::: {.callout-important}
+Don't use `==` for constraints! Python's `==` returns a boolean, not a constraint. Always use `.constraint_eq()`.
+:::
+
+---
+
+## Bound Constraints
+
+For simple variable bounds, prefer using variable bounds over explicit constraints:
+
+```{python}
+from optyx import Variable, Problem
+
+# Preferred: bounds on variable definition
+x = Variable("x", lb=0, ub=10)
+
+# Less efficient: as explicit constraints
+y = Variable("y")
+
+prob = (
+    Problem()
+    .minimize(x**2 + y**2)
+    .subject_to(y >= 0)
+    .subject_to(y <= 10)
+    .solve()
+)
+
+print(f"x* = {prob['x']:.2f}, y* = {prob['y']:.2f}")
+```
+
+**Why prefer variable bounds?**
+- Solver handles them more efficiently
+- Cleaner problem formulation
+- Fewer constraint evaluations
+
+---
+
+## Modeling Techniques
+
+### Sum Constraints
+
+Ensure quantities add up:
+
+```{python}
+from optyx import Variable, Problem
+
+# Portfolio weights
+w1 = Variable("stocks", lb=0, ub=1)
+w2 = Variable("bonds", lb=0, ub=1)
+w3 = Variable("cash", lb=0, ub=1)
+
+# Weights must sum to 1 (with small tolerance for numerical stability)
+sol = (
+    Problem()
+    .minimize(w1**2 + w2**2 + w3**2)  # Minimize concentration
+    .subject_to(w1 + w2 + w3 >= 0.99)
+    .subject_to(w1 + w2 + w3 <= 1.01)
+    .solve()
+)
+
+total = sol['stocks'] + sol['bonds'] + sol['cash']
+print(f"Sum of weights: {total:.4f}")
+```
+
+### Ratio Constraints
+
+Control proportions:
+
+```{python}
+from optyx import Variable, Problem
+
+x = Variable("x", lb=0.1)  # Avoid division by zero
+y = Variable("y", lb=0.1)
+
+# y should be at least twice x
+# y/x >= 2  →  y >= 2x
+sol = (
+    Problem()
+    .minimize(x + y)
+    .subject_to(y >= 2*x)
+    .subject_to(x + y >= 10)
+    .solve()
+)
+
+print(f"x = {sol['x']:.2f}, y = {sol['y']:.2f}")
+print(f"Ratio y/x = {sol['y']/sol['x']:.2f}")
+```
+
+### Nonlinear Constraints
+
+Optyx handles nonlinear constraints:
+
+```{python}
+from optyx import Variable, Problem, sqrt
+
+x = Variable("x")
+y = Variable("y")
+
+# Point must be inside a circle
+sol = (
+    Problem()
+    .minimize((x - 3)**2 + (y - 4)**2)  # Closest to (3, 4)
+    .subject_to(x**2 + y**2 <= 4)        # Inside circle of radius 2
+    .solve()
+)
+
+dist_from_origin = sqrt(sol['x']**2 + sol['y']**2).evaluate({'x': sol['x'], 'y': sol['y']})
+print(f"Point: ({sol['x']:.3f}, {sol['y']:.3f})")
+print(f"Distance from origin: {dist_from_origin:.3f}")
+```
+
+---
+
+## Handling Infeasibility
+
+### Detecting Infeasible Problems
+
+```{python}
+from optyx import Variable, Problem, SolverStatus
+
+x = Variable("x", lb=0, ub=5)
+
+# Impossible: x >= 10 but x <= 5
+sol = (
+    Problem()
+    .minimize(x)
+    .subject_to(x >= 10)
+    .solve()
+)
+
+print(f"Status: {sol.status}")
+if sol.status != SolverStatus.OPTIMAL:
+    print(f"Problem: {sol.message}")
+```
+
+### Soft Constraints with Penalties
+
+When hard constraints might be infeasible, use penalties:
+
+```{python}
+from optyx import Variable, Problem
+
+x = Variable("x", lb=0)
+slack = Variable("slack", lb=0)  # Violation amount
+
+# Original constraint: x >= 10
+# Soft version: x + slack >= 10, penalize slack
+
+sol = (
+    Problem()
+    .minimize(x**2 + 1000*slack)  # Large penalty for violation
+    .subject_to(x + slack >= 10)
+    .subject_to(x <= 5)  # Conflicting constraint
+    .solve()
+)
+
+print(f"x = {sol['x']:.2f}")
+print(f"Constraint violation: {sol['slack']:.2f}")
+```
+
+---
+
+## Multiple Constraints
+
+### Building Constraint Lists
+
+```{python}
+from optyx import Variable, Problem
+
+n = 3
+x = [Variable(f"x_{i}", lb=0) for i in range(n)]
+
+# Resource limits
+limits = [100, 80, 60]
+usage = [[2, 1, 3], [1, 2, 1], [1, 1, 2]]
+
+prob = Problem().maximize(sum(10*x[i] for i in range(n)))
+
+# Add resource constraints
+for j in range(len(limits)):
+    constraint = sum(usage[j][i] * x[i] for i in range(n)) <= limits[j]
+    prob.subject_to(constraint)
+
+sol = prob.solve()
+for i in range(n):
+    print(f"x_{i} = {sol[f'x_{i}']:.2f}")
+```
+
+### Constraint Generators
+
+For large problems, generate constraints programmatically:
+
+```{python}
+from optyx import Variable, Problem
+
+# Grid of variables
+rows, cols = 3, 3
+grid = [[Variable(f"x_{i}_{j}", lb=0, ub=9) for j in range(cols)] for i in range(rows)]
+
+prob = Problem().minimize(sum(grid[i][j] for i in range(rows) for j in range(cols)))
+
+# Row sums >= 10
+for i in range(rows):
+    prob.subject_to(sum(grid[i][j] for j in range(cols)) >= 10)
+
+# Column sums >= 10
+for j in range(cols):
+    prob.subject_to(sum(grid[i][j] for i in range(rows)) >= 10)
+
+sol = prob.solve()
+
+print("Grid solution:")
+for i in range(rows):
+    row = [f"{sol[f'x_{i}_{j}']:.1f}" for j in range(cols)]
+    print(f"  {row}")
+```
+
+---
+
+## Debugging Constraints
+
+### Check Constraint Values
+
+```{python}
+from optyx import Variable, Problem
+
+x = Variable("x", lb=0)
+y = Variable("y", lb=0)
+
+c1 = x + y >= 5
+c2 = x - y <= 2
+c3 = 2*x + 3*y <= 20
+
+sol = (
+    Problem()
+    .minimize(x + y)
+    .subject_to(c1)
+    .subject_to(c2)
+    .subject_to(c3)
+    .solve()
+)
+
+# Evaluate constraint expressions at solution
+vals = {'x': sol['x'], 'y': sol['y']}
+
+print("Constraint values at solution:")
+print(f"  x + y = {(x + y).evaluate(vals):.2f} (need >= 5)")
+print(f"  x - y = {(x - y).evaluate(vals):.2f} (need <= 2)")
+print(f"  2x + 3y = {(2*x + 3*y).evaluate(vals):.2f} (need <= 20)")
+```
+
+---
+
+## Best Practices
+
+1. **Use variable bounds** for simple box constraints
+2. **Avoid strict equality** when possible (numerical issues)
+3. **Scale constraints** to similar magnitudes
+4. **Check feasibility** before solving complex problems
+5. **Use meaningful names** for debugging
+
+---
+
+## Next Steps
+
+- [Autodiff Tutorial](autodiff.qmd) — How derivatives are computed
+- [API Reference: Constraints](../api/constraints.qmd) — Full documentation

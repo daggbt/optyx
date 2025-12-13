@@ -1,0 +1,212 @@
+---
+title: "Constraints API"
+description: "Defining inequality and equality constraints"
+---
+
+## Constraint
+
+A constraint represents a condition the solution must satisfy.
+
+Constraints are created using comparison operators on expressions:
+
+```python
+from optyx import Variable
+
+x = Variable("x")
+y = Variable("y")
+
+# Inequality constraints
+c1 = x + y >= 1      # Greater than or equal
+c2 = x - y <= 5      # Less than or equal
+
+# Equality constraint
+c3 = (x + y).constraint_eq(10)
+```
+
+---
+
+## Creating Constraints
+
+### Inequality Constraints
+
+Use `>=` and `<=` operators on expressions:
+
+```{python}
+from optyx import Variable
+
+x = Variable("x")
+y = Variable("y")
+
+# Left-hand side >= right-hand side
+c1 = x + y >= 1
+c2 = 2*x >= y
+
+# Left-hand side <= right-hand side
+c3 = x**2 + y**2 <= 100
+c4 = x <= 10
+```
+
+### Equality Constraints
+
+Use the `.constraint_eq()` method:
+
+```{python}
+from optyx import Variable
+
+x = Variable("x")
+y = Variable("y")
+
+# x + y = 10
+c1 = (x + y).constraint_eq(10)
+
+# x = y (equivalent to x - y = 0)
+c2 = (x - y).constraint_eq(0)
+
+# More complex equality
+c3 = (x**2 + y**2).constraint_eq(1)  # Unit circle
+```
+
+::: {.callout-note}
+We use `.constraint_eq()` instead of `==` because Python requires `__eq__` to return a boolean for hash operations. This is standard practice in symbolic math libraries.
+:::
+
+---
+
+## Constraint Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `.expr` | `Expression` | The constraint expression (normalized to rhs = 0) |
+| `.sense` | `str` | One of `">="`, `"<="`, or `"=="` |
+
+### Normalization
+
+Constraints are automatically normalized so the right-hand side is zero:
+
+```{python}
+from optyx import Variable
+
+x = Variable("x")
+
+# x + 5 >= 10 becomes (x + 5 - 10) >= 0, i.e., (x - 5) >= 0
+c = x + 5 >= 10
+print(f"Sense: {c.sense}")
+```
+
+---
+
+## Using Constraints in Problems
+
+Add constraints to problems with `.subject_to()`:
+
+```{python}
+from optyx import Variable, Problem
+
+x = Variable("x", lb=0)
+y = Variable("y", lb=0)
+
+solution = (
+    Problem()
+    .minimize(x**2 + y**2)
+    .subject_to(x + y >= 1)        # Inequality
+    .subject_to(x <= 5)            # Upper bound as constraint
+    .subject_to((x - y).constraint_eq(0))  # Equality
+    .solve()
+)
+
+print(f"x* = {solution['x']:.4f}")
+print(f"y* = {solution['y']:.4f}")
+```
+
+---
+
+## Constraint Patterns
+
+### Box Constraints
+
+For simple bounds, prefer using `Variable(lb=, ub=)`:
+
+```{python}
+from optyx import Variable
+
+# Preferred: bounds on variable
+x = Variable("x", lb=0, ub=10)
+
+# Alternative: as explicit constraints (less efficient)
+y = Variable("y")
+c1 = y >= 0
+c2 = y <= 10
+```
+
+### Linear Constraints
+
+```{python}
+from optyx import Variable
+
+x = Variable("x")
+y = Variable("y")
+z = Variable("z")
+
+# Budget constraint
+budget = 10*x + 20*y + 15*z <= 1000
+
+# Resource allocation
+allocation = x + y + z >= 100
+```
+
+### Nonlinear Constraints
+
+```{python}
+from optyx import Variable, sqrt
+
+x = Variable("x")
+y = Variable("y")
+
+# Circle constraint
+circle = x**2 + y**2 <= 25
+
+# Norm constraint
+norm = sqrt(x**2 + y**2) <= 5
+
+# Ratio constraint
+ratio = x / (y + 1) >= 0.5
+```
+
+### Multiple Constraints
+
+```{python}
+from optyx import Variable, Problem
+
+x = Variable("x", lb=0)
+y = Variable("y", lb=0)
+
+prob = Problem().minimize(x + y)
+
+# Add multiple constraints
+constraints = [
+    x + y >= 10,
+    x - y <= 5,
+    2*x + y <= 20,
+    (x - 5).constraint_eq(y - 5)
+]
+
+for c in constraints:
+    prob.subject_to(c)
+
+solution = prob.solve()
+print(f"x* = {solution['x']:.2f}, y* = {solution['y']:.2f}")
+```
+
+---
+
+## Solver Handling
+
+Optyx converts constraints to the format expected by SciPy:
+
+| Optyx | SciPy Equivalent |
+|-------|------------------|
+| `f(x) >= 0` | `{'type': 'ineq', 'fun': f}` |
+| `f(x) <= 0` | `{'type': 'ineq', 'fun': -f}` |
+| `f(x) == 0` | `{'type': 'eq', 'fun': f}` |
+
+Gradients are computed automatically and passed to the solver for efficient optimization.

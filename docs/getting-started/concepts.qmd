@@ -1,0 +1,240 @@
+---
+title: "Core Concepts"
+description: "Understanding Variables, Expressions, Constraints, and Problems"
+---
+
+Optyx is built around four core concepts:
+
+1. **Variables** — The decision variables the solver optimizes
+2. **Expressions** — Mathematical formulas built from variables
+3. **Constraints** — Conditions the solution must satisfy
+4. **Problems** — Container that ties objective and constraints together
+
+## Variables
+
+A `Variable` represents an unknown value that the optimizer will determine.
+
+```{python}
+from optyx import Variable
+
+# Basic variable
+x = Variable("x")
+
+# Variable with bounds
+y = Variable("y", lb=0)           # y ≥ 0
+z = Variable("z", lb=-1, ub=1)    # -1 ≤ z ≤ 1
+
+# Binary variable (0 or 1) - for continuous relaxation
+binary = Variable("b", domain="binary")
+print(f"Binary bounds: [{binary.lb}, {binary.ub}]")
+```
+
+### Variable Properties
+
+| Property | Description | Default |
+|----------|-------------|---------|
+| `name` | Unique identifier | Required |
+| `lb` | Lower bound | `None` (unbounded) |
+| `ub` | Upper bound | `None` (unbounded) |
+| `domain` | Variable type: `"continuous"`, `"integer"`, `"binary"` | `"continuous"` |
+
+::: {.callout-warning}
+Integer and binary domains are currently relaxed to continuous values. True mixed-integer programming is planned for v2.0.
+:::
+
+## Expressions
+
+Expressions are symbolic mathematical formulas. They form a tree structure that can be evaluated, differentiated, and inspected.
+
+### Building Expressions
+
+```{python}
+from optyx import Variable, sin, cos, exp, log, sqrt
+
+x = Variable("x")
+y = Variable("y")
+
+# Arithmetic operators
+linear = 2*x + 3*y - 5
+quadratic = x**2 + y**2
+rational = x / (y + 1)
+
+# Transcendental functions
+f = sin(x) + cos(y) + exp(-x**2) + log(y + 1) + sqrt(x**2 + y**2)
+```
+
+### Evaluating Expressions
+
+```{python}
+from optyx import Variable
+
+x = Variable("x")
+y = Variable("y")
+
+expr = x**2 + 2*x*y + y**2  # (x + y)²
+
+# Evaluate at a specific point
+result = expr.evaluate({"x": 3.0, "y": 4.0})
+print(f"f(3, 4) = {result}")  # (3 + 4)² = 49
+```
+
+### Expression Tree
+
+Expressions are represented as trees:
+
+```
+       +
+      / \
+     *   *
+    /|   |\
+   2 x   3 y
+```
+
+This structure enables:
+
+- **Symbolic differentiation** — Compute gradients analytically
+- **Expression inspection** — Debug your model
+- **Efficient evaluation** — Compile to fast callables
+
+### Supported Functions
+
+| Function | Description |
+|----------|-------------|
+| `sin`, `cos`, `tan` | Trigonometric |
+| `sinh`, `cosh`, `tanh` | Hyperbolic |
+| `exp` | Exponential ($e^x$) |
+| `log` | Natural logarithm |
+| `sqrt` | Square root |
+| `abs_` | Absolute value |
+
+## Constraints
+
+Constraints define conditions the solution must satisfy.
+
+### Inequality Constraints
+
+```{python}
+from optyx import Variable
+
+x = Variable("x")
+y = Variable("y")
+
+# Greater than or equal
+c1 = x + y >= 1      # x + y ≥ 1
+
+# Less than or equal  
+c2 = x - y <= 5      # x - y ≤ 5
+
+# Can use expressions on either side
+c3 = x**2 + y**2 <= 100
+```
+
+### Equality Constraints
+
+```{python}
+from optyx import Variable
+
+x = Variable("x")
+y = Variable("y")
+
+# Use constraint_eq() for equality
+c = (x + y).constraint_eq(10)  # x + y = 10
+```
+
+::: {.callout-note}
+We use `.constraint_eq()` instead of `==` because Python requires `__eq__` to return a boolean for hash table operations. This is a common pattern in symbolic math libraries.
+:::
+
+### Constraint Internals
+
+Every constraint has:
+
+- **`expr`** — The expression (normalized so rhs = 0)
+- **`sense`** — One of `">="`, `"<="`, or `"=="`
+
+```{python}
+from optyx import Variable
+
+x = Variable("x")
+c = x + 5 >= 10
+
+print(f"Sense: {c.sense}")
+# Expression is: (x + 5) - 10 = x - 5 >= 0
+```
+
+## Problems
+
+A `Problem` brings together the objective and constraints:
+
+```{python}
+from optyx import Variable, Problem
+
+x = Variable("x", lb=0)
+y = Variable("y", lb=0)
+
+# Build problem with fluent API
+prob = (
+    Problem(name="example")
+    .minimize(x**2 + y**2)
+    .subject_to(x + y >= 1)
+    .subject_to(x <= 5)
+)
+
+# Or build step by step
+prob2 = Problem()
+prob2.minimize(x**2 + y**2)
+prob2.subject_to(x + y >= 1)
+```
+
+### Problem Properties
+
+```{python}
+print(f"Name: {prob.name}")
+print(f"Sense: {prob.sense}")
+print(f"Variables: {[v.name for v in prob.variables]}")
+print(f"Constraints: {len(prob.constraints)}")
+```
+
+## Solution
+
+After solving, you get a `Solution` object:
+
+```{python}
+from optyx import Variable, Problem
+
+x = Variable("x", lb=0)
+y = Variable("y", lb=0)
+
+solution = (
+    Problem()
+    .minimize(x**2 + y**2)
+    .subject_to(x + y >= 1)
+    .solve()
+)
+
+# Access optimal values
+print(f"x* = {solution['x']:.4f}")
+print(f"y* = {solution['y']:.4f}")
+
+# Metadata
+print(f"Status: {solution.status}")
+print(f"Objective: {solution.objective_value:.4f}")
+print(f"Solve time: {solution.solve_time:.4f}s")
+print(f"Iterations: {solution.iterations}")
+```
+
+### Solution Status
+
+| Status | Meaning |
+|--------|---------|
+| `OPTIMAL` | Converged to optimal solution |
+| `FEASIBLE` | Found feasible point (may not be optimal) |
+| `INFEASIBLE` | No feasible solution exists |
+| `UNBOUNDED` | Objective can be improved indefinitely |
+| `FAILED` | Solver encountered an error |
+
+## Next Steps
+
+- [Basic Optimization Tutorial](../tutorials/basic-optimization.qmd) — Hands-on practice
+- [Constraints Tutorial](../tutorials/constraints.qmd) — Advanced constraint patterns
+- [Autodiff Tutorial](../tutorials/autodiff.qmd) — How gradients are computed

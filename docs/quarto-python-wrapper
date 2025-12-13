@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Wrapper to run Python via `uv` so Quarto uses the project's uv-managed environment
+exec uv run python "$@"

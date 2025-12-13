@@ -1,0 +1,244 @@
+---
+title: "Basic Optimization Tutorial"
+description: "Step-by-step guide to solving optimization problems"
+---
+
+## Introduction
+
+This tutorial walks through the complete process of formulating and solving optimization problems with Optyx. By the end, you'll understand how to:
+
+- Define decision variables
+- Build objective functions
+- Add constraints
+- Solve and interpret results
+
+---
+
+## Problem: Production Planning
+
+A factory produces two products, A and B:
+
+- Product A yields \$40 profit per unit
+- Product B yields \$30 profit per unit
+
+Constraints:
+- Machine time: 2 hours for A, 1 hour for B, 100 hours available
+- Labor: 1 hour for A, 2 hours for B, 80 hours available
+- Raw materials limit: 50 units total
+
+**Goal:** Maximize profit.
+
+---
+
+## Step 1: Define Variables
+
+```{python}
+from optyx import Variable
+
+# Decision variables: units to produce
+a = Variable("product_a", lb=0)  # Non-negative
+b = Variable("product_b", lb=0)  # Non-negative
+
+print(f"Created variables: {a.name}, {b.name}")
+```
+
+::: {.callout-tip}
+Always use descriptive variable names. They'll appear in your solution output.
+:::
+
+---
+
+## Step 2: Build the Objective
+
+```{python}
+# Profit function
+profit = 40*a + 30*b
+
+# Test it works
+test_profit = profit.evaluate({"product_a": 10, "product_b": 20})
+print(f"Profit for 10A + 20B = ${test_profit}")
+```
+
+---
+
+## Step 3: Add Constraints
+
+```{python}
+# Resource constraints
+machine_time = 2*a + b <= 100     # Machine hours
+labor = a + 2*b <= 80              # Labor hours
+materials = a + b <= 50            # Raw materials
+
+print(f"Constraints created: {machine_time.sense}, {labor.sense}, {materials.sense}")
+```
+
+---
+
+## Step 4: Create and Solve the Problem
+
+```{python}
+from optyx import Problem
+
+solution = (
+    Problem("production_planning")
+    .maximize(profit)
+    .subject_to(machine_time)
+    .subject_to(labor)
+    .subject_to(materials)
+    .solve()
+)
+```
+
+---
+
+## Step 5: Interpret Results
+
+```{python}
+print("=" * 50)
+print("PRODUCTION PLANNING SOLUTION")
+print("=" * 50)
+print(f"Status: {solution.status}")
+print(f"Solve time: {solution.solve_time*1000:.1f} ms")
+print()
+print("Optimal Production:")
+print(f"  Product A: {solution['product_a']:.1f} units")
+print(f"  Product B: {solution['product_b']:.1f} units")
+print()
+print(f"Maximum Profit: ${solution.objective_value:.2f}")
+```
+
+---
+
+## Verifying Constraints
+
+Let's check that all constraints are satisfied:
+
+```{python}
+a_opt = solution['product_a']
+b_opt = solution['product_b']
+
+print("Constraint Verification:")
+print(f"  Machine time: {2*a_opt + b_opt:.1f} ≤ 100 ✓")
+print(f"  Labor hours:  {a_opt + 2*b_opt:.1f} ≤ 80 ✓")
+print(f"  Materials:    {a_opt + b_opt:.1f} ≤ 50 ✓")
+```
+
+---
+
+## Sensitivity Analysis
+
+What if we had more machine time?
+
+```{python}
+from optyx import Variable, Problem
+
+def solve_with_machine_capacity(capacity):
+    a = Variable("product_a", lb=0)
+    b = Variable("product_b", lb=0)
+    
+    sol = (
+        Problem()
+        .maximize(40*a + 30*b)
+        .subject_to(2*a + b <= capacity)
+        .subject_to(a + 2*b <= 80)
+        .subject_to(a + b <= 50)
+        .solve()
+    )
+    return sol.objective_value
+
+print("Sensitivity to Machine Capacity:")
+for cap in [80, 100, 120, 140]:
+    profit = solve_with_machine_capacity(cap)
+    print(f"  {cap} hours → ${profit:.2f}")
+```
+
+---
+
+## Alternative Formulation: Step-by-Step
+
+You can also build problems incrementally:
+
+```{python}
+from optyx import Variable, Problem
+
+# Variables
+x = Variable("x", lb=0)
+y = Variable("y", lb=0)
+
+# Create empty problem
+prob = Problem("incremental")
+
+# Add objective
+prob.maximize(40*x + 30*y)
+
+# Add constraints one by one
+prob.subject_to(2*x + y <= 100)
+prob.subject_to(x + 2*y <= 80)
+prob.subject_to(x + y <= 50)
+
+# Solve
+solution = prob.solve()
+print(f"Same result: ${solution.objective_value:.2f}")
+```
+
+---
+
+## Common Patterns
+
+### Constraint from List
+
+```{python}
+from optyx import Variable, Problem
+
+x = Variable("x", lb=0)
+y = Variable("y", lb=0)
+
+constraints = [
+    x + y >= 10,
+    x <= 15,
+    y <= 15,
+    2*x + y <= 25
+]
+
+prob = Problem().minimize(x + y)
+for c in constraints:
+    prob.subject_to(c)
+
+sol = prob.solve()
+print(f"Minimum: {sol.objective_value:.2f}")
+```
+
+### Multiple Variables
+
+```{python}
+from optyx import Variable, Problem
+
+# Create many variables
+n = 5
+vars = [Variable(f"x_{i}", lb=0, ub=10) for i in range(n)]
+
+# Sum them
+total = sum(vars[i] for i in range(n))
+
+# Objective: minimize sum of squares
+objective = sum(v**2 for v in vars)
+
+sol = (
+    Problem()
+    .minimize(objective)
+    .subject_to(total >= 10)
+    .solve()
+)
+
+print("Optimal values:")
+for i, v in enumerate(vars):
+    print(f"  x_{i} = {sol[v.name]:.2f}")
+```
+
+---
+
+## Next Steps
+
+- [Constraints Tutorial](constraints.qmd) — Complex constraint patterns
+- [Autodiff Tutorial](autodiff.qmd) — Understanding gradients
+- [Portfolio Example](../examples/portfolio.qmd) — Real-world application

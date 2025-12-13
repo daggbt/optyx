@@ -1,0 +1,258 @@
+---
+title: "Contributing"
+description: "How to contribute to Optyx development"
+---
+
+## Welcome Contributors! 🎉
+
+Thank you for your interest in contributing to Optyx! This guide will help you get started with development.
+
+## Development Setup
+
+### Prerequisites
+
+- Python 3.10 or higher
+- [uv](https://docs.astral.sh/uv/) package manager (recommended)
+- Git
+
+### Clone and Install
+
+```bash
+# Clone the repository
+git clone https://github.com/daggbt/optyx.git
+cd optyx
+
+# Create virtual environment and install dependencies
+uv sync
+
+# Verify installation
+uv run python -c "import optyx; print(optyx.__version__)"
+```
+
+### Alternative: pip
+
+```bash
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install in development mode
+pip install -e ".[dev]"
+```
+
+## Project Structure
+
+```
+optyx/
+├── src/optyx/           # Source code
+│   ├── core/
+│   │   ├── expressions.py   # Variable, Constant, operators
+│   │   ├── functions.py     # Mathematical functions (sin, cos, exp, etc.)
+│   │   ├── compiler.py      # Expression → NumPy/SciPy compilation
+│   │   ├── autodiff.py      # Symbolic differentiation
+│   │   └── verification.py  # Gradient verification utilities
+│   └── __init__.py          # Public API exports
+├── tests/               # Test suite
+├── docs/                # Quarto documentation
+├── examples/            # Runnable example scripts
+└── pyproject.toml       # Project configuration
+```
+
+## Running Tests
+
+```bash
+# Run all tests
+uv run pytest
+
+# Run with coverage
+uv run pytest --cov=optyx --cov-report=html
+
+# Run specific test file
+uv run pytest tests/test_expressions.py
+
+# Run tests matching a pattern
+uv run pytest -k "test_gradient"
+```
+
+## Code Style
+
+### Formatting
+
+We use [Ruff](https://docs.astral.sh/ruff/) for formatting and linting:
+
+```bash
+# Format code
+uv run ruff format src tests
+
+# Check for issues
+uv run ruff check src tests
+
+# Auto-fix issues
+uv run ruff check --fix src tests
+```
+
+### Type Checking
+
+We use [pyright](https://microsoft.github.io/pyright/) for static type checking:
+
+```bash
+uv run pyright src
+```
+
+### Docstrings
+
+All public APIs must have NumPy-style docstrings:
+
+```python
+def compute_jacobian(
+    expressions: list[Expression],
+    variables: list[Variable],
+) -> list[list[Expression]]:
+    """
+    Compute the Jacobian matrix of expressions with respect to variables.
+
+    Parameters
+    ----------
+    expressions : list[Expression]
+        List of expressions to differentiate.
+    variables : list[Variable]
+        List of variables to differentiate with respect to.
+
+    Returns
+    -------
+    list[list[Expression]]
+        Jacobian matrix where J[i][j] = ∂expressions[i]/∂variables[j].
+
+    Examples
+    --------
+    >>> x, y = Variable("x"), Variable("y")
+    >>> exprs = [x**2 + y, x * y]
+    >>> J = compute_jacobian(exprs, [x, y])
+    """
+```
+
+## Pull Request Process
+
+### 1. Create a Branch
+
+```bash
+# Create feature branch from main
+git checkout main
+git pull origin main
+git checkout -b feature/your-feature-name
+```
+
+### 2. Make Changes
+
+- Write code following our style guide
+- Add tests for new functionality
+- Update documentation if needed
+
+### 3. Test Locally
+
+```bash
+# Run the full test suite
+uv run pytest
+
+# Check formatting
+uv run ruff format --check src tests
+
+# Check linting
+uv run ruff check src tests
+
+# Check types
+uv run pyright src
+```
+
+### 4. Commit and Push
+
+```bash
+# Stage changes
+git add .
+
+# Commit with descriptive message
+git commit -m "feat: add support for matrix operations"
+
+# Push to your fork
+git push origin feature/your-feature-name
+```
+
+### 5. Open Pull Request
+
+- Go to [GitHub](https://github.com/daggbt/optyx/pulls)
+- Click "New Pull Request"
+- Select your branch
+- Fill in the PR template
+- Request review
+
+## Commit Message Guidelines
+
+We follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+| Type | Description |
+|------|-------------|
+| `feat:` | New feature |
+| `fix:` | Bug fix |
+| `docs:` | Documentation only |
+| `style:` | Formatting, no code change |
+| `refactor:` | Code restructuring |
+| `test:` | Adding tests |
+| `chore:` | Maintenance tasks |
+
+**Examples:**
+
+```
+feat: add symbolic matrix multiplication
+fix: correct gradient computation for division
+docs: add tutorial for constraint handling
+test: add edge cases for autodiff
+```
+
+## Areas for Contribution
+
+### Good First Issues
+
+Look for issues labeled `good first issue` on GitHub. These are ideal for newcomers.
+
+### Current Priorities
+
+1. **Documentation improvements** - Examples, tutorials, API docs
+2. **Test coverage** - Edge cases, numerical stability tests
+3. **New mathematical functions** - Extend `functions.py`
+4. **Performance optimizations** - Expression simplification, caching
+
+### Future Features (v2.x)
+
+- Convex optimization detection
+- Custom solver backends
+- Sparse matrix support
+- JIT compilation
+
+## Documentation
+
+### Preview Docs Locally
+
+```bash
+# Install Quarto: https://quarto.org/docs/get-started/
+cd docs
+quarto preview
+```
+
+### Writing Documentation
+
+- Use Quarto Markdown (`.qmd` files)
+- Include executable Python code blocks
+- Add LaTeX for mathematical notation
+
+## Getting Help
+
+- **GitHub Issues**: Bug reports and feature requests
+- **Discussions**: Questions and community support
+
+## Code of Conduct
+
+Please be respectful and constructive in all interactions. We're building a welcoming community for everyone interested in symbolic optimization.
+
+---
+
+Thank you for contributing to Optyx! 🚀

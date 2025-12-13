@@ -1,0 +1,169 @@
+---
+title: "Optyx"
+subtitle: "Write optimization problems in natural Python. No manual gradients. No solver headaches"
+page-layout: full
+toc: false
+---
+
+::: {.hero}
+[Get Started](getting-started/quickstart.qmd){.btn .btn-primary .btn-lg}
+[View on GitHub](https://github.com/daggbt/optyx){.btn .btn-outline-secondary .btn-lg}
+:::
+
+## Installation
+
+```bash
+pip install optyx
+```
+
+### For developers
+
+```bash
+git clone https://github.com/daggbt/optyx.git
+cd optyx
+uv sync  # or: pip install -e .
+```
+
+## What is Optyx?
+
+Optyx is a Python library for **nonlinear optimization** that lets you express problems naturally:
+
+```{python}
+from optyx import Variable, Problem
+
+x = Variable("x", lb=0)
+y = Variable("y", lb=0)
+
+solution = (
+    Problem()
+    .minimize(x**2 + y**2)
+    .subject_to(x + y >= 1)
+    .solve()
+)
+
+print(f"x* = {solution['x']:.4f}, y* = {solution['y']:.4f}")
+print(f"Optimal objective = {solution.objective_value:.4f}")
+```
+
+## Key Features
+
+::: {.grid}
+
+::: {.g-col-6 .g-col-md-4}
+### ✅ Natural Syntax
+Write `x + y >= 1` instead of manual constraint arrays. Your code reads like math.
+:::
+
+::: {.g-col-6 .g-col-md-4}
+### ✅ Automatic Gradients
+Symbolic differentiation computes gradients, Jacobians, and Hessians automatically.
+:::
+
+::: {.g-col-6 .g-col-md-4}
+### ✅ No Solver Setup
+Uses SciPy as the backend—no external solver installation required.
+:::
+
+::: {.g-col-6 .g-col-md-4}
+### ✅ Debuggable
+Inspect symbolic expression trees. Understand exactly what your model does.
+:::
+
+::: {.g-col-6 .g-col-md-4}
+### ✅ Fast Re-solve
+Re-optimize in milliseconds when parameters change.
+:::
+
+::: {.g-col-6 .g-col-md-4}
+### ✅ Fluent API
+Chain `.minimize()`, `.subject_to()`, and `.solve()` for readable problem definitions.
+:::
+
+:::
+
+## Why Optyx?
+
+| Feature | Optyx | SciPy | CVXPY | Pyomo |
+|---------|-------|-------|-------|-------|
+| **Natural Python syntax** | ✅ `x + y >= 1` | ❌ Manual arrays | ⚠️ DSL-like | ⚠️ Verbose |
+| **Automatic gradients** | ✅ Built-in | ❌ Manual/finite diff | ✅ For convex | ❌ Manual |
+| **No solver install** | ✅ Uses SciPy | ✅ | ❌ Needs solvers | ❌ Needs solvers |
+| **Inspect expressions** | ✅ Symbolic trees | ❌ | ⚠️ Limited | ⚠️ Limited |
+| **Fast re-optimization** | ✅ ~3ms | ✅ | ✅ | ⚠️ Slower |
+| **Learning curve** | Low | Medium | Medium | High |
+
+### Optyx is ideal when you want:
+- Clean, readable optimization code without boilerplate
+- Automatic differentiation handled internally (gradients, Jacobians, and Hessians computed symbolically)
+- Quick prototyping with SciPy solvers (no external solver installs)
+- Debuggable symbolic expressions you can inspect
+
+### Consider alternatives when you need:
+- Convex optimization guarantees → CVXPY
+- Mixed-integer programming → PuLP, Pyomo, or Gurobi
+- Large-scale industrial optimization → Pyomo + commercial solvers
+
+## Quick Example: Portfolio Optimization
+
+Minimize portfolio risk while achieving a target return:
+
+```{python}
+from optyx import Variable, Problem
+
+# Asset weights
+w1 = Variable("tech", lb=0, ub=0.4)
+w2 = Variable("energy", lb=0, ub=0.4)
+w3 = Variable("finance", lb=0, ub=0.4)
+
+# Expected returns
+returns = 0.12*w1 + 0.08*w2 + 0.10*w3
+
+# Simplified risk (variance proxy)
+risk = w1**2 * 0.04 + w2**2 * 0.02 + w3**2 * 0.03
+
+solution = (
+    Problem("portfolio")
+    .minimize(risk)
+    .subject_to(w1 + w2 + w3 >= 0.99)  # Fully invested
+    .subject_to(w1 + w2 + w3 <= 1.01)
+    .subject_to(returns >= 0.09)        # Target return
+    .solve()
+)
+
+print(f"Tech:    {solution['tech']:.1%}")
+print(f"Energy:  {solution['energy']:.1%}")
+print(f"Finance: {solution['finance']:.1%}")
+print(f"Risk:    {solution.objective_value:.6f}")
+```
+
+## When to Use Optyx
+
+| Use Case | Optyx | Alternative |
+|----------|-------|-------------|
+| Quick NLP prototyping | ✅ Ideal | — |
+| Educational/learning | ✅ Ideal | — |
+| Production NLP (small-medium) | ✅ Good | — |
+| Convex with guarantees | ⚠️ No DCP | CVXPY |
+| Mixed-integer programming | ❌ Not supported | PuLP, Gurobi |
+| Large-scale (10k+ vars) | ⚠️ Performance | Pyomo + IPOPT |
+
+---
+
+## Documentation
+
+**Getting Started:** [Installation](getting-started/installation.qmd) · [Quickstart](getting-started/quickstart.qmd) · [Core Concepts](getting-started/concepts.qmd)
+
+**Tutorials:** [Basic Optimization](tutorials/basic-optimization.qmd) · [Constraints](tutorials/constraints.qmd) · [Autodiff](tutorials/autodiff.qmd)
+
+**Examples:** [Portfolio](examples/portfolio.qmd) · [Fleet Dispatch](examples/fleet-dispatch.qmd) · [Rosenbrock](examples/rosenbrock.qmd)
+
+**API Reference:** [Expressions](api/expressions.qmd) · [Problem](api/problem.qmd) · [Solution](api/solution.qmd) · [Autodiff](api/autodiff.qmd)
+
+</div>
+</div>
+
+---
+
+## License
+
+Optyx is released under the [MIT License](https://github.com/daggbt/optyx/blob/main/LICENSE).

@@ -2,6 +2,11 @@
 ephemerals/
 optyx-project/
 
+# Quarto build outputs (deployed via GitHub Actions)
+docs/_site/
+docs/_freeze/
+docs/.quarto/
+
 # Python
 __pycache__/
 *.py[cod]
