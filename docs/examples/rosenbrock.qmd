@@ -1,0 +1,273 @@
+---
+title: "Rosenbrock Function"
+description: "Classic optimization benchmark"
+execute:
+  warning: false
+---
+
+## The Rosenbrock Function
+
+The Rosenbrock function is a classic test problem for optimization algorithms:
+
+$$
+f(x, y) = (1 - x)^2 + 100(y - x^2)^2
+$$
+
+Properties:
+- Global minimum at $(x, y) = (1, 1)$ where $f = 0$
+- Has a curved, narrow valley (the "banana valley")
+- Tests algorithm ability to follow curved paths
+
+---
+
+## Basic Optimization
+
+```{python}
+from optyx import Variable, Problem
+
+x = Variable("x")
+y = Variable("y")
+
+# Rosenbrock function
+rosenbrock = (1 - x)**2 + 100*(y - x**2)**2
+
+solution = Problem("rosenbrock").minimize(rosenbrock).solve()
+
+print("Rosenbrock Optimization")
+print("=" * 40)
+print(f"Status: {solution.status}")
+print(f"x* = {solution['x']:.6f}")
+print(f"y* = {solution['y']:.6f}")
+print(f"f(x*, y*) = {solution.objective_value:.6e}")
+print(f"Iterations: {solution.iterations}")
+print(f"Solve time: {solution.solve_time*1000:.1f}ms")
+```
+
+---
+
+## Gradient Analysis
+
+Let's verify Optyx computes the correct gradients:
+
+```{python}
+from optyx import Variable
+from optyx.core.autodiff import gradient
+
+x = Variable("x")
+y = Variable("y")
+
+f = (1 - x)**2 + 100*(y - x**2)**2
+
+# Compute gradients symbolically
+df_dx = gradient(f, x)
+df_dy = gradient(f, y)
+
+# Analytical gradients:
+# ∂f/∂x = -2(1-x) - 400x(y-x²) = 2x - 2 + 400x³ - 400xy
+# ∂f/∂y = 200(y-x²)
+
+# Evaluate at a test point
+point = {'x': 0.5, 'y': 0.5}
+print(f"At (0.5, 0.5):")
+print(f"  ∂f/∂x = {df_dx.evaluate(point):.4f}")
+print(f"  ∂f/∂y = {df_dy.evaluate(point):.4f}")
+
+# Verify analytically
+x_val, y_val = 0.5, 0.5
+expected_dx = -2*(1-x_val) - 400*x_val*(y_val - x_val**2)
+expected_dy = 200*(y_val - x_val**2)
+print(f"\nExpected:")
+print(f"  ∂f/∂x = {expected_dx:.4f}")
+print(f"  ∂f/∂y = {expected_dy:.4f}")
+```
+
+---
+
+## Hessian Matrix
+
+The Hessian tells us about the curvature:
+
+```{python}
+from optyx.core.autodiff import compute_hessian
+import numpy as np
+
+x = Variable("x")
+y = Variable("y")
+f = (1 - x)**2 + 100*(y - x**2)**2
+
+H = compute_hessian(f, [x, y])
+
+# Evaluate at the minimum
+point = {'x': 1.0, 'y': 1.0}
+H_val = np.array([
+    [H[0][0].evaluate(point), H[0][1].evaluate(point)],
+    [H[1][0].evaluate(point), H[1][1].evaluate(point)]
+])
+
+print("Hessian at minimum (1, 1):")
+print(H_val)
+print(f"\nEigenvalues: {np.linalg.eigvalsh(H_val)}")
+print("(Both positive → confirmed minimum)")
+```
+
+---
+
+## Starting Point Sensitivity
+
+The initial point matters for nonlinear optimization:
+
+```{python}
+from optyx import Variable, Problem
+import numpy as np
+
+def solve_rosenbrock(x0, y0):
+    x = Variable("x")
+    y = Variable("y")
+    f = (1 - x)**2 + 100*(y - x**2)**2
+    
+    # Use custom starting point
+    sol = Problem().minimize(f).solve(x0=np.array([x0, y0]))
+    return sol['x'], sol['y'], sol.objective_value, sol.iterations
+
+print("Starting Point Analysis:")
+print("-" * 60)
+print(f"{'Start':^15} | {'Solution':^20} | {'f(x,y)':>10} | {'Iters':>6}")
+print("-" * 60)
+
+starts = [
+    (0.0, 0.0),
+    (2.0, 2.0),
+    (-1.0, 1.0),
+    (0.5, 0.5),
+    (-2.0, -2.0),
+]
+
+for x0, y0 in starts:
+    x_sol, y_sol, obj, iters = solve_rosenbrock(x0, y0)
+    print(f"({x0:5.1f}, {y0:5.1f}) | ({x_sol:8.4f}, {y_sol:8.4f}) | {obj:10.2e} | {iters:6d}")
+```
+
+---
+
+## Constrained Rosenbrock
+
+Add constraints to make it more interesting:
+
+```{python}
+from optyx import Variable, Problem
+
+x = Variable("x")
+y = Variable("y")
+
+rosenbrock = (1 - x)**2 + 100*(y - x**2)**2
+
+# Constrained: solution must be in a circle
+solution = (
+    Problem("constrained_rosenbrock")
+    .minimize(rosenbrock)
+    .subject_to(x**2 + y**2 <= 0.5)  # Inside circle of radius √0.5
+    .solve()
+)
+
+print("Constrained Rosenbrock (x² + y² ≤ 0.5)")
+print("=" * 40)
+print(f"x* = {solution['x']:.6f}")
+print(f"y* = {solution['y']:.6f}")
+print(f"f(x*, y*) = {solution.objective_value:.6f}")
+print(f"Distance from origin: {np.sqrt(solution['x']**2 + solution['y']**2):.4f}")
+```
+
+---
+
+## N-Dimensional Rosenbrock
+
+The generalized Rosenbrock function in N dimensions:
+
+$$
+f(\mathbf{x}) = \sum_{i=1}^{n-1} \left[ 100(x_{i+1} - x_i^2)^2 + (1 - x_i)^2 \right]
+$$
+
+```{python}
+from optyx import Variable, Problem
+
+def solve_nd_rosenbrock(n):
+    """Solve n-dimensional Rosenbrock."""
+    x = [Variable(f"x_{i}") for i in range(n)]
+    
+    f = sum(
+        100*(x[i+1] - x[i]**2)**2 + (1 - x[i])**2
+        for i in range(n-1)
+    )
+    
+    sol = Problem(f"rosenbrock_{n}d").minimize(f).solve()
+    return sol
+
+# Solve for different dimensions
+print("N-Dimensional Rosenbrock:")
+print("-" * 50)
+print(f"{'N':>4} | {'Objective':>12} | {'Time (ms)':>10} | {'Iterations':>10}")
+print("-" * 50)
+
+for n in [2, 3, 5, 10]:
+    sol = solve_nd_rosenbrock(n)
+    print(f"{n:>4} | {sol.objective_value:>12.2e} | {sol.solve_time*1000:>10.1f} | {sol.iterations:>10}")
+```
+
+---
+
+## Comparison with scipy.optimize
+
+Let's verify we match SciPy's results:
+
+```{python}
+import numpy as np
+from scipy.optimize import minimize as scipy_minimize
+from optyx import Variable, Problem
+import time
+
+# SciPy version
+def rosenbrock_scipy(x):
+    return (1 - x[0])**2 + 100*(x[1] - x[0]**2)**2
+
+start = time.time()
+scipy_result = scipy_minimize(rosenbrock_scipy, [0, 0], method='SLSQP')
+scipy_time = (time.time() - start) * 1000
+
+# Optyx version
+x = Variable("x")
+y = Variable("y")
+f = (1 - x)**2 + 100*(y - x**2)**2
+
+start = time.time()
+optyx_result = Problem().minimize(f).solve()
+optyx_time = (time.time() - start) * 1000
+
+print("SciPy vs Optyx Comparison:")
+print("-" * 50)
+print(f"{'':15} | {'SciPy':>15} | {'Optyx':>15}")
+print("-" * 50)
+print(f"{'x*':15} | {scipy_result.x[0]:>15.6f} | {optyx_result['x']:>15.6f}")
+print(f"{'y*':15} | {scipy_result.x[1]:>15.6f} | {optyx_result['y']:>15.6f}")
+print(f"{'f(x*, y*)':15} | {scipy_result.fun:>15.2e} | {optyx_result.objective_value:>15.2e}")
+print(f"{'Time (ms)':15} | {scipy_time:>15.1f} | {optyx_time:>15.1f}")
+print(f"{'Iterations':15} | {scipy_result.nit:>15} | {optyx_result.iterations:>15}")
+```
+
+---
+
+## Key Takeaways
+
+1. **Automatic gradients**: Optyx computes exact derivatives of the Rosenbrock function
+2. **Efficient Hessian**: Second derivatives are available for trust-region methods
+3. **Same results as SciPy**: Optyx is a convenience wrapper, not a different solver
+4. **Scales to N dimensions**: Just define more variables
+
+---
+
+## Try It Yourself
+
+Modify the Rosenbrock problem:
+- Add box constraints
+- Try different starting points
+- Compare `SLSQP` vs `trust-constr` methods
+- Scale to higher dimensions

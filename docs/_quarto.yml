@@ -1,0 +1,107 @@
+project:
+  type: website
+  output-dir: _site
+
+website:
+  title: "Optyx"
+  description: "Symbolic optimization for people who hate writing gradients"
+  site-url: https://daggbt.github.io/optyx/
+  repo-url: https://github.com/daggbt/optyx
+  repo-actions: [issue, source]
+  
+  navbar:
+    background: primary
+    logo: assets/logo.png
+    left:
+      - text: "Getting Started"
+        menu:
+          - text: "Installation"
+            href: getting-started/installation.qmd
+          - text: "Quickstart"
+            href: getting-started/quickstart.qmd
+          - text: "Core Concepts"
+            href: getting-started/concepts.qmd
+      - text: "Tutorials"
+        menu:
+          - text: "Basic Optimization"
+            href: tutorials/basic-optimization.qmd
+          - text: "Working with Constraints"
+            href: tutorials/constraints.qmd
+          - text: "Automatic Differentiation"
+            href: tutorials/autodiff.qmd
+      - text: "Examples"
+        menu:
+          - text: "Portfolio Optimization"
+            href: examples/portfolio.qmd
+          - text: "Fleet Dispatch"
+            href: examples/fleet-dispatch.qmd
+          - text: "Mine Scheduling"
+            href: examples/mine-scheduling.qmd
+          - text: "Rosenbrock Function"
+            href: examples/rosenbrock.qmd
+      - text: "API Reference"
+        menu:
+          - text: "Expressions"
+            href: api/expressions.qmd
+          - text: "Constraints"
+            href: api/constraints.qmd
+          - text: "Problem"
+            href: api/problem.qmd
+          - text: "Solution"
+            href: api/solution.qmd
+          - text: "Autodiff"
+            href: api/autodiff.qmd
+      - text: "Contributing"
+        href: contributing.qmd
+    right:
+      - icon: github
+        href: https://github.com/daggbt/optyx
+  
+  sidebar:
+    - title: "Getting Started"
+      style: "docked"
+      contents:
+        - getting-started/installation.qmd
+        - getting-started/quickstart.qmd
+        - getting-started/concepts.qmd
+    
+    - title: "Tutorials"
+      contents:
+        - tutorials/basic-optimization.qmd
+        - tutorials/constraints.qmd
+        - tutorials/autodiff.qmd
+    
+    - title: "Examples"
+      contents:
+        - examples/portfolio.qmd
+        - examples/fleet-dispatch.qmd
+        - examples/mine-scheduling.qmd
+        - examples/rosenbrock.qmd
+    
+    - title: "API Reference"
+      contents:
+        - api/expressions.qmd
+        - api/constraints.qmd
+        - api/problem.qmd
+        - api/solution.qmd
+        - api/autodiff.qmd
+  
+  page-footer:
+    left: "© 2025 Optyx Contributors"
+    right:
+      - icon: github
+        href: https://github.com/daggbt/optyx
+
+format:
+  html:
+    theme: flatly
+    css: styles.css
+    toc: true
+    code-copy: true
+    code-overflow: wrap
+    highlight-style: github
+    include-after-body: assets/js/page-nav.js
+
+execute:
+  kernel: optyx-docs
+  freeze: auto

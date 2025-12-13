@@ -1,0 +1,205 @@
+---
+title: "Solution API"
+description: "Accessing optimization results"
+---
+
+## Solution
+
+The `Solution` class contains the results of solving an optimization problem.
+
+```python
+solution = prob.solve()
+```
+
+---
+
+## Accessing Optimal Values
+
+### Dictionary-Style Access
+
+Get optimal values by variable name:
+
+```{python}
+from optyx import Variable, Problem
+
+x = Variable("x", lb=0)
+y = Variable("y", lb=0)
+
+solution = (
+    Problem()
+    .minimize(x**2 + y**2)
+    .subject_to(x + y >= 1)
+    .solve()
+)
+
+# Access by name
+print(f"x* = {solution['x']:.4f}")
+print(f"y* = {solution['y']:.4f}")
+```
+
+### All Values
+
+Get the full dictionary of optimal values:
+
+```{python}
+print(solution.values)
+```
+
+---
+
+## Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `.status` | `SolverStatus` | Solution status |
+| `.objective_value` | `float` | Optimal objective value |
+| `.values` | `dict[str, float]` | All optimal variable values |
+| `.solve_time` | `float` | Time to solve (seconds) |
+| `.iterations` | `int` | Number of solver iterations |
+| `.message` | `str` | Solver message |
+
+### Examples
+
+```{python}
+from optyx import Variable, Problem
+
+x = Variable("x", lb=0)
+y = Variable("y", lb=0)
+
+solution = (
+    Problem()
+    .minimize((x - 3)**2 + (y - 4)**2)
+    .subject_to(x + y <= 5)
+    .solve()
+)
+
+print(f"Status: {solution.status}")
+print(f"Objective: {solution.objective_value:.4f}")
+print(f"Solve time: {solution.solve_time:.4f}s")
+print(f"Iterations: {solution.iterations}")
+print(f"Message: {solution.message}")
+```
+
+---
+
+## SolverStatus
+
+The status indicates whether the solver found a valid solution:
+
+```python
+from optyx import SolverStatus
+```
+
+| Status | Description |
+|--------|-------------|
+| `SolverStatus.OPTIMAL` | Converged to an optimal solution |
+| `SolverStatus.FEASIBLE` | Found a feasible point (may not be optimal) |
+| `SolverStatus.INFEASIBLE` | No feasible solution exists |
+| `SolverStatus.UNBOUNDED` | Objective can be improved indefinitely |
+| `SolverStatus.FAILED` | Solver encountered an error |
+
+### Checking Status
+
+```{python}
+from optyx import Variable, Problem, SolverStatus
+
+x = Variable("x", lb=0)
+
+solution = (
+    Problem()
+    .minimize(x**2)
+    .subject_to(x >= 1)
+    .solve()
+)
+
+if solution.status == SolverStatus.OPTIMAL:
+    print(f"Found optimal solution: x* = {solution['x']:.4f}")
+else:
+    print(f"Solver failed: {solution.message}")
+```
+
+---
+
+## Handling Failures
+
+### Infeasible Problem
+
+```{python}
+from optyx import Variable, Problem, SolverStatus
+
+x = Variable("x", lb=0, ub=1)
+
+# Impossible constraints
+solution = (
+    Problem()
+    .minimize(x)
+    .subject_to(x >= 2)  # But x ≤ 1!
+    .solve()
+)
+
+print(f"Status: {solution.status}")
+if solution.status != SolverStatus.OPTIMAL:
+    print(f"Problem: {solution.message}")
+```
+
+### Defensive Programming
+
+```{python}
+from optyx import Variable, Problem, SolverStatus
+
+def safe_solve(prob):
+    """Solve with error handling."""
+    solution = prob.solve()
+    
+    if solution.status == SolverStatus.OPTIMAL:
+        return solution
+    elif solution.status == SolverStatus.FEASIBLE:
+        print("Warning: Solution may not be optimal")
+        return solution
+    else:
+        raise RuntimeError(f"Solver failed: {solution.message}")
+
+x = Variable("x", lb=0)
+prob = Problem().minimize(x**2).subject_to(x >= 1)
+
+try:
+    sol = safe_solve(prob)
+    print(f"x* = {sol['x']:.4f}")
+except RuntimeError as e:
+    print(e)
+```
+
+---
+
+## Complete Example
+
+```{python}
+from optyx import Variable, Problem, SolverStatus
+
+# Define problem
+x = Variable("x", lb=0)
+y = Variable("y", lb=0)
+z = Variable("z", lb=0)
+
+solution = (
+    Problem("production")
+    .maximize(40*x + 30*y + 50*z)  # Profit
+    .subject_to(2*x + y + 3*z <= 100)  # Machine hours
+    .subject_to(x + 2*y + z <= 80)      # Labor hours
+    .subject_to(x + y + z <= 50)        # Raw material
+    .solve()
+)
+
+print("=" * 40)
+print("PRODUCTION OPTIMIZATION RESULTS")
+print("=" * 40)
+print(f"Status: {solution.status.name}")
+print(f"Solve time: {solution.solve_time*1000:.1f}ms")
+print()
+print("Optimal Production:")
+print(f"  Product X: {solution['x']:.2f} units")
+print(f"  Product Y: {solution['y']:.2f} units")
+print(f"  Product Z: {solution['z']:.2f} units")
+print()
+print(f"Maximum Profit: ${solution.objective_value:.2f}")
+```

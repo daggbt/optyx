@@ -1,0 +1,206 @@
+---
+title: "Problem API"
+description: "Building and solving optimization problems"
+---
+
+## Problem
+
+The `Problem` class is the main container for optimization problems.
+
+```python
+from optyx import Problem
+
+prob = Problem(name=None)
+```
+
+### Parameters
+
+| Parameter | Type | Description | Default |
+|-----------|------|-------------|---------|
+| `name` | `str | None` | Optional problem name | `None` |
+
+---
+
+## Building Problems
+
+### Fluent API
+
+Chain methods for concise problem definition:
+
+```{python}
+from optyx import Variable, Problem
+
+x = Variable("x", lb=0)
+y = Variable("y", lb=0)
+
+solution = (
+    Problem("quadratic")
+    .minimize(x**2 + y**2)
+    .subject_to(x + y >= 1)
+    .subject_to(x <= 5)
+    .solve()
+)
+
+print(f"Objective: {solution.objective_value:.4f}")
+```
+
+### Step-by-Step
+
+Build problems incrementally:
+
+```{python}
+from optyx import Variable, Problem
+
+x = Variable("x", lb=0)
+y = Variable("y", lb=0)
+
+prob = Problem("step-by-step")
+prob.minimize(x**2 + y**2)
+prob.subject_to(x + y >= 1)
+prob.subject_to(x <= 5)
+
+solution = prob.solve()
+print(f"Objective: {solution.objective_value:.4f}")
+```
+
+---
+
+## Methods
+
+### `.minimize(objective)`
+
+Set a minimization objective.
+
+```python
+prob.minimize(expr)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `objective` | `Expression` | The expression to minimize |
+
+**Returns:** `self` (for chaining)
+
+### `.maximize(objective)`
+
+Set a maximization objective.
+
+```python
+prob.maximize(expr)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `objective` | `Expression` | The expression to maximize |
+
+**Returns:** `self` (for chaining)
+
+::: {.callout-note}
+Internally, maximization is converted to minimization by negating the objective.
+:::
+
+### `.subject_to(constraint)`
+
+Add a constraint to the problem.
+
+```python
+prob.subject_to(constraint)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `constraint` | `Constraint` | An inequality or equality constraint |
+
+**Returns:** `self` (for chaining)
+
+### `.solve(**kwargs)`
+
+Solve the optimization problem.
+
+```python
+solution = prob.solve(method="SLSQP", x0=None, tol=None, maxiter=None)
+```
+
+| Parameter | Type | Description | Default |
+|-----------|------|-------------|---------|
+| `method` | `str` | Solver method | `"SLSQP"` |
+| `x0` | `np.ndarray | None` | Initial point | Auto-generated |
+| `tol` | `float | None` | Solver tolerance | Solver default |
+| `maxiter` | `int | None` | Maximum iterations | Solver default |
+
+**Returns:** [`Solution`](solution.qmd)
+
+**Available methods:**
+
+| Method | Description | Constraints |
+|--------|-------------|-------------|
+| `"SLSQP"` | Sequential Least Squares Programming | Equality + Inequality |
+| `"trust-constr"` | Trust-region constrained | Equality + Inequality |
+| `"L-BFGS-B"` | Limited-memory BFGS with bounds | Bounds only |
+
+---
+
+## Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `.name` | `str | None` | Problem name |
+| `.objective` | `Expression` | Objective function |
+| `.sense` | `str` | `"minimize"` or `"maximize"` |
+| `.constraints` | `list[Constraint]` | All constraints |
+| `.variables` | `list[Variable]` | All decision variables |
+
+### Examples
+
+```{python}
+from optyx import Variable, Problem
+
+x = Variable("x", lb=0)
+y = Variable("y", lb=0)
+
+prob = (
+    Problem("demo")
+    .minimize(x**2 + y**2)
+    .subject_to(x + y >= 1)
+)
+
+print(f"Name: {prob.name}")
+print(f"Sense: {prob.sense}")
+print(f"Variables: {[v.name for v in prob.variables]}")
+print(f"Num constraints: {len(prob.constraints)}")
+```
+
+---
+
+## Complete Example
+
+```{python}
+from optyx import Variable, Problem, exp
+
+# Portfolio with 3 assets
+w1 = Variable("stocks", lb=0, ub=0.6)
+w2 = Variable("bonds", lb=0, ub=0.5)
+w3 = Variable("cash", lb=0.1, ub=1.0)
+
+# Expected returns
+returns = 0.08*w1 + 0.04*w2 + 0.02*w3
+
+# Risk (simplified variance)
+risk = 0.04*w1**2 + 0.01*w2**2 + 0.001*w3**2
+
+# Build and solve
+solution = (
+    Problem("portfolio")
+    .minimize(risk)
+    .subject_to(w1 + w2 + w3 >= 0.99)  # Fully invested
+    .subject_to(w1 + w2 + w3 <= 1.01)
+    .subject_to(returns >= 0.05)        # Min 5% return
+    .solve()
+)
+
+print("Optimal Allocation:")
+print(f"  Stocks: {solution['stocks']:.1%}")
+print(f"  Bonds:  {solution['bonds']:.1%}")
+print(f"  Cash:   {solution['cash']:.1%}")
+print(f"Risk: {solution.objective_value:.6f}")
+```

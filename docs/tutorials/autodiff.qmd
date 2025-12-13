@@ -1,0 +1,315 @@
+---
+title: "Automatic Differentiation"
+description: "Understanding how Optyx computes gradients"
+---
+
+## Introduction
+
+Optyx uses **symbolic differentiation** to compute gradients automatically. This tutorial explains:
+
+- How symbolic differentiation works
+- Computing gradients, Jacobians, and Hessians
+- Why automatic gradients matter for optimization
+- Performance considerations
+
+---
+
+## Why Gradients Matter
+
+Optimization algorithms like SLSQP need derivatives to find the direction of steepest descent:
+
+$$
+x_{k+1} = x_k - \alpha \nabla f(x_k)
+$$
+
+Without gradients, solvers must estimate them numerically (slow and inaccurate). Optyx provides exact gradients automatically.
+
+---
+
+## Computing Gradients
+
+### Single Variable
+
+```{python}
+from optyx import Variable
+from optyx.core.autodiff import gradient
+
+x = Variable("x")
+
+# f(x) = x³ + 2x² - 5x + 3
+f = x**3 + 2*x**2 - 5*x + 3
+
+# f'(x) = 3x² + 4x - 5
+df = gradient(f, x)
+
+# Evaluate at x = 2
+print(f"f(2) = {f.evaluate({'x': 2.0})}")
+print(f"f'(2) = {df.evaluate({'x': 2.0})}")
+```
+
+### Verify Analytically
+
+For $f(x) = x^3 + 2x^2 - 5x + 3$:
+
+$$
+f'(x) = 3x^2 + 4x - 5
+$$
+
+At $x = 2$:
+$$
+f'(2) = 3(4) + 4(2) - 5 = 12 + 8 - 5 = 15 \checkmark
+$$
+
+---
+
+## Multivariable Gradients
+
+### Partial Derivatives
+
+```{python}
+from optyx import Variable
+from optyx.core.autodiff import gradient
+
+x = Variable("x")
+y = Variable("y")
+
+# f(x, y) = x² + xy + y²
+f = x**2 + x*y + y**2
+
+# Partial derivatives
+df_dx = gradient(f, x)  # 2x + y
+df_dy = gradient(f, y)  # x + 2y
+
+vals = {'x': 3.0, 'y': 2.0}
+print(f"∂f/∂x at (3,2) = {df_dx.evaluate(vals)}")  # 2(3) + 2 = 8
+print(f"∂f/∂y at (3,2) = {df_dy.evaluate(vals)}")  # 3 + 2(2) = 7
+```
+
+### Gradient Vector
+
+```{python}
+from optyx import Variable
+from optyx.core.autodiff import gradient
+import numpy as np
+
+x = Variable("x")
+y = Variable("y")
+
+f = x**2 + x*y + y**2
+
+# Build gradient vector
+grad = [gradient(f, x), gradient(f, y)]
+
+# Evaluate
+vals = {'x': 3.0, 'y': 2.0}
+grad_vec = np.array([g.evaluate(vals) for g in grad])
+print(f"∇f(3,2) = {grad_vec}")
+```
+
+---
+
+## Transcendental Functions
+
+Optyx handles derivatives of transcendental functions:
+
+```{python}
+from optyx import Variable, sin, cos, exp, log
+from optyx.core.autodiff import gradient
+
+x = Variable("x")
+
+# d/dx sin(x) = cos(x)
+print(f"d/dx sin(x) at π/4: {gradient(sin(x), x).evaluate({'x': 0.785}):.4f}")
+print(f"cos(π/4):           {cos(x).evaluate({'x': 0.785}):.4f}")
+
+# d/dx exp(x) = exp(x)
+print(f"\nd/dx exp(x) at 1: {gradient(exp(x), x).evaluate({'x': 1.0}):.4f}")
+print(f"exp(1):           {exp(x).evaluate({'x': 1.0}):.4f}")
+
+# d/dx log(x) = 1/x
+print(f"\nd/dx log(x) at 2: {gradient(log(x), x).evaluate({'x': 2.0}):.4f}")
+print(f"1/2:              {0.5:.4f}")
+```
+
+---
+
+## Chain Rule
+
+Optyx automatically applies the chain rule:
+
+```{python}
+from optyx import Variable, sin, exp
+from optyx.core.autodiff import gradient
+
+x = Variable("x")
+
+# f(x) = sin(exp(x))
+# f'(x) = cos(exp(x)) · exp(x)
+f = sin(exp(x))
+df = gradient(f, x)
+
+val = df.evaluate({'x': 0.5})
+print(f"d/dx sin(exp(x)) at 0.5 = {val:.4f}")
+
+# Verify: cos(exp(0.5)) * exp(0.5)
+import numpy as np
+expected = np.cos(np.exp(0.5)) * np.exp(0.5)
+print(f"Expected:                  {expected:.4f}")
+```
+
+---
+
+## Jacobian Matrix
+
+For vector-valued functions, the Jacobian contains all partial derivatives:
+
+```{python}
+from optyx import Variable
+from optyx.core.autodiff import compute_jacobian
+
+x = Variable("x")
+y = Variable("y")
+
+# f: R² → R²
+# f(x,y) = [x² + y, xy]
+f1 = x**2 + y
+f2 = x * y
+
+# Jacobian: [[∂f1/∂x, ∂f1/∂y], [∂f2/∂x, ∂f2/∂y]]
+#         = [[2x, 1], [y, x]]
+J = compute_jacobian([f1, f2], [x, y])
+
+vals = {'x': 2.0, 'y': 3.0}
+print("Jacobian at (2, 3):")
+print(f"  [[{J[0][0].evaluate(vals):.0f}, {J[0][1].evaluate(vals):.0f}],")
+print(f"   [{J[1][0].evaluate(vals):.0f}, {J[1][1].evaluate(vals):.0f}]]")
+```
+
+---
+
+## Hessian Matrix
+
+Second derivatives form the Hessian:
+
+```{python}
+from optyx import Variable
+from optyx.core.autodiff import compute_hessian
+
+x = Variable("x")
+y = Variable("y")
+
+# f(x,y) = x³ + xy² (Monkey Saddle)
+f = x**3 + x*y**2
+
+# Hessian: [[6x, 2y], [2y, 2x]]
+H = compute_hessian(f, [x, y])
+
+vals = {'x': 1.0, 'y': 2.0}
+print("Hessian at (1, 2):")
+print(f"  [[{H[0][0].evaluate(vals):.0f}, {H[0][1].evaluate(vals):.0f}],")
+print(f"   [{H[1][0].evaluate(vals):.0f}, {H[1][1].evaluate(vals):.0f}]]")
+```
+
+---
+
+## Compiled Functions
+
+For repeated evaluations, compile derivatives to fast callables:
+
+```{python}
+import numpy as np
+from optyx import Variable
+from optyx.core.autodiff import compile_jacobian, compile_hessian
+
+x = Variable("x")
+y = Variable("y")
+
+f = x**2 + y**2
+
+# Compile
+grad_fn = compile_jacobian([f], [x, y])
+hess_fn = compile_hessian(f, [x, y])
+
+# Fast evaluation
+point = np.array([3.0, 4.0])
+
+# Time many evaluations
+import time
+start = time.time()
+for _ in range(1000):
+    g = grad_fn(point)
+    h = hess_fn(point)
+elapsed = time.time() - start
+
+print(f"1000 gradient + Hessian evals: {elapsed*1000:.1f}ms")
+print(f"Per evaluation: {elapsed:.4f}ms")
+```
+
+---
+
+## How It Works
+
+### Expression Trees
+
+Optyx represents expressions as trees:
+
+```
+    +
+   / \
+  *   *
+ /|   |\
+2 x   3 y
+```
+
+### Differentiation Algorithm
+
+1. **Traverse** the tree recursively
+2. **Apply rules** based on node type:
+   - Constant → 0
+   - Variable → 1 if same, 0 otherwise
+   - Sum → sum of derivatives
+   - Product → product rule
+   - Power → power rule
+   - Composition → chain rule
+3. **Simplify** result (0+x → x, 0*x → 0, etc.)
+
+```{python}
+from optyx import Variable
+from optyx.core.autodiff import gradient
+
+x = Variable("x")
+
+# Before simplification, d/dx(x*x) would be: x*1 + 1*x
+# After simplification: 2*x
+f = x * x
+df = gradient(f, x)
+
+print(f"d/dx(x²) at x=3: {df.evaluate({'x': 3.0})}")  # 2*3 = 6
+```
+
+---
+
+## Performance Tips
+
+1. **Compile for loops**: Use `compile_jacobian` and `compile_hessian` for repeated evaluations
+2. **Reuse gradients**: Cache gradient expressions if solving repeatedly
+3. **Minimize expression size**: Simpler expressions = faster differentiation
+
+---
+
+## Comparison with Alternatives
+
+| Method | Pros | Cons |
+|--------|------|------|
+| **Symbolic (Optyx)** | Exact, inspectable, no runtime overhead | Expression growth for complex functions |
+| **Finite Differences** | Simple to implement | Inaccurate, O(n) evaluations |
+| **Automatic (JAX/PyTorch)** | Fast, handles any Python | Requires tracing, harder to debug |
+
+Optyx's symbolic approach is ideal for small-to-medium problems where debuggability matters.
+
+---
+
+## Next Steps
+
+- [API Reference: Autodiff](../api/autodiff.qmd) — Full documentation
+- [Examples](../examples/rosenbrock.qmd) — See autodiff in action

@@ -1,0 +1,221 @@
+---
+title: "Expressions API"
+description: "Variable, Constant, and expression building"
+---
+
+## Variable
+
+Decision variables that the optimizer will determine.
+
+```python
+from optyx import Variable
+
+x = Variable(name, lb=None, ub=None, domain="continuous")
+```
+
+### Parameters
+
+| Parameter | Type | Description | Default |
+|-----------|------|-------------|---------|
+| `name` | `str` | Unique identifier for the variable | Required |
+| `lb` | `float | None` | Lower bound | `None` (unbounded) |
+| `ub` | `float | None` | Upper bound | `None` (unbounded) |
+| `domain` | `str` | One of `"continuous"`, `"integer"`, `"binary"` | `"continuous"` |
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `.name` | `str` | Variable name |
+| `.lb` | `float | None` | Lower bound |
+| `.ub` | `float | None` | Upper bound |
+| `.domain` | `str` | Variable domain |
+
+### Examples
+
+```{python}
+from optyx import Variable
+
+# Unbounded variable
+x = Variable("x")
+
+# Non-negative variable
+y = Variable("y", lb=0)
+
+# Bounded variable
+z = Variable("z", lb=-10, ub=10)
+
+# Binary variable (relaxed to [0, 1])
+b = Variable("b", domain="binary")
+print(f"Binary: lb={b.lb}, ub={b.ub}")
+```
+
+---
+
+## Constant
+
+A fixed numerical value in an expression.
+
+```python
+from optyx import Constant
+
+c = Constant(value)
+```
+
+### Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | `float | int | np.ndarray` | The constant value |
+
+### Examples
+
+```{python}
+from optyx import Constant, Variable
+
+# Explicit constant
+c = Constant(3.14)
+print(f"Value: {c.evaluate({})}")
+
+# Constants are created automatically from numbers
+x = Variable("x")
+expr = 2 * x + 5  # 2 and 5 become Constant nodes
+```
+
+---
+
+## Mathematical Functions
+
+Transcendental and special functions for building expressions.
+
+```python
+from optyx import sin, cos, tan, exp, log, sqrt, abs_, sinh, cosh, tanh
+```
+
+### Available Functions
+
+| Function | Description | Domain |
+|----------|-------------|--------|
+| `sin(x)` | Sine | All real |
+| `cos(x)` | Cosine | All real |
+| `tan(x)` | Tangent | $x \neq \frac{\pi}{2} + n\pi$ |
+| `exp(x)` | Exponential $e^x$ | All real |
+| `log(x)` | Natural logarithm | $x > 0$ |
+| `sqrt(x)` | Square root | $x \geq 0$ |
+| `abs_(x)` | Absolute value | All real |
+| `sinh(x)` | Hyperbolic sine | All real |
+| `cosh(x)` | Hyperbolic cosine | All real |
+| `tanh(x)` | Hyperbolic tangent | All real |
+
+### Examples
+
+```{python}
+from optyx import Variable, sin, cos, exp, log, sqrt
+
+x = Variable("x")
+y = Variable("y")
+
+# Trigonometric
+f1 = sin(x)**2 + cos(x)**2  # Should equal 1
+
+# Exponential and log
+f2 = exp(log(x))  # Should equal x for x > 0
+
+# Composition
+f3 = sqrt(x**2 + y**2)  # Euclidean norm
+
+# Evaluate
+print(f"sin²(π/4) + cos²(π/4) = {f1.evaluate({'x': 0.785}):.4f}")
+```
+
+---
+
+## Expression Operators
+
+Expressions support standard Python operators.
+
+### Arithmetic Operators
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `+` | Addition | `x + y` |
+| `-` | Subtraction | `x - y` |
+| `*` | Multiplication | `x * y` |
+| `/` | Division | `x / y` |
+| `**` | Power | `x ** 2` |
+| `-x` | Negation | `-x` |
+
+### Comparison Operators (for constraints)
+
+| Operator | Description | Returns |
+|----------|-------------|---------|
+| `>=` | Greater or equal | `Constraint` |
+| `<=` | Less or equal | `Constraint` |
+| `.constraint_eq()` | Equality | `Constraint` |
+
+### Examples
+
+```{python}
+from optyx import Variable
+
+x = Variable("x")
+y = Variable("y")
+
+# Build complex expressions
+quadratic = x**2 + 2*x*y + y**2
+rational = (x + 1) / (y + 1)
+polynomial = x**3 - 3*x**2 + 3*x - 1  # (x-1)³
+
+# Create constraints
+c1 = x + y >= 10
+c2 = x - y <= 5
+c3 = (x + y).constraint_eq(15)
+```
+
+---
+
+## Expression Methods
+
+### `.evaluate(values)`
+
+Compute the numerical value of an expression.
+
+```python
+result = expr.evaluate({"x": 1.0, "y": 2.0})
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `values` | `dict[str, float]` | Variable name to value mapping |
+
+**Returns:** `float` or `np.ndarray`
+
+### `.get_variables()`
+
+Get all variables the expression depends on.
+
+```python
+variables = expr.get_variables()
+```
+
+**Returns:** `set[Variable]`
+
+### Examples
+
+```{python}
+from optyx import Variable
+
+x = Variable("x")
+y = Variable("y")
+z = Variable("z")
+
+expr = x**2 + y*z
+
+# Evaluate
+val = expr.evaluate({"x": 2, "y": 3, "z": 4})
+print(f"f(2,3,4) = {val}")
+
+# Get variables
+vars = expr.get_variables()
+print(f"Variables: {[v.name for v in vars]}")
+```

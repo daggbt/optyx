@@ -1,0 +1,247 @@
+---
+title: "Autodiff API"
+description: "Automatic differentiation functions"
+---
+
+## Overview
+
+Optyx provides automatic differentiation through symbolic differentiation. Gradients, Jacobians, and Hessians are computed analytically from expression trees.
+
+```python
+from optyx.core.autodiff import gradient, compute_jacobian, compute_hessian
+```
+
+---
+
+## gradient
+
+Compute the symbolic derivative of an expression with respect to a variable.
+
+```python
+from optyx.core.autodiff import gradient
+
+df_dx = gradient(expr, var)
+```
+
+### Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `expr` | `Expression` | The expression to differentiate |
+| `wrt` | `Variable` | The variable to differentiate with respect to |
+
+### Returns
+
+`Expression` — A new expression representing the derivative
+
+### Examples
+
+```{python}
+from optyx import Variable
+from optyx.core.autodiff import gradient
+
+x = Variable("x")
+
+# Simple polynomial
+f = x**3 + 2*x**2 - 5*x + 3
+df = gradient(f, x)  # 3x² + 4x - 5
+
+# Evaluate the gradient
+print(f"f(2) = {f.evaluate({'x': 2.0})}")
+print(f"f'(2) = {df.evaluate({'x': 2.0})}")
+```
+
+```{python}
+from optyx import Variable, sin, cos, exp
+from optyx.core.autodiff import gradient
+
+x = Variable("x")
+
+# Transcendental functions
+f = sin(x) * exp(x)
+df = gradient(f, x)  # cos(x)*exp(x) + sin(x)*exp(x)
+
+import numpy as np
+val = df.evaluate({'x': np.pi/4})
+print(f"d/dx[sin(x)·exp(x)] at π/4 = {val:.4f}")
+```
+
+---
+
+## compute_jacobian
+
+Compute the Jacobian matrix of multiple expressions with respect to multiple variables.
+
+```python
+from optyx.core.autodiff import compute_jacobian
+
+J = compute_jacobian(exprs, variables)
+```
+
+### Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `exprs` | `list[Expression]` | List of expressions |
+| `variables` | `list[Variable]` | List of variables |
+
+### Returns
+
+`list[list[Expression]]` — Jacobian matrix where `J[i][j] = ∂exprs[i]/∂variables[j]`
+
+### Examples
+
+```{python}
+from optyx import Variable
+from optyx.core.autodiff import compute_jacobian
+
+x = Variable("x")
+y = Variable("y")
+
+# Vector function: f(x,y) = [x² + y, x·y]
+f1 = x**2 + y
+f2 = x * y
+
+# Jacobian: [[2x, 1], [y, x]]
+J = compute_jacobian([f1, f2], [x, y])
+
+# Evaluate at (2, 3)
+values = {'x': 2.0, 'y': 3.0}
+print("Jacobian at (2, 3):")
+print(f"  [[{J[0][0].evaluate(values)}, {J[0][1].evaluate(values)}],")
+print(f"   [{J[1][0].evaluate(values)}, {J[1][1].evaluate(values)}]]")
+```
+
+---
+
+## compute_hessian
+
+Compute the Hessian matrix (second derivatives) of an expression.
+
+```python
+from optyx.core.autodiff import compute_hessian
+
+H = compute_hessian(expr, variables)
+```
+
+### Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `expr` | `Expression` | The expression to differentiate twice |
+| `variables` | `list[Variable]` | List of variables |
+
+### Returns
+
+`list[list[Expression]]` — Hessian matrix where `H[i][j] = ∂²expr/∂variables[i]∂variables[j]`
+
+### Examples
+
+```{python}
+from optyx import Variable
+from optyx.core.autodiff import compute_hessian
+
+x = Variable("x")
+y = Variable("y")
+
+# Quadratic: f(x,y) = x² + 2xy + 3y²
+f = x**2 + 2*x*y + 3*y**2
+
+# Hessian: [[2, 2], [2, 6]]
+H = compute_hessian(f, [x, y])
+
+values = {'x': 1.0, 'y': 1.0}
+print("Hessian:")
+print(f"  [[{H[0][0].evaluate(values)}, {H[0][1].evaluate(values)}],")
+print(f"   [{H[1][0].evaluate(values)}, {H[1][1].evaluate(values)}]]")
+```
+
+---
+
+## Compiled Functions
+
+For repeated evaluations (e.g., in optimization loops), use compiled versions:
+
+```python
+from optyx.core.autodiff import compile_jacobian, compile_hessian
+```
+
+### compile_jacobian
+
+```python
+jac_fn = compile_jacobian(exprs, variables)
+J = jac_fn(x_array)  # Returns numpy array
+```
+
+### compile_hessian
+
+```python
+hess_fn = compile_hessian(expr, variables)
+H = hess_fn(x_array)  # Returns numpy array
+```
+
+### Examples
+
+```{python}
+import numpy as np
+from optyx import Variable
+from optyx.core.autodiff import compile_jacobian, compile_hessian
+
+x = Variable("x")
+y = Variable("y")
+
+f = x**2 + y**2
+
+# Compile gradient (Jacobian of single expression)
+grad_fn = compile_jacobian([f], [x, y])
+
+# Compile Hessian
+hess_fn = compile_hessian(f, [x, y])
+
+# Fast evaluation
+point = np.array([3.0, 4.0])
+print(f"Gradient at (3,4): {grad_fn(point).flatten()}")
+print(f"Hessian at (3,4):\n{hess_fn(point)}")
+```
+
+---
+
+## Differentiation Rules
+
+Optyx implements standard differentiation rules:
+
+| Rule | Formula |
+|------|---------|
+| Constant | $\frac{d}{dx}c = 0$ |
+| Variable | $\frac{d}{dx}x = 1$ |
+| Sum | $\frac{d}{dx}(f + g) = f' + g'$ |
+| Product | $\frac{d}{dx}(fg) = f'g + fg'$ |
+| Quotient | $\frac{d}{dx}\frac{f}{g} = \frac{f'g - fg'}{g^2}$ |
+| Power | $\frac{d}{dx}x^n = nx^{n-1}$ |
+| Chain | $\frac{d}{dx}f(g(x)) = f'(g(x)) \cdot g'(x)$ |
+
+### Function Derivatives
+
+| Function | Derivative |
+|----------|------------|
+| $\sin(x)$ | $\cos(x)$ |
+| $\cos(x)$ | $-\sin(x)$ |
+| $\tan(x)$ | $\sec^2(x) = 1/\cos^2(x)$ |
+| $e^x$ | $e^x$ |
+| $\ln(x)$ | $1/x$ |
+| $\sqrt{x}$ | $1/(2\sqrt{x})$ |
+| $\tanh(x)$ | $1 - \tanh^2(x)$ |
+| $\sinh(x)$ | $\cosh(x)$ |
+| $\cosh(x)$ | $\sinh(x)$ |
+
+---
+
+## Performance
+
+Symbolic differentiation with expression simplification:
+
+- Constants are folded: `0 + x → x`, `1 * x → x`
+- Zero propagation: `0 * expr → 0`
+- Identical subexpressions are cached
+
+For production use with many evaluations, always use compiled functions.

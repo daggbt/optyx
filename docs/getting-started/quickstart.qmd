@@ -1,0 +1,135 @@
+---
+title: "Quickstart"
+description: "Solve your first optimization problem in 5 minutes"
+---
+
+## Your First Optimization Problem
+
+Let's solve a simple constrained optimization problem:
+
+$$
+\min_{x,y} \quad x^2 + y^2 \quad \text{subject to} \quad x + y \geq 1
+$$
+
+```{python}
+from optyx import Variable, Problem
+
+# 1. Create decision variables
+x = Variable("x", lb=0)  # x ≥ 0
+y = Variable("y", lb=0)  # y ≥ 0
+
+# 2. Build and solve the problem
+solution = (
+    Problem()
+    .minimize(x**2 + y**2)
+    .subject_to(x + y >= 1)
+    .solve()
+)
+
+# 3. Access the results
+print(f"x* = {solution['x']:.4f}")
+print(f"y* = {solution['y']:.4f}")
+print(f"Objective = {solution.objective_value:.4f}")
+print(f"Status = {solution.status}")
+```
+
+The optimal solution is $x^* = y^* = 0.5$, which satisfies the constraint $x + y = 1$ at equality.
+
+## Step-by-Step Breakdown
+
+### 1. Create Variables
+
+Variables are your decision variables—the values the solver will optimize:
+
+```{python}
+from optyx import Variable
+
+# Basic variable (unbounded)
+x = Variable("x")
+
+# Variable with lower bound
+y = Variable("y", lb=0)
+
+# Variable with both bounds
+z = Variable("z", lb=-10, ub=10)
+```
+
+### 2. Build Expressions
+
+Use natural Python operators to build objective functions:
+
+```{python}
+from optyx import sin, exp
+
+# Arithmetic works naturally
+objective = x**2 + 2*y**2 + x*y
+
+# Transcendental functions are supported
+nonlinear_obj = sin(x) + exp(-y)
+
+# Evaluate at a point
+value = objective.evaluate({"x": 1.0, "y": 2.0})
+print(f"f(1, 2) = {value}")
+```
+
+### 3. Define Constraints
+
+Express constraints with comparison operators:
+
+```{python}
+from optyx import Variable, Problem
+
+a = Variable("a", lb=0)
+b = Variable("b", lb=0)
+
+prob = (
+    Problem()
+    .minimize(a**2 + b**2)
+    .subject_to(a + b >= 1)          # Inequality: a + b ≥ 1
+    .subject_to(a <= 5)              # Upper bound as constraint
+    .subject_to((a - b).constraint_eq(0))  # Equality: a = b
+)
+```
+
+::: {.callout-note}
+For equality constraints, use `.constraint_eq()` instead of `==` because Python's `==` is used for object comparison.
+:::
+
+### 4. Solve and Inspect
+
+```{python}
+solution = prob.solve()
+
+print(f"Status: {solution.status}")
+print(f"Objective: {solution.objective_value:.4f}")
+print(f"Solve time: {solution.solve_time:.4f}s")
+print(f"Iterations: {solution.iterations}")
+```
+
+## Maximization
+
+Optyx supports maximization too:
+
+```{python}
+from optyx import Variable, Problem
+
+x = Variable("x", lb=0, ub=10)
+y = Variable("y", lb=0, ub=10)
+
+solution = (
+    Problem()
+    .maximize(x + 2*y)
+    .subject_to(x + y <= 8)
+    .subject_to(x <= 5)
+    .solve()
+)
+
+print(f"x* = {solution['x']:.2f}, y* = {solution['y']:.2f}")
+print(f"Maximum = {solution.objective_value:.2f}")
+```
+
+## Next Steps
+
+- [Core Concepts](concepts.qmd) — Deeper understanding of expressions, constraints, and problems
+- [Basic Optimization Tutorial](../tutorials/basic-optimization.qmd) — More detailed walkthrough
+- [API Reference](../api/expressions.qmd) — Full API documentation

@@ -1,0 +1,57 @@
+---
+title: "Installation"
+description: "How to install Optyx"
+---
+
+## Quick Install
+
+Install Optyx directly from GitHub:
+```bash
+pip install optyx
+```
+
+Or using [uv](https://github.com/astral-sh/uv) (recommended for faster installs):
+```bash
+uv pip install optyx
+```
+
+## Requirements
+
+- **Python 3.12+**
+- NumPy
+- SciPy
+
+All dependencies are installed automatically.
+
+## Development Setup
+
+For contributing or development:
+
+```bash
+# Clone the repository
+git clone https://github.com/daggbt/optyx.git
+cd optyx
+
+# Install with uv (recommended)
+uv sync
+
+# Or with pip in editable mode
+pip install -e .
+```
+
+## Verify Installation
+
+Test that Optyx is installed correctly:
+
+```{python}
+from optyx import Variable, Problem
+
+x = Variable("x", lb=0)
+solution = Problem().minimize(x**2).subject_to(x >= 1).solve()
+print(f"Optyx is working! x* = {solution['x']:.4f}")
+```
+
+## Next Steps
+
+- [Quickstart](quickstart.qmd) — Solve your first optimization problem
+- [Core Concepts](concepts.qmd) — Understand the building blocks
