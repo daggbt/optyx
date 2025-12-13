@@ -273,3 +273,180 @@ class TestPerformance:
                 compiled_result, evaluate_result,
                 err_msg=f"Mismatch at x={x_val}, y={y_val}"
             )
+
+
+class TestSymbolicGradient:
+    """Tests verifying compile_gradient uses exact symbolic differentiation."""
+
+    def test_symbolic_gradient_exact_polynomial(self):
+        """Symbolic gradient should match analytical derivative exactly."""
+        x = Variable("x")
+        # f(x) = x^3 + 2x^2 - 5x + 3
+        # f'(x) = 3x^2 + 4x - 5
+        expr = x**3 + 2*x**2 - 5*x + 3
+        
+        grad_fn = compile_gradient(expr, [x])
+        
+        # Test at multiple points - should be exact (not numerical approximation)
+        test_points = [0.0, 1.0, 2.0, -1.0, 0.5, 10.0]
+        for x_val in test_points:
+            grad = grad_fn(np.array([x_val]))
+            expected = 3*x_val**2 + 4*x_val - 5
+            # Use high precision - symbolic should be exact
+            np.testing.assert_almost_equal(
+                grad[0], expected, decimal=12,
+                err_msg=f"Gradient mismatch at x={x_val}"
+            )
+
+    def test_symbolic_gradient_multivariate(self):
+        """Symbolic gradient for multivariate expression."""
+        x = Variable("x")
+        y = Variable("y")
+        z = Variable("z")
+        # f(x,y,z) = x^2*y + y^2*z + z^2*x
+        # df/dx = 2xy + z^2
+        # df/dy = x^2 + 2yz
+        # df/dz = y^2 + 2zx
+        expr = x**2 * y + y**2 * z + z**2 * x
+        
+        grad_fn = compile_gradient(expr, [x, y, z])
+        
+        x_val, y_val, z_val = 2.0, 3.0, 4.0
+        grad = grad_fn(np.array([x_val, y_val, z_val]))
+        
+        expected_dx = 2*x_val*y_val + z_val**2  # 2*2*3 + 16 = 28
+        expected_dy = x_val**2 + 2*y_val*z_val  # 4 + 24 = 28
+        expected_dz = y_val**2 + 2*z_val*x_val  # 9 + 16 = 25
+        
+        np.testing.assert_almost_equal(grad[0], expected_dx, decimal=12)
+        np.testing.assert_almost_equal(grad[1], expected_dy, decimal=12)
+        np.testing.assert_almost_equal(grad[2], expected_dz, decimal=12)
+
+    def test_symbolic_gradient_transcendental(self):
+        """Symbolic gradient for transcendental functions."""
+        x = Variable("x")
+        # f(x) = sin(x) * exp(x)
+        # f'(x) = cos(x)*exp(x) + sin(x)*exp(x) = exp(x)*(cos(x) + sin(x))
+        expr = sin(x) * exp(x)
+        
+        grad_fn = compile_gradient(expr, [x])
+        
+        test_points = [0.0, 0.5, 1.0, np.pi/4]
+        for x_val in test_points:
+            grad = grad_fn(np.array([x_val]))
+            expected = np.exp(x_val) * (np.cos(x_val) + np.sin(x_val))
+            np.testing.assert_almost_equal(
+                grad[0], expected, decimal=10,
+                err_msg=f"Gradient mismatch at x={x_val}"
+            )
+
+    def test_symbolic_gradient_log_sqrt(self):
+        """Symbolic gradient for log and sqrt functions."""
+        x = Variable("x")
+        # f(x) = log(x) + sqrt(x)
+        # f'(x) = 1/x + 1/(2*sqrt(x))
+        expr = log(x) + sqrt(x)
+        
+        grad_fn = compile_gradient(expr, [x])
+        
+        test_points = [0.5, 1.0, 2.0, 4.0, 10.0]
+        for x_val in test_points:
+            grad = grad_fn(np.array([x_val]))
+            expected = 1/x_val + 1/(2*np.sqrt(x_val))
+            np.testing.assert_almost_equal(
+                grad[0], expected, decimal=10,
+                err_msg=f"Gradient mismatch at x={x_val}"
+            )
+
+    def test_symbolic_gradient_chain_rule(self):
+        """Symbolic gradient correctly applies chain rule."""
+        x = Variable("x")
+        # f(x) = sin(x^2)
+        # f'(x) = cos(x^2) * 2x
+        expr = sin(x**2)
+        
+        grad_fn = compile_gradient(expr, [x])
+        
+        test_points = [0.5, 1.0, 1.5, 2.0]
+        for x_val in test_points:
+            grad = grad_fn(np.array([x_val]))
+            expected = np.cos(x_val**2) * 2 * x_val
+            np.testing.assert_almost_equal(
+                grad[0], expected, decimal=10,
+                err_msg=f"Gradient mismatch at x={x_val}"
+            )
+
+    def test_symbolic_gradient_quotient_rule(self):
+        """Symbolic gradient correctly applies quotient rule."""
+        x = Variable("x")
+        y = Variable("y")
+        # f(x,y) = x / y
+        # df/dx = 1/y
+        # df/dy = -x/y^2
+        expr = x / y
+        
+        grad_fn = compile_gradient(expr, [x, y])
+        
+        x_val, y_val = 3.0, 2.0
+        grad = grad_fn(np.array([x_val, y_val]))
+        
+        expected_dx = 1 / y_val  # 0.5
+        expected_dy = -x_val / y_val**2  # -0.75
+        
+        np.testing.assert_almost_equal(grad[0], expected_dx, decimal=12)
+        np.testing.assert_almost_equal(grad[1], expected_dy, decimal=12)
+
+    def test_symbolic_vs_autodiff_consistency(self):
+        """compile_gradient should match autodiff.gradient evaluation."""
+        from optyx.core.autodiff import gradient
+        
+        x = Variable("x")
+        y = Variable("y")
+        expr = x**2 * sin(y) + exp(x*y)
+        
+        # Get symbolic gradient expressions
+        grad_x_expr = gradient(expr, x)
+        grad_y_expr = gradient(expr, y)
+        
+        # Get compiled gradient function
+        grad_fn = compile_gradient(expr, [x, y])
+        
+        # Compare at several points
+        test_points = [(1.0, 2.0), (0.5, 0.5), (2.0, 1.0)]
+        for x_val, y_val in test_points:
+            values = {"x": x_val, "y": y_val}
+            
+            # Evaluate symbolic gradient expressions directly
+            expected_dx = grad_x_expr.evaluate(values)
+            expected_dy = grad_y_expr.evaluate(values)
+            
+            # Get compiled gradient
+            grad = grad_fn(np.array([x_val, y_val]))
+            
+            np.testing.assert_almost_equal(grad[0], expected_dx, decimal=12)
+            np.testing.assert_almost_equal(grad[1], expected_dy, decimal=12)
+
+    def test_gradient_of_constant(self):
+        """Gradient of a constant expression should be zero."""
+        x = Variable("x")
+        from optyx.core.expressions import Constant
+        expr = Constant(42.0)
+        
+        grad_fn = compile_gradient(expr, [x])
+        grad = grad_fn(np.array([5.0]))
+        
+        np.testing.assert_almost_equal(grad[0], 0.0, decimal=12)
+
+    def test_gradient_of_unrelated_variable(self):
+        """Gradient w.r.t. unrelated variable should be zero."""
+        x = Variable("x")
+        y = Variable("y")
+        expr = x**2  # Only depends on x
+        
+        grad_fn = compile_gradient(expr, [x, y])
+        grad = grad_fn(np.array([3.0, 5.0]))
+        
+        # df/dx = 2x = 6
+        np.testing.assert_almost_equal(grad[0], 6.0, decimal=12)
+        # df/dy = 0
+        np.testing.assert_almost_equal(grad[1], 0.0, decimal=12)

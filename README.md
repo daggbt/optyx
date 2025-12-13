@@ -4,7 +4,7 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-161%20passing-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-170%20passing-brightgreen.svg)](tests/)
 
 Write optimization problems in natural Python. Optyx handles the gradients, constraints, and solver plumbing for you.
 
@@ -31,7 +31,7 @@ print(f"y* = {solution['y']:.4f}")  # 0.5000
 ## Installation
 
 ```bash
-pip install git+https://github.com/daggbt/optyx.git
+pip install optyx
 ```
 
 Or for development:
