@@ -34,7 +34,9 @@ jobs:
           version: "latest"
 
       - name: Install dependencies
-        run: uv sync
+        run: |
+          uv sync
+          uv run python -m ipykernel install --user --name optyx-docs
 
       - name: Setup Quarto
         uses: quarto-dev/quarto-actions/setup@v2
@@ -42,7 +44,7 @@ jobs:
       - name: Render Quarto Project
         run: |
           cd docs
-          quarto render
+          uv run quarto render
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
