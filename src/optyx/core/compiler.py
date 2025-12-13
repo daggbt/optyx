@@ -141,9 +141,10 @@ def compile_gradient(
     expr: Expression,
     variables: list[Variable],
 ) -> Callable[[NDArray[np.floating]], NDArray[np.floating]]:
-    """Compile the gradient of an expression.
+    """Compile the gradient of an expression using symbolic differentiation.
     
     Returns a function that computes the gradient vector at a given point.
+    Uses symbolic differentiation via the autodiff module for exact gradients.
     
     Args:
         expr: The expression to differentiate.
@@ -152,32 +153,36 @@ def compile_gradient(
     Returns:
         A callable that returns the gradient as a 1D array.
         
-    Note:
-        This requires Phase 2 (autodiff) to be implemented.
-        For now, returns a placeholder that uses numerical differentiation.
+    Example:
+        >>> x = Variable("x")
+        >>> y = Variable("y")
+        >>> expr = x**2 + y**2
+        >>> grad_fn = compile_gradient(expr, [x, y])
+        >>> grad_fn(np.array([3.0, 4.0]))  # Returns [6.0, 8.0]
     """
-    f = compile_expression(expr, variables)
+    from optyx.core.autodiff import gradient
+    
     n = len(variables)
     
-    def numerical_gradient(x: NDArray[np.floating], eps: float = 1e-8) -> NDArray[np.floating]:
-        """Compute gradient using central differences."""
-        grad = np.zeros(n)
-        for i in range(n):
-            x_plus = x.copy()
-            x_minus = x.copy()
-            x_plus[i] += eps
-            x_minus[i] -= eps
-            grad[i] = (f(x_plus) - f(x_minus)) / (2 * eps)
-        return grad
+    # Compute symbolic gradient for each variable
+    grad_exprs = [gradient(expr, var) for var in variables]
     
-    return numerical_gradient
+    # Compile each gradient expression
+    grad_fns = [compile_expression(g, variables) for g in grad_exprs]
+    
+    def symbolic_gradient(x: NDArray[np.floating]) -> NDArray[np.floating]:
+        """Compute gradient using symbolic differentiation."""
+        return np.array([fn(x) for fn in grad_fns])
+    
+    return symbolic_gradient
 
 
 class CompiledExpression:
     """A compiled expression with both value and gradient evaluation.
     
     Provides a convenient interface for optimization solvers that need
-    both objective function and gradient.
+    both objective function and gradient. Uses symbolic differentiation
+    for exact gradient computation.
     """
     
     __slots__ = ("_expr", "_variables", "_value_fn", "_gradient_fn", "_var_names")
@@ -213,7 +218,7 @@ class CompiledExpression:
     ) -> tuple[float, NDArray[np.floating]]:
         """Compute both value and gradient at point x.
         
-        This can be more efficient when both are needed, as some
-        computations may be shared (in future symbolic gradient implementation).
+        Returns:
+            A tuple of (objective_value, gradient_array).
         """
         return self.value(x), self.gradient(x)
