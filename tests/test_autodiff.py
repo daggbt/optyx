@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from optyx import Variable, Constant, sin, cos, exp, log, sqrt, tanh
+from optyx import Variable, Constant, sin, cos, exp, log, sqrt, tanh, abs_
 from optyx.core.autodiff import (
     gradient,
     compute_jacobian,
@@ -10,6 +10,7 @@ from optyx.core.autodiff import (
     compile_jacobian,
     compile_hessian,
 )
+from optyx.core.compiler import compile_gradient
 from optyx.core.verification import (
     verify_gradient,
     gradient_check,
@@ -472,3 +473,83 @@ class TestGradientCaching:
         # Both should work and give same results
         point = {"x": 1.0}
         assert grad1.evaluate(point) == grad2.evaluate(point)
+
+
+class TestSingularityHandling:
+    """Tests for handling derivative singularities at x=0."""
+    
+    def test_abs_gradient_at_zero_returns_finite(self):
+        """d/dx(|x|) = x/|x| which is 0/0 at x=0. Should return 0 (subgradient)."""
+        x = Variable("x")
+        expr = abs_(x)
+        grad_fn = compile_gradient(expr, [x])
+        
+        result = grad_fn(np.array([0.0]))
+        
+        # Should be finite (0.0), not NaN
+        assert np.isfinite(result[0])
+        assert result[0] == 0.0
+    
+    def test_sqrt_gradient_at_zero_returns_large_finite(self):
+        """d/dx(sqrt(x)) = 1/(2*sqrt(x)) which is +Inf at x=0."""
+        x = Variable("x")
+        expr = sqrt(x)
+        grad_fn = compile_gradient(expr, [x])
+        
+        result = grad_fn(np.array([0.0]))
+        
+        # Should be finite (large positive), not Inf
+        assert np.isfinite(result[0])
+        assert result[0] > 0  # Preserves direction
+    
+    def test_log_gradient_at_zero_returns_large_finite(self):
+        """d/dx(log(x)) = 1/x which is +Inf at x=0."""
+        x = Variable("x")
+        expr = log(x)
+        grad_fn = compile_gradient(expr, [x])
+        
+        result = grad_fn(np.array([0.0]))
+        
+        # Should be finite (large positive), not Inf
+        assert np.isfinite(result[0])
+        assert result[0] > 0  # Preserves direction
+    
+    def test_jacobian_at_singularity_returns_finite(self):
+        """Jacobian should also handle singularities."""
+        x = Variable("x")
+        exprs = [sqrt(x), log(x)]
+        jac_fn = compile_jacobian(exprs, [x])
+        
+        result = jac_fn(np.array([0.0]))
+        
+        # All values should be finite
+        assert np.all(np.isfinite(result))
+    
+    def test_hessian_at_singularity_returns_finite(self):
+        """Hessian should also handle singularities."""
+        x = Variable("x")
+        expr = sqrt(x)  # Second derivative also has singularity at 0
+        hess_fn = compile_hessian(expr, [x])
+        
+        result = hess_fn(np.array([0.0]))
+        
+        # All values should be finite
+        assert np.all(np.isfinite(result))
+    
+    def test_optimization_through_singularity_does_not_crash(self):
+        """Solver should handle starting near singularities."""
+        from optyx import Problem
+        
+        x = Variable("x", lb=0.01)  # Avoid exact zero
+        y = Variable("y")
+        
+        # Objective with sqrt - could hit near-singularity
+        prob = Problem().minimize((sqrt(x) - 1)**2 + y**2)
+        
+        # Should not crash
+        sol = prob.solve()
+        
+        assert sol.is_optimal
+        # sqrt(x) = 1 means x = 1
+        assert abs(sol["x"] - 1.0) < 0.1
+        assert abs(sol["y"]) < 0.1

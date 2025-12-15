@@ -316,7 +316,7 @@ def compile_jacobian(
         A callable that takes a 1D array and returns the Jacobian as a 2D array.
     """
     import numpy as np
-    from optyx.core.compiler import compile_expression
+    from optyx.core.compiler import compile_expression, _sanitize_derivatives
     
     jacobian_exprs = compute_jacobian(exprs, variables)
     m = len(exprs)
@@ -333,7 +333,7 @@ def compile_jacobian(
         for i in range(m):
             for j in range(n):
                 result[i, j] = compiled_elements[i][j](x)
-        return result
+        return _sanitize_derivatives(result)
     
     return jacobian_fn
 
@@ -352,7 +352,7 @@ def compile_hessian(
         A callable that takes a 1D array and returns the Hessian as a 2D array.
     """
     import numpy as np
-    from optyx.core.compiler import compile_expression
+    from optyx.core.compiler import compile_expression, _sanitize_derivatives
     
     hessian_exprs = compute_hessian(expr, variables)
     n = len(variables)
@@ -371,7 +371,7 @@ def compile_hessian(
                 result[i, j] = val
                 if i != j:
                     result[j, i] = val  # Symmetry
-        return result
+        return _sanitize_derivatives(result)
     
     return hessian_fn
 

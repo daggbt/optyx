@@ -230,9 +230,30 @@ Optyx implements standard differentiation rules:
 | $e^x$ | $e^x$ |
 | $\ln(x)$ | $1/x$ |
 | $\sqrt{x}$ | $1/(2\sqrt{x})$ |
+| $\lvert x \rvert$ | $x/\lvert x \rvert$ |
 | $\tanh(x)$ | $1 - \tanh^2(x)$ |
 | $\sinh(x)$ | $\cosh(x)$ |
 | $\cosh(x)$ | $\sinh(x)$ |
+
+---
+
+## Singularity Handling
+
+Some derivative formulas produce undefined values at certain points:
+
+| Function | Derivative | Singularity |
+|----------|------------|-------------|
+| $\lvert x \rvert$ | $x/\lvert x \rvert$ | $0/0$ → NaN at $x=0$ |
+| $\sqrt{x}$ | $1/(2\sqrt{x})$ | $1/0$ → +Inf at $x=0$ |
+| $\ln(x)$ | $1/x$ | $1/0$ → +Inf at $x=0$ |
+
+**Optyx handles these automatically** when using compiled derivative functions (`compile_gradient`, `compile_jacobian`, `compile_hessian`):
+
+- **NaN** values are replaced with **0.0** (subgradient convention)
+- **+Inf** values are replaced with **+1e16** (large but finite)
+- **-Inf** values are replaced with **-1e16** (large but finite)
+
+This prevents solver crashes while preserving gradient direction. For best results, avoid exact singularities by using appropriate variable bounds (e.g., `lb=1e-6` instead of `lb=0`).
 
 ---
 
