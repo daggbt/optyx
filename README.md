@@ -5,8 +5,11 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-174%20passing-brightgreen.svg)](tests/)
+[![Docs](https://img.shields.io/badge/docs-online-blue.svg)](https://daggbt.github.io/optyx/)
 
 Write optimization problems in natural Python. Optyx handles the gradients, constraints, and solver plumbing for you.
+
+📚 **[Documentation](https://daggbt.github.io/optyx/)** · 🚀 **[Quickstart](https://daggbt.github.io/optyx/getting-started/quickstart.html)** · 📖 **[Tutorials](https://daggbt.github.io/optyx/tutorials/basic-optimization.html)** · 💡 **[Examples](https://daggbt.github.io/optyx/examples/portfolio.html)** · 📘 **[API Reference](https://daggbt.github.io/optyx/api/expressions.html)**
 
 ```python
 from optyx import Variable, Problem
@@ -299,6 +302,19 @@ Mean-variance optimization with efficient frontier.
 # 6 commodities, 12.47% return, 20% volatility
 # Automatic rebalancing on price shocks
 ```
+
+---
+
+## What's Next
+
+**Optyx is actively evolving.** Here's where we're heading:
+
+- **Larger problems** — Support for vector and matrix variables to handle optimization with thousands of decision variables
+- **Faster execution** — JIT-compiled backends for significant performance improvements on complex models
+- **More solvers** — Integration with industry-standard solvers like IPOPT for large-scale nonlinear optimization
+- **Smarter modeling** — Automatic problem classification, convexity detection, and solver recommendations
+- **Better debugging** — Infeasibility diagnostics, constraint violation reports, and model inspection tools
+- **Production-ready** — Warm starts, caching, and callbacks for real-time and iterative applications
 
 ---
 

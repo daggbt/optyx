@@ -159,11 +159,24 @@ print(f"Risk:    {solution.objective_value:.6f}")
 
 **API Reference:** [Expressions](api/expressions.qmd) · [Problem](api/problem.qmd) · [Solution](api/solution.qmd) · [Autodiff](api/autodiff.qmd)
 
-</div>
-</div>
+---
+
+## What's Next
+
+**Optyx is actively evolving.** Here's where we're heading:
+
+- **Larger problems** — Support for vector and matrix variables to handle optimization with thousands of decision variables
+- **Faster execution** — JIT-compiled backends for significant performance improvements on complex models
+- **More solvers** — Integration with industry-standard solvers like IPOPT for large-scale nonlinear optimization
+- **Smarter modeling** — Automatic problem classification, convexity detection, and solver recommendations
+- **Better debugging** — Infeasibility diagnostics, constraint violation reports, and model inspection tools
+- **Production-ready** — Warm starts, caching, and callbacks for real-time and iterative applications
 
 ---
 
 ## License
 
 Optyx is released under the [MIT License](https://github.com/daggbt/optyx/blob/main/LICENSE).
+
+</div>
+</div>
