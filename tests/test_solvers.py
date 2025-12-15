@@ -57,6 +57,54 @@ class TestIntegerBinaryWarning:
         assert sol.is_optimal
 
 
+class TestStrictMode:
+    """Tests for strict mode enforcement of integer/binary variables."""
+    
+    def test_strict_mode_raises_for_binary(self):
+        """strict=True should raise ValueError for binary variables."""
+        x = Variable("x", domain="binary")
+        prob = Problem().minimize((x - 0.5)**2)
+        
+        with pytest.raises(ValueError, match="integer/binary domains"):
+            prob.solve(strict=True)
+    
+    def test_strict_mode_raises_for_integer(self):
+        """strict=True should raise ValueError for integer variables."""
+        x = Variable("x", lb=0, ub=10, domain="integer")
+        prob = Problem().minimize((x - 3.7)**2)
+        
+        with pytest.raises(ValueError, match="integer/binary domains"):
+            prob.solve(strict=True)
+    
+    def test_strict_mode_ok_for_continuous(self):
+        """strict=True should not raise for continuous variables."""
+        x = Variable("x")
+        prob = Problem().minimize(x**2)
+        
+        # Should not raise
+        sol = prob.solve(strict=True)
+        assert sol.is_optimal
+    
+    def test_strict_false_still_warns(self):
+        """strict=False (default) should still emit warning."""
+        x = Variable("x", domain="binary")
+        prob = Problem().minimize((x - 0.5)**2)
+        
+        with pytest.warns(UserWarning, match="integer/binary domains"):
+            sol = prob.solve(strict=False)
+        
+        assert sol.is_optimal
+    
+    def test_error_message_includes_variable_names(self):
+        """Error message should list affected variable names."""
+        a = Variable("a", domain="binary")
+        b = Variable("b", domain="integer", lb=0, ub=5)
+        prob = Problem().minimize(a + b)
+        
+        with pytest.raises(ValueError, match=r"\[a, b\]"):
+            prob.solve(strict=True)
+
+
 class TestUnconstrainedOptimization:
     """Tests for unconstrained optimization problems."""
     

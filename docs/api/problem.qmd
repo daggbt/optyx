@@ -118,17 +118,20 @@ prob.subject_to(constraint)
 Solve the optimization problem.
 
 ```python
-solution = prob.solve(method="SLSQP", x0=None, tol=None, maxiter=None)
+solution = prob.solve(method="SLSQP", strict=False, x0=None, tol=None, maxiter=None)
 ```
 
 | Parameter | Type | Description | Default |
 |-----------|------|-------------|---------|
 | `method` | `str` | Solver method | `"SLSQP"` |
+| `strict` | `bool` | Raise error for unsupported features | `False` |
 | `x0` | `np.ndarray | None` | Initial point | Auto-generated |
 | `tol` | `float | None` | Solver tolerance | Solver default |
 | `maxiter` | `int | None` | Maximum iterations | Solver default |
 
 **Returns:** [`Solution`](solution.qmd)
+
+**Raises:** `ValueError` if `strict=True` and the problem contains features the solver cannot handle (e.g., integer/binary variables with SciPy).
 
 **Available methods:**
 
@@ -137,6 +140,25 @@ solution = prob.solve(method="SLSQP", x0=None, tol=None, maxiter=None)
 | `"SLSQP"` | Sequential Least Squares Programming | Equality + Inequality |
 | `"trust-constr"` | Trust-region constrained | Equality + Inequality |
 | `"L-BFGS-B"` | Limited-memory BFGS with bounds | Bounds only |
+
+---
+
+## Strict Mode
+
+Use `strict=True` to enforce that the solver can handle all problem features exactly:
+
+```python
+# Default: warn and relax integer/binary to continuous
+solution = prob.solve()  # Works, but may produce fractional values
+
+# Strict: fail if problem can't be solved exactly
+solution = prob.solve(strict=True)  # Raises ValueError for integer/binary
+```
+
+This is useful for production code where you want to ensure correctness:
+
+- **Prototyping:** Use `strict=False` (default) to quickly test ideas
+- **Production:** Use `strict=True` to catch unsupported configurations early
 
 ---
 
