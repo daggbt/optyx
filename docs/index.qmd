@@ -12,11 +12,13 @@ toc: false
 
 ## Installation
 
+### For Users
+
 ```bash
 pip install optyx
 ```
 
-### For developers
+### For Developers
 
 ```bash
 git clone https://github.com/daggbt/optyx.git

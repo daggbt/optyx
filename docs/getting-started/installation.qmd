@@ -3,9 +3,9 @@ title: "Installation"
 description: "How to install Optyx"
 ---
 
-## Quick Install
+## For Users
 
-Install Optyx directly from GitHub:
+Install Optyx from PyPI:
 ```bash
 pip install optyx
 ```

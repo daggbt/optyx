@@ -33,11 +33,14 @@ print(f"y* = {solution['y']:.4f}")  # 0.5000
 
 ## Installation
 
+### For Users
+
 ```bash
 pip install optyx
 ```
 
-Or for development:
+### For Developers
+
 ```bash
 git clone https://github.com/daggbt/optyx.git
 cd optyx
@@ -231,11 +234,13 @@ solution = Problem().minimize(rosenbrock).solve()
 
 | Class | Description |
 |-------|-------------|
-| `Variable(name, lb, ub)` | Decision variable with optional bounds |
+| `Variable(name, lb, ub, domain)` | Decision variable with optional bounds and domain |
 | `Constant(value)` | Fixed numeric value in expressions |
 | `Problem(name)` | Optimization problem container |
 | `Constraint` | Inequality or equality constraint |
 | `Solution` | Solver result with optimal values and metadata |
+
+> **Note:** The `domain` parameter accepts `"continuous"` (default), `"integer"`, or `"binary"`. Integer and binary domains are **relaxed to continuous** by the SciPy solver backend (a warning is emitted). For true mixed-integer programming, use PuLP or Pyomo.
 
 ### Functions
 
