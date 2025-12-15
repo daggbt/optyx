@@ -11,8 +11,6 @@ Problem:
   - Shovel dig rate capacity limits
   - Truck cycle time considerations
   - Crusher/dump destination capacity
-
-Target Audience: Mining operations roles at BHP, Fortescue, Rio Tinto
 """
 
 import numpy as np

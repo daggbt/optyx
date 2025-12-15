@@ -11,8 +11,6 @@ Problem:
   - Mining equipment capacity limits  
   - Grade blending constraints (min/max ore grade)
   - Precedence constraints (can't mine lower blocks before upper blocks)
-
-Target Audience: Mining operations roles at BHP, Fortescue, Rio Tinto
 """
 
 import numpy as np

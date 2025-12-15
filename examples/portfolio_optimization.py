@@ -11,8 +11,6 @@ Problem:
   - No short selling (non-negative weights)
   - Risk constraint (portfolio variance limit)
   - Optional sector exposure limits
-
-Target Audience: Quant finance roles
 """
 
 import numpy as np
