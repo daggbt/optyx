@@ -374,3 +374,8 @@ def compile_hessian(
         return result
     
     return hessian_fn
+
+
+# Aliases for convenience
+jacobian = compute_jacobian
+hessian = compute_hessian
