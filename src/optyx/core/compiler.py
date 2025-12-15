@@ -11,6 +11,30 @@ from typing import TYPE_CHECKING, Callable
 
 import numpy as np
 
+# Large but finite value to replace infinities in gradients.
+# This prevents solver crashes while maintaining gradient direction.
+_LARGE_GRADIENT = 1e16
+
+
+def _sanitize_derivatives(arr: np.ndarray) -> np.ndarray:
+    """Replace NaN and Inf values in derivative arrays.
+    
+    This handles singularities that occur at points like x=0 for:
+    - abs(x): derivative is x/|x|, which is 0/0 = NaN at x=0
+    - sqrt(x): derivative is 1/(2*sqrt(x)), which is Inf at x=0
+    - log(x): derivative is 1/x, which is Inf at x=0
+    
+    The replacement strategy:
+    - NaN → 0.0 (e.g., for abs(0), use subgradient 0)
+    - +Inf → +1e16 (large but finite, preserves direction)
+    - -Inf → -1e16 (large but finite, preserves direction)
+    
+    This allows solvers to continue without crashing, though users
+    should avoid regions where these singularities occur if possible.
+    """
+    return np.nan_to_num(arr, nan=0.0, posinf=_LARGE_GRADIENT, neginf=-_LARGE_GRADIENT)
+
+
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
@@ -170,7 +194,8 @@ def compile_gradient(
     
     def symbolic_gradient(x: NDArray[np.floating]) -> NDArray[np.floating]:
         """Compute gradient using symbolic differentiation."""
-        return np.array([fn(x) for fn in grad_fns])
+        raw = np.array([fn(x) for fn in grad_fns])
+        return _sanitize_derivatives(raw)
     
     return symbolic_gradient
 
