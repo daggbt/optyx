@@ -1,10 +1,9 @@
 """Tests for the constraint system."""
 
 import pytest
-import numpy as np
 
-from optyx import Variable, Constant
-from optyx.constraints import Constraint, _make_constraint
+from optyx import Variable
+from optyx.constraints import Constraint
 
 
 class TestConstraintCreation:

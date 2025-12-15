@@ -1,9 +1,8 @@
 """Tests for automatic differentiation."""
 
 import numpy as np
-import pytest
 
-from optyx import Variable, Constant, sin, cos, tan, exp, log, sqrt, abs_, tanh, sinh, cosh
+from optyx import Variable, Constant, sin, cos, exp, log, sqrt, tanh
 from optyx.core.autodiff import (
     gradient,
     compute_jacobian,
@@ -12,7 +11,6 @@ from optyx.core.autodiff import (
     compile_hessian,
 )
 from optyx.core.verification import (
-    numerical_gradient,
     verify_gradient,
     gradient_check,
 )

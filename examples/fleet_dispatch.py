@@ -101,7 +101,7 @@ for i in range(n_shovels):
     truck_rate = x[i] * truck_payload * 60 / cycle_times[i]
     throughput = throughput + truck_rate
 
-print(f"Objective: Maximize total throughput (t/h)")
+print("Objective: Maximize total throughput (t/h)")
 
 # =============================================================================
 # Constraints
@@ -175,7 +175,7 @@ print("-" * 62)
 print(f"{'TOTAL':<15} {sum(solution[f'trucks_{i}'] for i in range(n_shovels)):>8.1f} "
       f"{solution.objective_value:>10.0f} t/h")
 
-print(f"\n📈 Performance Summary:")
+print("\n📈 Performance Summary:")
 print(f"  Total throughput: {solution.objective_value:,.0f} t/h")
 print(f"  Crusher utilization: {solution.objective_value / crusher_capacity * 100:.1f}%")
 print(f"  Fleet utilization: {sum(solution[f'trucks_{i}'] for i in range(n_shovels)) / n_trucks * 100:.1f}%")
@@ -222,7 +222,7 @@ reopt_time = time.perf_counter() - start
 
 print(f"Re-optimization time: {reopt_time*1000:.1f} ms  ⚡ Fast enough for real-time dispatch")
 
-print(f"\n📊 Updated Fleet Assignment")
+print("\n📊 Updated Fleet Assignment")
 print(f"\n{'Shovel':<15} {'Before':>8} {'After':>8} {'Change':>10}")
 print("-" * 45)
 
@@ -235,7 +235,7 @@ for i in range(n_shovels):
 
 print("-" * 45)
 throughput_loss = solution.objective_value - solution2.objective_value
-print(f"\n📉 Impact Analysis:")
+print("\n📉 Impact Analysis:")
 print(f"  Original throughput: {solution.objective_value:,.0f} t/h")
 print(f"  New throughput: {solution2.objective_value:,.0f} t/h")
 print(f"  Throughput loss: {throughput_loss:,.0f} t/h ({throughput_loss/solution.objective_value*100:.1f}%)")
@@ -276,9 +276,9 @@ print(f"  New throughput: {solution3.objective_value:,.0f} t/h")
 print(f"  Improvement: +{improvement:,.0f} t/h ({improvement/solution.objective_value*100:.1f}%)")
 
 if improvement < 100:
-    print(f"\n  ⚠️  Limited improvement - shovels or crusher may be the bottleneck")
+    print("\n  ⚠️  Limited improvement - shovels or crusher may be the bottleneck")
 else:
-    print(f"\n  ✅ Significant improvement - trucks were the bottleneck")
+    print("\n  ✅ Significant improvement - trucks were the bottleneck")
 
 print("\n" + "=" * 70)
 print("Demo complete! This model can be extended with:")

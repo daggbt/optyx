@@ -3,7 +3,6 @@
 import time
 
 import numpy as np
-import pytest
 
 from optyx import Variable, sin, cos, exp, log, sqrt
 from optyx.core.compiler import (

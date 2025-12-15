@@ -1,7 +1,9 @@
 """Test script to demonstrate Phase 1 and Phase 2 implementations."""
 
+import time
+
 import numpy as np
-from optyx import Variable, Constant, sin, cos, exp, log, sqrt, tanh
+from optyx import Variable, sin, exp, log
 from optyx.core.compiler import compile_expression, CompiledExpression
 from optyx.core.autodiff import gradient, compute_jacobian, compute_hessian, compile_jacobian, compile_hessian
 from optyx.core.verification import verify_gradient, gradient_check
@@ -23,7 +25,7 @@ y = Variable("y", lb=0)
 # Build expressions using natural Python syntax
 expr = 2*x**2 + 3*y**2 + sin(x*y) + exp(-x) * log(y + 1)
 
-print(f"Expression: 2*x² + 3*y² + sin(x*y) + exp(-x)*log(y+1)")
+print("Expression: 2*x² + 3*y² + sin(x*y) + exp(-x)*log(y+1)")
 print(f"Variables: {[v.name for v in expr.get_variables()]}")
 
 # Evaluate at a point
@@ -50,7 +52,7 @@ print(f"\n∂f/∂x at (1.5, 2.5): {grad_x.evaluate(point):.6f}")
 print(f"∂f/∂y at (1.5, 2.5): {grad_y.evaluate(point):.6f}")
 
 # Verify against numerical gradient
-print(f"\nGradient verification (symbolic vs numerical):")
+print("\nGradient verification (symbolic vs numerical):")
 print(f"  ∂f/∂x matches: {verify_gradient(expr, x, point)}")
 print(f"  ∂f/∂y matches: {verify_gradient(expr, y, point)}")
 
@@ -69,8 +71,8 @@ test_x = 1.0
 analytical = np.cos(test_x**2) * 2 * test_x
 computed = df_dx.evaluate({"x": test_x, "y": 0})
 
-print(f"f(x) = sin(x²)")
-print(f"df/dx = cos(x²) * 2x")
+print("f(x) = sin(x²)")
+print("df/dx = cos(x²) * 2x")
 print(f"At x=1: analytical = {analytical:.6f}, computed = {computed:.6f}")
 
 # =============================================================================
@@ -84,8 +86,8 @@ g1 = x**2 + y - 10
 g2 = x * y - 5
 
 jacobian = compute_jacobian([g1, g2], [x, y])
-print(f"Constraints: g1 = x² + y - 10, g2 = x*y - 5")
-print(f"\nJacobian matrix at (2, 3):")
+print("Constraints: g1 = x² + y - 10, g2 = x*y - 5")
+print("\nJacobian matrix at (2, 3):")
 
 jac_point = {"x": 2.0, "y": 3.0}
 print(f"  J[0,0] = ∂g1/∂x = 2x = {jacobian[0][0].evaluate(jac_point):.1f}")
@@ -106,12 +108,12 @@ print("-" * 40)
 
 # Quadratic: f(x,y) = x² + 2xy + 3y²
 quad = x**2 + 2*x*y + 3*y**2
-print(f"f(x,y) = x² + 2xy + 3y²")
+print("f(x,y) = x² + 2xy + 3y²")
 
 hessian = compute_hessian(quad, [x, y])
 hess_point = {"x": 1.0, "y": 1.0}
 
-print(f"\nHessian matrix (constant for quadratic):")
+print("\nHessian matrix (constant for quadratic):")
 print(f"  H[0,0] = ∂²f/∂x² = 2  : {hessian[0][0].evaluate(hess_point):.1f}")
 print(f"  H[0,1] = ∂²f/∂x∂y = 2 : {hessian[0][1].evaluate(hess_point):.1f}")
 print(f"  H[1,0] = ∂²f/∂y∂x = 2 : {hessian[1][0].evaluate(hess_point):.1f}")
@@ -132,20 +134,20 @@ print("-" * 40)
 # Minimum at (1, 1)
 rosenbrock = (1 - x)**2 + 100*(y - x**2)**2
 
-print(f"f(x,y) = (1-x)² + 100(y-x²)²")
-print(f"Known minimum at (1, 1)")
+print("f(x,y) = (1-x)² + 100(y-x²)²")
+print("Known minimum at (1, 1)")
 
 # Check gradient at minimum
 grad_x_ros = gradient(rosenbrock, x)
 grad_y_ros = gradient(rosenbrock, y)
 
 min_point = {"x": 1.0, "y": 1.0}
-print(f"\nGradient at minimum (1, 1):")
+print("\nGradient at minimum (1, 1):")
 print(f"  ∂f/∂x = {grad_x_ros.evaluate(min_point):.6f} (should be 0)")
 print(f"  ∂f/∂y = {grad_y_ros.evaluate(min_point):.6f} (should be 0)")
 
 # Gradient check
-print(f"\nGradient check (100 random samples):")
+print("\nGradient check (100 random samples):")
 # Use looser tolerance for Rosenbrock due to high curvature (100x multiplier)
 result = gradient_check(rosenbrock, [x, y], n_samples=100, bounds=(0.1, 5.0), tol=1e-3, seed=42)
 print(f"  {result}")
@@ -155,8 +157,6 @@ print(f"  {result}")
 # =============================================================================
 print("\n⚡ Performance Comparison")
 print("-" * 40)
-
-import time
 
 n_iters = 50000
 
@@ -187,12 +187,12 @@ for _ in range(n_iters):
 compiled_grad_time = time.perf_counter() - start
 
 print(f"Iterations: {n_iters:,}")
-print(f"\nValue evaluation:")
+print("\nValue evaluation:")
 print(f"  Tree-walk:  {eval_time:.3f}s ({n_iters/eval_time:,.0f}/sec)")
 print(f"  Compiled:   {compiled_time:.3f}s ({n_iters/compiled_time:,.0f}/sec)")
 print(f"  Speedup:    {eval_time/compiled_time:.2f}x")
 
-print(f"\nGradient evaluation:")
+print("\nGradient evaluation:")
 print(f"  Symbolic:   {grad_eval_time:.3f}s ({n_iters/grad_eval_time:,.0f}/sec)")
 print(f"  Numerical:  {compiled_grad_time:.3f}s ({n_iters/compiled_grad_time:,.0f}/sec)")
 

@@ -4,7 +4,6 @@ import pytest
 
 from optyx import Variable
 from optyx.problem import Problem
-from optyx.constraints import Constraint
 
 
 class TestProblemCreation:

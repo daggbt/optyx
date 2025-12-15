@@ -6,7 +6,6 @@ import numpy as np
 
 from optyx import Variable
 from optyx.problem import Problem
-from optyx.solution import SolverStatus
 
 
 class TestIntegerBinaryWarning:

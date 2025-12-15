@@ -90,15 +90,15 @@ def _build_evaluator(
         op = expr.op
         
         if op == "+":
-            return lambda x, l=left_fn, r=right_fn: l(x) + r(x)
+            return lambda x, lf=left_fn, rf=right_fn: lf(x) + rf(x)
         elif op == "-":
-            return lambda x, l=left_fn, r=right_fn: l(x) - r(x)
+            return lambda x, lf=left_fn, rf=right_fn: lf(x) - rf(x)
         elif op == "*":
-            return lambda x, l=left_fn, r=right_fn: l(x) * r(x)
+            return lambda x, lf=left_fn, rf=right_fn: lf(x) * rf(x)
         elif op == "/":
-            return lambda x, l=left_fn, r=right_fn: l(x) / r(x)
+            return lambda x, lf=left_fn, rf=right_fn: lf(x) / rf(x)
         elif op == "**":
-            return lambda x, l=left_fn, r=right_fn: l(x) ** r(x)
+            return lambda x, lf=left_fn, rf=right_fn: lf(x) ** rf(x)
         else:
             raise ValueError(f"Unknown binary operator: {op}")
     
@@ -161,8 +161,6 @@ def compile_gradient(
         >>> grad_fn(np.array([3.0, 4.0]))  # Returns [6.0, 8.0]
     """
     from optyx.core.autodiff import gradient
-    
-    n = len(variables)
     
     # Compute symbolic gradient for each variable
     grad_exprs = [gradient(expr, var) for var in variables]

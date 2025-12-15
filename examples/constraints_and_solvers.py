@@ -27,7 +27,7 @@ prob = Problem()
 prob.minimize(x**2 + y**2)
 prob.subject_to(x + y >= 1)
 
-print(f"Problem: min x² + y² s.t. x + y ≥ 1, x,y ≥ 0")
+print("Problem: min x² + y² s.t. x + y ≥ 1, x,y ≥ 0")
 print(f"Variables: {[v.name for v in prob.variables]}")
 print(f"Constraints: {prob.n_constraints}")
 
@@ -54,7 +54,7 @@ prob2 = (
     .subject_to(y <= 3)
 )
 
-print(f"Problem: max x + 2y s.t. x + y ≤ 4, x ≤ 2, y ≤ 3")
+print("Problem: max x + 2y s.t. x + y ≤ 4, x ≤ 2, y ≤ 3")
 
 sol2 = prob2.solve()
 print(f"\nSolution: {sol2.status.value}")
@@ -78,7 +78,7 @@ prob3 = (
     .subject_to((a + b).constraint_eq(2))
 )
 
-print(f"Problem: min a² + b² s.t. a + b = 2")
+print("Problem: min a² + b² s.t. a + b = 2")
 
 sol3 = prob3.solve()
 print(f"\nSolution: {sol3.status.value}")
@@ -99,8 +99,8 @@ r_y = Variable("y")
 rosenbrock = (1 - r_x)**2 + 100*(r_y - r_x**2)**2
 
 prob4 = Problem().minimize(rosenbrock)
-print(f"Problem: min (1-x)² + 100(y-x²)²")
-print(f"Known optimum: (1, 1) with objective = 0")
+print("Problem: min (1-x)² + 100(y-x²)²")
+print("Known optimum: (1, 1) with objective = 0")
 
 sol4 = prob4.solve()
 print(f"\nSolution: {sol4.status.value}")

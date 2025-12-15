@@ -117,15 +117,15 @@ prob1.subject_to(sum(w[i] for i in range(n_assets)) >= 0.99)  # Approximately eq
 variance_expr = portfolio_variance(w, covariance)
 prob1.subject_to(variance_expr <= target_variance)
 
-print(f"\nConstraints:")
-print(f"  • Budget: Fully invested (Σw = 1)")
+print("\nConstraints:")
+print("  • Budget: Fully invested (Σw = 1)")
 print(f"  • Risk: Volatility ≤ {target_volatility*100:.0f}%")
-print(f"  • No short selling: w ≥ 0")
+print("  • No short selling: w ≥ 0")
 
 # Solve
 solution1 = prob1.solve(method="trust-constr")
 
-print(f"\n🎯 Optimal Portfolio (Max Return):")
+print("\n🎯 Optimal Portfolio (Max Return):")
 print(f"{'Commodity':<12} {'Weight':>10} {'Contribution':>14}")
 print("-" * 38)
 
@@ -149,7 +149,7 @@ port_var = sum(
 port_vol = np.sqrt(port_var)
 port_sharpe = (port_return - risk_free_rate) / port_vol
 
-print(f"\n📊 Portfolio Metrics:")
+print("\n📊 Portfolio Metrics:")
 print(f"  Expected Return: {port_return*100:.2f}%")
 print(f"  Volatility: {port_vol*100:.2f}%")
 print(f"  Sharpe Ratio: {port_sharpe:.2f}")
@@ -185,14 +185,14 @@ prob2.subject_to(sum(w2[i] for i in range(n_assets)) >= 0.99)
 exp_return2 = portfolio_return(w2, expected_returns)
 prob2.subject_to(exp_return2 >= target_return)
 
-print(f"\nConstraints:")
-print(f"  • Budget: Fully invested (Σw = 1)")
+print("\nConstraints:")
+print("  • Budget: Fully invested (Σw = 1)")
 print(f"  • Return: Expected return ≥ {target_return*100:.0f}%")
-print(f"  • No short selling: w ≥ 0")
+print("  • No short selling: w ≥ 0")
 
 solution2 = prob2.solve(method="trust-constr")
 
-print(f"\n🎯 Optimal Portfolio (Min Variance):")
+print("\n🎯 Optimal Portfolio (Min Variance):")
 print(f"{'Commodity':<12} {'Weight':>10}")
 print("-" * 24)
 
@@ -207,7 +207,7 @@ port_var2 = -solution2.objective_value if solution2.objective_value < 0 else sol
 port_vol2 = np.sqrt(port_var2)
 port_sharpe2 = (port_return2 - risk_free_rate) / port_vol2
 
-print(f"\n📊 Portfolio Metrics:")
+print("\n📊 Portfolio Metrics:")
 print(f"  Expected Return: {port_return2*100:.2f}%")
 print(f"  Volatility: {port_vol2*100:.2f}%")
 print(f"  Sharpe Ratio: {port_sharpe2:.2f}")
@@ -286,7 +286,7 @@ for row in grid[1:-1]:
 print(f"  {min_ret*100:5.1f}% │{''.join(grid[-1])}")
 print(f"        └{'─' * width}")
 print(f"         {min_vol*100:5.1f}%{' ' * (width-12)}{max_vol*100:5.1f}%")
-print(f"                    Volatility →")
+print("                    Volatility →")
 
 # Print data table
 print("\n  Efficient Frontier Data:")
@@ -325,7 +325,7 @@ prob3.subject_to(variance_expr3 <= target_variance)
 
 solution3 = prob3.solve(method="trust-constr")
 
-print(f"\n📊 Portfolio Rebalancing:")
+print("\n📊 Portfolio Rebalancing:")
 print(f"{'Commodity':<12} {'Before':>10} {'After':>10} {'Change':>10}")
 print("-" * 45)
 
@@ -345,7 +345,7 @@ new_var = sum(
 )
 new_vol = np.sqrt(new_var)
 
-print(f"\n📉 Impact:")
+print("\n📉 Impact:")
 print(f"  Return: {port_return*100:.2f}% → {new_return*100:.2f}% (Δ {(new_return-port_return)*100:+.2f}%)")
 print(f"  Volatility: {port_vol*100:.2f}% → {new_vol*100:.2f}%")
 
