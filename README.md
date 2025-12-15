@@ -54,7 +54,7 @@ uv sync  # or: pip install -e .
 | **Automatic gradients** | ✅ Built-in | ❌ Manual/finite diff | ✅ For convex | ❌ Manual |
 | **No solver install** | ✅ Uses SciPy | ✅ | ❌ Needs solvers | ❌ Needs solvers |
 | **Inspect expressions** | ✅ Symbolic trees | ❌ | ⚠️ Limited | ⚠️ Limited |
-| **Fast re-optimization** | ✅ ~3ms | ✅ | ✅ | ⚠️ Slower |
+| **Fast re-optimization** | ✅ Fast | ✅ | ✅ | ⚠️ Slower |
 | **Learning curve** | Low | Medium | Medium | High |
 
 **Optyx is ideal when you want:**
