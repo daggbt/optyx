@@ -23,6 +23,7 @@ def solve_scipy(
     x0: np.ndarray | None = None,
     tol: float | None = None,
     maxiter: int | None = None,
+    use_hessian: bool = True,
     **kwargs: Any,
 ) -> Solution:
     """Solve an optimization problem using SciPy.
@@ -36,14 +37,23 @@ def solve_scipy(
         x0: Initial point. If None, uses midpoint of bounds or zeros.
         tol: Solver tolerance.
         maxiter: Maximum number of iterations.
+        use_hessian: Whether to compute and pass the symbolic Hessian to methods
+            that support it (trust-constr, Newton-CG, etc.). Default True.
+            Set to False if Hessian computation is too expensive.
         **kwargs: Additional arguments passed to scipy.optimize.minimize.
         
     Returns:
         Solution object with optimization results.
     """
-    from optyx.core.autodiff import compile_jacobian
+    from optyx.core.autodiff import compile_hessian, compile_jacobian
     from optyx.core.compiler import compile_expression
     from optyx.solution import Solution, SolverStatus
+    
+    # Methods that support Hessian
+    HESSIAN_METHODS = {"trust-constr", "Newton-CG", "dogleg", "trust-ncg", "trust-exact"}
+    
+    # Methods that support bounds
+    BOUNDS_METHODS = {"L-BFGS-B", "TNC", "SLSQP", "Powell", "trust-constr", "Nelder-Mead"}
     
     variables = problem.variables
     n = len(variables)
@@ -79,6 +89,14 @@ def solve_scipy(
     
     def gradient(x: np.ndarray) -> np.ndarray:
         return grad_fn(x).flatten()
+    
+    # Build Hessian for methods that support it
+    hess_fn = None
+    if use_hessian and method in HESSIAN_METHODS:
+        compiled_hess = compile_hessian(obj_expr, variables)
+        
+        def hess_fn(x: np.ndarray) -> np.ndarray:
+            return compiled_hess(x)
     
     # Build bounds
     bounds = []
@@ -149,7 +167,8 @@ def solve_scipy(
             x0=x0,
             method=method,
             jac=gradient,
-            bounds=bounds if bounds else None,
+            hess=hess_fn,
+            bounds=bounds if bounds and method in BOUNDS_METHODS else None,
             constraints=scipy_constraints if scipy_constraints else (),
             tol=tol,
             options=options if options else None,

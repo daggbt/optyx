@@ -310,3 +310,75 @@ class TestEdgeCases:
         repr_str = repr(sol)
         assert "Solution" in repr_str
         assert "optimal" in repr_str
+
+
+class TestHessianIntegration:
+    """Tests for Hessian support with trust-region methods."""
+    
+    def test_trust_constr_with_hessian(self):
+        """trust-constr method should use symbolic Hessian by default."""
+        x = Variable("x")
+        y = Variable("y")
+        # Rosenbrock function - benefits from Hessian
+        rosenbrock = (1 - x)**2 + 100*(y - x**2)**2
+        prob = Problem().minimize(rosenbrock)
+        
+        sol = prob.solve(method="trust-constr")
+        
+        assert sol.is_optimal
+        assert abs(sol["x"] - 1.0) < 1e-3
+        assert abs(sol["y"] - 1.0) < 1e-3
+    
+    def test_trust_constr_without_hessian(self):
+        """trust-constr with use_hessian=False should still work."""
+        x = Variable("x")
+        y = Variable("y")
+        rosenbrock = (1 - x)**2 + 100*(y - x**2)**2
+        prob = Problem().minimize(rosenbrock)
+        
+        sol = prob.solve(method="trust-constr", use_hessian=False)
+        
+        assert sol.is_optimal
+        assert abs(sol["x"] - 1.0) < 1e-3
+        assert abs(sol["y"] - 1.0) < 1e-3
+    
+    def test_newton_cg_with_hessian(self):
+        """Newton-CG method should use symbolic Hessian."""
+        x = Variable("x")
+        y = Variable("y")
+        # Simple quadratic - easy for Newton-CG
+        quadratic = x**2 + y**2
+        prob = Problem().minimize(quadratic)
+        
+        sol = prob.solve(method="Newton-CG")
+        
+        assert sol.is_optimal
+        assert abs(sol["x"]) < 1e-5
+        assert abs(sol["y"]) < 1e-5
+    
+    def test_slsqp_ignores_hessian(self):
+        """SLSQP doesn't use Hessian, should still work."""
+        x = Variable("x")
+        prob = Problem().minimize((x - 3)**2)
+        
+        sol = prob.solve(method="SLSQP")
+        
+        assert sol.is_optimal
+        assert abs(sol["x"] - 3.0) < 1e-5
+    
+    def test_hessian_with_constraints(self):
+        """trust-constr with Hessian and constraints."""
+        x = Variable("x", lb=0)
+        y = Variable("y", lb=0)
+        
+        prob = (
+            Problem()
+            .minimize(x**2 + y**2)
+            .subject_to(x + y >= 1)
+        )
+        
+        sol = prob.solve(method="trust-constr")
+        
+        assert sol.is_optimal
+        assert abs(sol["x"] - 0.5) < 1e-3
+        assert abs(sol["y"] - 0.5) < 1e-3
