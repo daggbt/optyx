@@ -82,6 +82,11 @@ Optyx excels at **nonlinear programming (NLP)** problems where you want automati
 - Multi-period planning with NPV optimization
 - Equipment assignment and dispatch optimization
 
+### Infrastructure Asset Management
+- Road maintenance budget optimization
+- Non-linear deterioration and satisfaction models
+- Multi-period rehabilitation planning
+
 ### Portfolio & Risk Optimization
 - Mean-variance portfolio optimization
 - Risk-constrained return maximization
@@ -98,7 +103,7 @@ Optyx excels at **nonlinear programming (NLP)** problems where you want automati
 - Blending and mixing problems
 - Facility location and routing
 
-*See the [examples/](examples/) folder for complete working demos in mining operations and quantitative finance.*
+*See the [examples/](examples/) folder for complete working demos in mining operations, infrastructure asset management, and quantitative finance.*
 
 ---
 
@@ -117,7 +122,16 @@ f = 2*x**2 + 3*y**2 + sin(x*y) + exp(-x) * log(y + 1)
 print(f.evaluate({"x": 1.5, "y": 2.5}))  # 22.957968
 ```
 
-**Supported functions:** `sin`, `cos`, `tan`, `exp`, `log`, `sqrt`, `abs_`, `tanh`, `sinh`, `cosh`
+**Supported functions:**
+
+| Category | Functions |
+|----------|-----------|
+| Trigonometric | `sin`, `cos`, `tan` |
+| Inverse Trig | `asin`, `acos`, `atan` |
+| Exponential | `exp`, `log`, `log2`, `log10`, `sqrt` |
+| Hyperbolic | `sinh`, `cosh`, `tanh` |
+| Inverse Hyperbolic | `asinh`, `acosh`, `atanh` |
+| Other | `abs_` |
 
 ### ✅ Automatic Differentiation
 Symbolic gradients via chain rule. No manual derivatives.
@@ -244,12 +258,14 @@ solution = Problem().minimize(rosenbrock).solve()
 
 ### Functions
 
-| Function | Description |
-|----------|-------------|
-| `sin`, `cos`, `tan` | Trigonometric functions |
-| `exp`, `log` | Exponential and natural logarithm |
-| `sqrt`, `abs_` | Square root and absolute value |
-| `sinh`, `cosh`, `tanh` | Hyperbolic functions |
+| Category | Functions |
+|----------|-----------|
+| Trigonometric | `sin`, `cos`, `tan` |
+| Inverse Trig | `asin`, `acos`, `atan` |
+| Exponential | `exp`, `log`, `log2`, `log10`, `sqrt` |
+| Hyperbolic | `sinh`, `cosh`, `tanh` |
+| Inverse Hyperbolic | `asinh`, `acosh`, `atanh` |
+| Other | `abs_` |
 
 ### Autodiff
 
@@ -282,6 +298,9 @@ uv run python examples/fleet_dispatch.py
 
 # Portfolio optimization (mean-variance, efficient frontier)
 uv run python examples/portfolio_optimization.py
+
+# Road maintenance budget optimization
+uv run python examples/road_maintenance.py
 ```
 
 ### Domain-Specific Demos
@@ -306,6 +325,14 @@ Mean-variance optimization with efficient frontier.
 ```python
 # 6 commodities, 12.47% return, 20% volatility
 # Automatic rebalancing on price shocks
+```
+
+#### 🛣️ Road Maintenance Optimization
+Budget allocation with non-linear deterioration and satisfaction models.
+```python
+# 5 roads, $10M budget, nested sigmoid/exponential objective
+# Auto-diff computes gradients through complex chain rule
+solution = prob.solve()  # I-95: $5M, Main St: $0 (optimal)
 ```
 
 ---

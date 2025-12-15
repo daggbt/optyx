@@ -240,10 +240,18 @@ class UnaryOp(Expression):
         "tan": np.tan,
         "exp": np.exp,
         "log": np.log,
+        "log2": np.log2,
+        "log10": np.log10,
         "sqrt": np.sqrt,
         "tanh": np.tanh,
         "sinh": np.sinh,
         "cosh": np.cosh,
+        "asin": np.arcsin,
+        "acos": np.arccos,
+        "atan": np.arctan,
+        "asinh": np.arcsinh,
+        "acosh": np.arccosh,
+        "atanh": np.arctanh,
     }
 
     def __init__(self, operand: Expression, op: str) -> None:

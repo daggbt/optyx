@@ -37,6 +37,8 @@ website:
             href: examples/fleet-dispatch.qmd
           - text: "Mine Scheduling"
             href: examples/mine-scheduling.qmd
+          - text: "Road Maintenance"
+            href: examples/road-maintenance.qmd
           - text: "Rosenbrock Function"
             href: examples/rosenbrock.qmd
       - text: "API Reference"
@@ -76,6 +78,7 @@ website:
         - examples/portfolio.qmd
         - examples/fleet-dispatch.qmd
         - examples/mine-scheduling.qmd
+        - examples/road-maintenance.qmd
         - examples/rosenbrock.qmd
     
     - title: "API Reference"

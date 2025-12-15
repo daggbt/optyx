@@ -134,3 +134,111 @@ def cosh(x: Expression | float) -> UnaryOp:
         Expression representing cosh(x).
     """
     return UnaryOp(_ensure_expr(x), "cosh")
+
+
+# =============================================================================
+# Inverse Trigonometric Functions
+# =============================================================================
+
+def asin(x: Expression | float) -> UnaryOp:
+    """Inverse sine (arcsine).
+    
+    Args:
+        x: Expression or numeric value in [-1, 1].
+        
+    Returns:
+        Expression representing arcsin(x), result in [-π/2, π/2].
+    """
+    return UnaryOp(_ensure_expr(x), "asin")
+
+
+def acos(x: Expression | float) -> UnaryOp:
+    """Inverse cosine (arccosine).
+    
+    Args:
+        x: Expression or numeric value in [-1, 1].
+        
+    Returns:
+        Expression representing arccos(x), result in [0, π].
+    """
+    return UnaryOp(_ensure_expr(x), "acos")
+
+
+def atan(x: Expression | float) -> UnaryOp:
+    """Inverse tangent (arctangent).
+    
+    Args:
+        x: Expression or numeric value.
+        
+    Returns:
+        Expression representing arctan(x), result in (-π/2, π/2).
+    """
+    return UnaryOp(_ensure_expr(x), "atan")
+
+
+# =============================================================================
+# Inverse Hyperbolic Functions
+# =============================================================================
+
+def asinh(x: Expression | float) -> UnaryOp:
+    """Inverse hyperbolic sine.
+    
+    Args:
+        x: Expression or numeric value.
+        
+    Returns:
+        Expression representing arcsinh(x).
+    """
+    return UnaryOp(_ensure_expr(x), "asinh")
+
+
+def acosh(x: Expression | float) -> UnaryOp:
+    """Inverse hyperbolic cosine.
+    
+    Args:
+        x: Expression or numeric value >= 1.
+        
+    Returns:
+        Expression representing arccosh(x).
+    """
+    return UnaryOp(_ensure_expr(x), "acosh")
+
+
+def atanh(x: Expression | float) -> UnaryOp:
+    """Inverse hyperbolic tangent.
+    
+    Args:
+        x: Expression or numeric value in (-1, 1).
+        
+    Returns:
+        Expression representing arctanh(x).
+    """
+    return UnaryOp(_ensure_expr(x), "atanh")
+
+
+# =============================================================================
+# Additional Logarithm Bases
+# =============================================================================
+
+def log2(x: Expression | float) -> UnaryOp:
+    """Base-2 logarithm.
+    
+    Args:
+        x: Expression or numeric value (must be positive).
+        
+    Returns:
+        Expression representing log₂(x).
+    """
+    return UnaryOp(_ensure_expr(x), "log2")
+
+
+def log10(x: Expression | float) -> UnaryOp:
+    """Base-10 logarithm.
+    
+    Args:
+        x: Expression or numeric value (must be positive).
+        
+    Returns:
+        Expression representing log₁₀(x).
+    """
+    return UnaryOp(_ensure_expr(x), "log10")

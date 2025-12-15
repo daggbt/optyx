@@ -222,6 +222,8 @@ Optyx implements standard differentiation rules:
 
 ### Function Derivatives
 
+#### Basic Functions
+
 | Function | Derivative |
 |----------|------------|
 | $\sin(x)$ | $\cos(x)$ |
@@ -229,11 +231,34 @@ Optyx implements standard differentiation rules:
 | $\tan(x)$ | $\sec^2(x) = 1/\cos^2(x)$ |
 | $e^x$ | $e^x$ |
 | $\ln(x)$ | $1/x$ |
+| $\log_2(x)$ | $1/(x \ln 2)$ |
+| $\log_{10}(x)$ | $1/(x \ln 10)$ |
 | $\sqrt{x}$ | $1/(2\sqrt{x})$ |
 | $\lvert x \rvert$ | $x/\lvert x \rvert$ |
+
+#### Hyperbolic Functions
+
+| Function | Derivative |
+|----------|------------|
 | $\tanh(x)$ | $1 - \tanh^2(x)$ |
 | $\sinh(x)$ | $\cosh(x)$ |
 | $\cosh(x)$ | $\sinh(x)$ |
+
+#### Inverse Trigonometric Functions
+
+| Function | Derivative |
+|----------|------------|
+| $\arcsin(x)$ | $1/\sqrt{1-x^2}$ |
+| $\arccos(x)$ | $-1/\sqrt{1-x^2}$ |
+| $\arctan(x)$ | $1/(1+x^2)$ |
+
+#### Inverse Hyperbolic Functions
+
+| Function | Derivative |
+|----------|------------|
+| $\text{arcsinh}(x)$ | $1/\sqrt{1+x^2}$ |
+| $\text{arccosh}(x)$ | $1/\sqrt{x^2-1}$ |
+| $\text{arctanh}(x)$ | $1/(1-x^2)$ |
 
 ---
 

@@ -9,6 +9,8 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 if TYPE_CHECKING:
     from optyx.core.expressions import Expression, Variable
 
@@ -160,6 +162,50 @@ def _gradient_cached(expr: Expression, wrt: Variable) -> Expression:
         elif expr.op == "cosh":
             # d/dx(cosh(a)) = sinh(a) * da
             return _simplify_mul(sinh(operand), d_operand)
+        
+        elif expr.op == "asin":
+            # d/dx(asin(a)) = 1 / sqrt(1 - a^2) * da
+            from optyx.core.functions import sqrt as sqrt_fn
+            inner = _simplify_sub(Constant(1.0), _simplify_mul(operand, operand))
+            return _simplify_mul(_simplify_div(Constant(1.0), sqrt_fn(inner)), d_operand)
+        
+        elif expr.op == "acos":
+            # d/dx(acos(a)) = -1 / sqrt(1 - a^2) * da
+            from optyx.core.functions import sqrt as sqrt_fn
+            inner = _simplify_sub(Constant(1.0), _simplify_mul(operand, operand))
+            return _simplify_mul(_simplify_neg(_simplify_div(Constant(1.0), sqrt_fn(inner))), d_operand)
+        
+        elif expr.op == "atan":
+            # d/dx(atan(a)) = 1 / (1 + a^2) * da
+            inner = _simplify_add(Constant(1.0), _simplify_mul(operand, operand))
+            return _simplify_mul(_simplify_div(Constant(1.0), inner), d_operand)
+        
+        elif expr.op == "asinh":
+            # d/dx(asinh(a)) = 1 / sqrt(1 + a^2) * da
+            from optyx.core.functions import sqrt as sqrt_fn
+            inner = _simplify_add(Constant(1.0), _simplify_mul(operand, operand))
+            return _simplify_mul(_simplify_div(Constant(1.0), sqrt_fn(inner)), d_operand)
+        
+        elif expr.op == "acosh":
+            # d/dx(acosh(a)) = 1 / sqrt(a^2 - 1) * da
+            from optyx.core.functions import sqrt as sqrt_fn
+            inner = _simplify_sub(_simplify_mul(operand, operand), Constant(1.0))
+            return _simplify_mul(_simplify_div(Constant(1.0), sqrt_fn(inner)), d_operand)
+        
+        elif expr.op == "atanh":
+            # d/dx(atanh(a)) = 1 / (1 - a^2) * da
+            inner = _simplify_sub(Constant(1.0), _simplify_mul(operand, operand))
+            return _simplify_mul(_simplify_div(Constant(1.0), inner), d_operand)
+        
+        elif expr.op == "log2":
+            # d/dx(log2(a)) = 1 / (a * ln(2)) * da
+            ln2 = Constant(np.log(2.0))
+            return _simplify_mul(_simplify_div(Constant(1.0), _simplify_mul(operand, ln2)), d_operand)
+        
+        elif expr.op == "log10":
+            # d/dx(log10(a)) = 1 / (a * ln(10)) * da
+            ln10 = Constant(np.log(10.0))
+            return _simplify_mul(_simplify_div(Constant(1.0), _simplify_mul(operand, ln10)), d_operand)
         
         else:
             raise ValueError(f"Unknown unary operator: {expr.op}")
