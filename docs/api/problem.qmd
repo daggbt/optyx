@@ -135,11 +135,29 @@ solution = prob.solve(method="SLSQP", strict=False, x0=None, tol=None, maxiter=N
 
 **Available methods:**
 
-| Method | Description | Constraints |
-|--------|-------------|-------------|
-| `"SLSQP"` | Sequential Least Squares Programming | Equality + Inequality |
-| `"trust-constr"` | Trust-region constrained | Equality + Inequality |
-| `"L-BFGS-B"` | Limited-memory BFGS with bounds | Bounds only |
+| Method | Bounds | Constraints | Gradient | Hessian | Description |
+|--------|--------|-------------|----------|---------|-------------|
+| `"SLSQP"` | ✅ | ✅ | ✅ | ❌ | Sequential Least Squares Programming (default) |
+| `"trust-constr"` | ✅ | ✅ | ✅ | ✅ | Trust-region constrained optimization |
+| `"L-BFGS-B"` | ✅ | ❌ | ✅ | ❌ | Limited-memory BFGS with bounds |
+| `"COBYLA"` | ❌ | ✅ (ineq) | ❌ | ❌ | Constrained Optimization BY Linear Approx |
+| `"TNC"` | ✅ | ❌ | ✅ | ❌ | Truncated Newton Conjugate-Gradient |
+| `"Powell"` | ✅ | ❌ | ❌ | ❌ | Powell's conjugate direction method |
+| `"Nelder-Mead"` | ✅ | ❌ | ❌ | ❌ | Simplex algorithm (derivative-free) |
+| `"CG"` | ❌ | ❌ | ✅ | ❌ | Conjugate gradient |
+| `"BFGS"` | ❌ | ❌ | ✅ | ❌ | Broyden-Fletcher-Goldfarb-Shanno |
+| `"Newton-CG"` | ❌ | ❌ | ✅ | ✅ | Newton conjugate gradient |
+| `"dogleg"` | ❌ | ❌ | ✅ | ✅ | Dog-leg trust-region |
+| `"trust-ncg"` | ❌ | ❌ | ✅ | ✅ | Newton conjugate gradient trust-region |
+| `"trust-exact"` | ❌ | ❌ | ✅ | ✅ | Nearly exact trust-region |
+| `"trust-krylov"` | ❌ | ❌ | ✅ | ✅ | Krylov subspace trust-region |
+
+::: {.callout-tip}
+## Recommended Methods
+- **With constraints**: Use `"SLSQP"` (default) or `"trust-constr"`
+- **Bounds only**: Use `"L-BFGS-B"` for large-scale problems
+- **Unconstrained**: Use `"BFGS"` or `"trust-ncg"` for smooth problems
+:::
 
 ---
 
