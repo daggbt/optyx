@@ -138,24 +138,34 @@ class Problem:
         """
         return [(v.lb, v.ub) for v in self.variables]
     
-    def solve(self, method: str = "SLSQP", **kwargs) -> Solution:
+    def solve(
+        self,
+        method: str = "SLSQP",
+        strict: bool = False,
+        **kwargs,
+    ) -> Solution:
         """Solve the optimization problem.
         
         Args:
             method: Solver method. Options: "SLSQP", "trust-constr", "L-BFGS-B".
+            strict: If True, raise ValueError when the problem contains features
+                that the solver cannot handle exactly (e.g., integer/binary
+                variables with SciPy). If False (default), emit a warning and
+                use the best available approximation.
             **kwargs: Additional arguments passed to the solver.
             
         Returns:
             Solution object with results.
             
         Raises:
-            ValueError: If no objective has been set.
+            ValueError: If no objective has been set, or if strict=True and
+                the problem contains unsupported features.
         """
         if self._objective is None:
             raise ValueError("No objective set. Call minimize() or maximize() first.")
         
         from optyx.solvers.scipy_solver import solve_scipy
-        return solve_scipy(self, method=method, **kwargs)
+        return solve_scipy(self, method=method, strict=strict, **kwargs)
     
     def __repr__(self) -> str:
         obj_str = "not set" if self._objective is None else f"{self._sense}"

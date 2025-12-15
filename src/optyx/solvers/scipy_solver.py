@@ -24,6 +24,7 @@ def solve_scipy(
     tol: float | None = None,
     maxiter: int | None = None,
     use_hessian: bool = True,
+    strict: bool = False,
     **kwargs: Any,
 ) -> Solution:
     """Solve an optimization problem using SciPy.
@@ -40,10 +41,16 @@ def solve_scipy(
         use_hessian: Whether to compute and pass the symbolic Hessian to methods
             that support it (trust-constr, Newton-CG, etc.). Default True.
             Set to False if Hessian computation is too expensive.
+        strict: If True, raise ValueError when the problem contains integer/binary
+            variables that cannot be enforced by the solver. If False (default),
+            emit a warning and relax to continuous.
         **kwargs: Additional arguments passed to scipy.optimize.minimize.
         
     Returns:
         Solution object with optimization results.
+        
+    Raises:
+        ValueError: If strict=True and problem contains integer/binary variables.
     """
     from optyx.core.autodiff import compile_hessian, compile_jacobian
     from optyx.core.compiler import compile_expression
@@ -64,17 +71,24 @@ def solve_scipy(
             message="Problem has no variables",
         )
     
-    # Warn if any variables have non-continuous domains
+    # Check for non-continuous domains
     non_continuous = [v for v in variables if v.domain != "continuous"]
     if non_continuous:
         names = ", ".join(v.name for v in non_continuous)
-        warnings.warn(
-            f"Variables [{names}] have integer/binary domains but will be relaxed "
-            f"to continuous. SciPy solver does not support integer programming. "
-            f"For true MIP, consider PuLP or Pyomo.",
-            UserWarning,
-            stacklevel=3,
-        )
+        if strict:
+            raise ValueError(
+                f"Variables [{names}] have integer/binary domains but the SciPy "
+                f"solver does not support integer programming. Use strict=False "
+                f"to relax to continuous, or use a MIP solver like PuLP or Pyomo."
+            )
+        else:
+            warnings.warn(
+                f"Variables [{names}] have integer/binary domains but will be relaxed "
+                f"to continuous. SciPy solver does not support integer programming. "
+                f"For true MIP, consider PuLP or Pyomo.",
+                UserWarning,
+                stacklevel=3,
+            )
     
     # Build objective function
     obj_expr = problem.objective
