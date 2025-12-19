@@ -117,12 +117,12 @@ class TestBinaryOperations:
 
     def test_power(self):
         x = Variable("x")
-        expr = x ** 2
+        expr = x**2
         assert expr.evaluate({"x": 3.0}) == 9.0
 
     def test_reverse_power(self):
         x = Variable("x")
-        expr = 2 ** x
+        expr = 2**x
         assert expr.evaluate({"x": 3.0}) == 8.0
 
     def test_negation(self):
@@ -133,7 +133,7 @@ class TestBinaryOperations:
     def test_complex_expression(self):
         x = Variable("x")
         y = Variable("y")
-        expr = 2*x + 3*y**2 - x*y
+        expr = 2 * x + 3 * y**2 - x * y
         # 2*1 + 3*4 - 1*2 = 2 + 12 - 2 = 12
         assert expr.evaluate({"x": 1.0, "y": 2.0}) == 12.0
 
@@ -208,7 +208,7 @@ class TestTranscendentalFunctions:
     def test_function_of_expression(self):
         x = Variable("x")
         y = Variable("y")
-        expr = exp(-x**2 - y**2)
+        expr = exp(-(x**2) - y**2)
         result = expr.evaluate({"x": 0.0, "y": 0.0})
         np.testing.assert_almost_equal(result, 1.0)
 
@@ -218,7 +218,7 @@ class TestVectorizedEvaluation:
 
     def test_vector_variable(self):
         x = Variable("x")
-        expr = x ** 2
+        expr = x**2
         values = np.array([1.0, 2.0, 3.0, 4.0])
         result = expr.evaluate({"x": values})
         expected = np.array([1.0, 4.0, 9.0, 16.0])
@@ -237,7 +237,7 @@ class TestVectorizedEvaluation:
     def test_vector_transcendental(self):
         x = Variable("x")
         expr = sin(x)
-        values = np.array([0.0, np.pi/2, np.pi])
+        values = np.array([0.0, np.pi / 2, np.pi])
         result = expr.evaluate({"x": values})
         expected = np.array([0.0, 1.0, 0.0])
         np.testing.assert_array_almost_equal(result, expected)
@@ -284,10 +284,10 @@ class TestEdgeCases:
 
     def test_expression_to_power_zero(self):
         x = Variable("x")
-        expr = x ** 0
+        expr = x**0
         assert expr.evaluate({"x": 5.0}) == 1.0
 
     def test_expression_to_power_one(self):
         x = Variable("x")
-        expr = x ** 1
+        expr = x**1
         assert expr.evaluate({"x": 5.0}) == 5.0
