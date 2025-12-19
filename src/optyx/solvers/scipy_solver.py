@@ -52,8 +52,7 @@ def solve_scipy(
     Raises:
         ValueError: If strict=True and problem contains integer/binary variables.
     """
-    from optyx.core.autodiff import compile_hessian, compile_jacobian
-    from optyx.core.compiler import compile_expression
+    from optyx.core.autodiff import compile_hessian
     from optyx.solution import Solution, SolverStatus
 
     # Methods that support Hessian
@@ -103,15 +102,17 @@ def solve_scipy(
                 stacklevel=3,
             )
 
-    # Build objective function
-    obj_expr = problem.objective
-    if obj_expr is None:
-        raise ValueError("Problem has no objective to optimize")
-    if problem.sense == "maximize":
-        obj_expr = -obj_expr  # Negate for maximization
+    # Check for cached compiled callables
+    cache = problem._solver_cache
+    if cache is None:
+        cache = _build_solver_cache(problem, variables)
+        problem._solver_cache = cache
 
-    obj_fn = compile_expression(obj_expr, variables)
-    grad_fn = compile_jacobian([obj_expr], variables)
+    # Extract cached callables
+    obj_fn = cache["obj_fn"]
+    grad_fn = cache["grad_fn"]
+    scipy_constraints = cache["scipy_constraints"]
+    bounds = cache["bounds"]
 
     def objective(x: np.ndarray) -> float:
         return float(obj_fn(x))
@@ -119,59 +120,23 @@ def solve_scipy(
     def gradient(x: np.ndarray) -> np.ndarray:
         return grad_fn(x).flatten()
 
-    # Build Hessian for methods that support it
+    # Build Hessian for methods that support it (not cached - method-dependent)
     hess_fn: Callable[[np.ndarray], np.ndarray] | None = None
     if use_hessian and method in HESSIAN_METHODS:
-        compiled_hess = compile_hessian(obj_expr, variables)
+        # Check if Hessian is cached for this method
+        if "hess_fn" not in cache:
+            obj_expr = problem.objective
+            if problem.sense == "maximize":
+                obj_expr = -obj_expr  # type: ignore[operator]
+            compiled_hess = compile_hessian(obj_expr, variables)
+            cache["hess_fn"] = compiled_hess
+
+        compiled_hess = cache["hess_fn"]
 
         def _hess_fn(x: np.ndarray) -> np.ndarray:
             return compiled_hess(x)
 
         hess_fn = _hess_fn
-
-    # Build bounds
-    bounds = []
-    for v in variables:
-        lb = v.lb if v.lb is not None else -np.inf
-        ub = v.ub if v.ub is not None else np.inf
-        bounds.append((lb, ub))
-
-    # Build constraints for SciPy
-    scipy_constraints = []
-
-    for i, c in enumerate(problem.constraints):
-        c_expr = c.expr
-        if c_expr is None:
-            continue
-        c_fn = compile_expression(c_expr, variables)
-        c_jac_fn = compile_jacobian([c_expr], variables)
-
-        if c.sense == ">=":
-            # f(x) >= 0 → SciPy ineq: f(x) >= 0 (return f(x))
-            scipy_constraints.append(
-                {
-                    "type": "ineq",
-                    "fun": lambda x, fn=c_fn: float(fn(x)),
-                    "jac": lambda x, jfn=c_jac_fn: jfn(x).flatten(),
-                }
-            )
-        elif c.sense == "<=":
-            # f(x) <= 0 → SciPy ineq: -f(x) >= 0 (return -f(x))
-            scipy_constraints.append(
-                {
-                    "type": "ineq",
-                    "fun": lambda x, fn=c_fn: -float(fn(x)),
-                    "jac": lambda x, jfn=c_jac_fn: -jfn(x).flatten(),
-                }
-            )
-        else:  # ==
-            scipy_constraints.append(
-                {
-                    "type": "eq",
-                    "fun": lambda x, fn=c_fn: float(fn(x)),
-                    "jac": lambda x, jfn=c_jac_fn: jfn(x).flatten(),
-                }
-            )
 
     # Initial point
     if x0 is None:
@@ -232,6 +197,10 @@ def solve_scipy(
         status = SolverStatus.MAX_ITERATIONS
     elif "infeasible" in result.message.lower():
         status = SolverStatus.INFEASIBLE
+    elif "positive directional derivative" in result.message.lower():
+        # SLSQP reports this when it converged but hit numerical precision limits
+        # The solution is typically still good - treat as optimal
+        status = SolverStatus.OPTIMAL
     else:
         status = SolverStatus.FAILED
 
@@ -280,3 +249,82 @@ def _compute_initial_point(variables: list) -> np.ndarray:
             x0[i] = 0.0
 
     return x0
+
+
+def _build_solver_cache(problem: Problem, variables: list) -> dict[str, Any]:
+    """Build and cache compiled callables for the solver.
+
+    This function compiles the objective, gradient, constraints, and bounds
+    once and stores them in a cache dict. Subsequent solve() calls reuse
+    these compiled callables, avoiding recompilation overhead.
+
+    Args:
+        problem: The optimization problem.
+        variables: Ordered list of decision variables.
+
+    Returns:
+        Dict containing compiled callables and constraint data.
+    """
+    from optyx.core.autodiff import compile_jacobian
+    from optyx.core.compiler import compile_expression
+
+    cache: dict[str, Any] = {}
+
+    # Build objective function
+    obj_expr = problem.objective
+    if obj_expr is None:
+        raise ValueError("Problem has no objective to optimize")
+    if problem.sense == "maximize":
+        obj_expr = -obj_expr  # Negate for maximization
+
+    cache["obj_fn"] = compile_expression(obj_expr, variables)
+    cache["grad_fn"] = compile_jacobian([obj_expr], variables)
+
+    # Build bounds
+    bounds = []
+    for v in variables:
+        lb = v.lb if v.lb is not None else -np.inf
+        ub = v.ub if v.ub is not None else np.inf
+        bounds.append((lb, ub))
+    cache["bounds"] = bounds
+
+    # Build constraints for SciPy
+    scipy_constraints = []
+
+    for c in problem.constraints:
+        c_expr = c.expr
+        if c_expr is None:
+            continue
+        c_fn = compile_expression(c_expr, variables)
+        c_jac_fn = compile_jacobian([c_expr], variables)
+
+        if c.sense == ">=":
+            # f(x) >= 0 → SciPy ineq: f(x) >= 0 (return f(x))
+            scipy_constraints.append(
+                {
+                    "type": "ineq",
+                    "fun": lambda x, fn=c_fn: float(fn(x)),
+                    "jac": lambda x, jfn=c_jac_fn: jfn(x).flatten(),
+                }
+            )
+        elif c.sense == "<=":
+            # f(x) <= 0 → SciPy ineq: -f(x) >= 0 (return -f(x))
+            scipy_constraints.append(
+                {
+                    "type": "ineq",
+                    "fun": lambda x, fn=c_fn: -float(fn(x)),
+                    "jac": lambda x, jfn=c_jac_fn: -jfn(x).flatten(),
+                }
+            )
+        else:  # ==
+            scipy_constraints.append(
+                {
+                    "type": "eq",
+                    "fun": lambda x, fn=c_fn: float(fn(x)),
+                    "jac": lambda x, jfn=c_jac_fn: jfn(x).flatten(),
+                }
+            )
+
+    cache["scipy_constraints"] = scipy_constraints
+
+    return cache

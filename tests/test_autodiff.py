@@ -563,3 +563,55 @@ class TestSingularityHandling:
         # sqrt(x) = 1 means x = 1
         assert abs(sol["x"] - 1.0) < 0.1
         assert abs(sol["y"]) < 0.1
+
+
+class TestPerformanceOptimizations:
+    """Tests for performance optimizations in autodiff."""
+
+    def test_constant_jacobian_detection(self):
+        """Linear expressions should use constant Jacobian fast path."""
+        # Linear expression: 2*x + 3*y
+        x = Variable("x")
+        y = Variable("y")
+        expr = 2 * x + 3 * y
+
+        jac_fn = compile_jacobian([expr], [x, y])
+
+        # Should return constant array
+        result1 = jac_fn(np.array([1.0, 2.0]))
+        result2 = jac_fn(np.array([100.0, 200.0]))
+
+        # Results should be identical (constant gradient)
+        np.testing.assert_array_equal(result1, result2)
+        np.testing.assert_array_equal(result1, np.array([[2.0, 3.0]]))
+
+    def test_constant_jacobian_returns_same_object(self):
+        """Constant Jacobian should return same array object for efficiency."""
+        # Use only addition to avoid UnaryOp(neg) which isn't detected as constant
+        x = Variable("x")
+        y = Variable("y")
+        expr = 5 * x + 2 * y  # Both gradients are pure Constant
+
+        jac_fn = compile_jacobian([expr], [x, y])
+
+        result1 = jac_fn(np.array([1.0, 2.0]))
+        result2 = jac_fn(np.array([3.0, 4.0]))
+
+        # Should return the exact same array object (constant gradient fast path)
+        assert result1 is result2
+        np.testing.assert_array_equal(result1, np.array([[5.0, 2.0]]))
+
+    def test_nonlinear_jacobian_not_constant(self):
+        """Nonlinear expressions should use standard Jacobian path."""
+        x = Variable("x")
+        expr = x**2  # Gradient is 2*x, not constant
+
+        jac_fn = compile_jacobian([expr], [x])
+
+        result1 = jac_fn(np.array([1.0]))
+        result2 = jac_fn(np.array([2.0]))
+
+        # Results should be different
+        assert result1[0, 0] != result2[0, 0]
+        assert result1[0, 0] == 2.0  # 2*1
+        assert result2[0, 0] == 4.0  # 2*2

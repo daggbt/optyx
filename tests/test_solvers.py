@@ -414,3 +414,81 @@ class TestHessianIntegration:
         assert sol.is_optimal
         assert abs(sol["x"] - 0.5) < 1e-3
         assert abs(sol["y"] - 0.5) < 1e-3
+
+
+class TestSolverCaching:
+    """Tests for solver cache behavior."""
+
+    def test_cache_reused_on_repeated_solve(self):
+        """Multiple solve() calls should reuse cached callables."""
+        x = Variable("x", lb=0)
+        y = Variable("y", lb=0)
+
+        prob = Problem().minimize(x**2 + y**2).subject_to(x + y >= 1)
+
+        # First solve - builds cache
+        sol1 = prob.solve()
+        assert prob._solver_cache is not None
+        cache1 = prob._solver_cache
+
+        # Second solve - reuses cache
+        sol2 = prob.solve()
+        assert prob._solver_cache is cache1  # Same cache object
+
+        # Results should be the same
+        assert abs(sol1["x"] - sol2["x"]) < 1e-10
+        assert abs(sol1["y"] - sol2["y"]) < 1e-10
+
+    def test_cache_invalidated_on_constraint_add(self):
+        """Adding a constraint should invalidate the cache."""
+        x = Variable("x", lb=0)
+        y = Variable("y", lb=0)
+
+        prob = Problem().minimize(x**2 + y**2)
+        prob.solve()
+
+        cache_after_first_solve = prob._solver_cache
+        assert cache_after_first_solve is not None
+
+        # Add a constraint
+        prob.subject_to(x + y >= 1)
+
+        # Cache should be invalidated
+        assert prob._solver_cache is None
+
+    def test_cache_invalidated_on_objective_change(self):
+        """Changing objective should invalidate the cache."""
+        x = Variable("x")
+
+        prob = Problem().minimize(x**2)
+        prob.solve()
+
+        assert prob._solver_cache is not None
+
+        # Change objective
+        prob.maximize(x)
+
+        # Cache should be invalidated
+        assert prob._solver_cache is None
+
+    def test_solve_with_different_x0_uses_cache(self):
+        """Different initial points should still use cached callables."""
+        import numpy as np
+
+        x = Variable("x", lb=-10, ub=10)
+
+        prob = Problem().minimize((x - 5) ** 2)
+
+        # Solve with different initial points
+        sol1 = prob.solve(x0=np.array([0.0]))
+        cache1 = prob._solver_cache
+
+        sol2 = prob.solve(x0=np.array([10.0]))
+        cache2 = prob._solver_cache
+
+        # Cache should be reused
+        assert cache1 is cache2
+
+        # Both should find optimal
+        assert abs(sol1["x"] - 5.0) < 1e-4
+        assert abs(sol2["x"] - 5.0) < 1e-4
