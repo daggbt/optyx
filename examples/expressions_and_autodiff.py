@@ -5,7 +5,13 @@ import time
 import numpy as np
 from optyx import Variable, sin, exp, log
 from optyx.core.compiler import compile_expression, CompiledExpression
-from optyx.core.autodiff import gradient, compute_jacobian, compute_hessian, compile_jacobian, compile_hessian
+from optyx.core.autodiff import (
+    gradient,
+    compute_jacobian,
+    compute_hessian,
+    compile_jacobian,
+    compile_hessian,
+)
 from optyx.core.verification import verify_gradient, gradient_check
 
 print("=" * 60)
@@ -23,7 +29,7 @@ x = Variable("x", lb=0, ub=10)
 y = Variable("y", lb=0)
 
 # Build expressions using natural Python syntax
-expr = 2*x**2 + 3*y**2 + sin(x*y) + exp(-x) * log(y + 1)
+expr = 2 * x**2 + 3 * y**2 + sin(x * y) + exp(-x) * log(y + 1)
 
 print("Expression: 2*x² + 3*y² + sin(x*y) + exp(-x)*log(y+1)")
 print(f"Variables: {[v.name for v in expr.get_variables()]}")
@@ -107,7 +113,7 @@ print("\n📈 Hessian Demo")
 print("-" * 40)
 
 # Quadratic: f(x,y) = x² + 2xy + 3y²
-quad = x**2 + 2*x*y + 3*y**2
+quad = x**2 + 2 * x * y + 3 * y**2
 print("f(x,y) = x² + 2xy + 3y²")
 
 hessian = compute_hessian(quad, [x, y])
@@ -132,7 +138,7 @@ print("-" * 40)
 
 # f(x,y) = (1-x)² + 100(y-x²)²
 # Minimum at (1, 1)
-rosenbrock = (1 - x)**2 + 100*(y - x**2)**2
+rosenbrock = (1 - x) ** 2 + 100 * (y - x**2) ** 2
 
 print("f(x,y) = (1-x)² + 100(y-x²)²")
 print("Known minimum at (1, 1)")
@@ -149,7 +155,9 @@ print(f"  ∂f/∂y = {grad_y_ros.evaluate(min_point):.6f} (should be 0)")
 # Gradient check
 print("\nGradient check (100 random samples):")
 # Use looser tolerance for Rosenbrock due to high curvature (100x multiplier)
-result = gradient_check(rosenbrock, [x, y], n_samples=100, bounds=(0.1, 5.0), tol=1e-3, seed=42)
+result = gradient_check(
+    rosenbrock, [x, y], n_samples=100, bounds=(0.1, 5.0), tol=1e-3, seed=42
+)
 print(f"  {result}")
 
 # =============================================================================
@@ -188,13 +196,15 @@ compiled_grad_time = time.perf_counter() - start
 
 print(f"Iterations: {n_iters:,}")
 print("\nValue evaluation:")
-print(f"  Tree-walk:  {eval_time:.3f}s ({n_iters/eval_time:,.0f}/sec)")
-print(f"  Compiled:   {compiled_time:.3f}s ({n_iters/compiled_time:,.0f}/sec)")
-print(f"  Speedup:    {eval_time/compiled_time:.2f}x")
+print(f"  Tree-walk:  {eval_time:.3f}s ({n_iters / eval_time:,.0f}/sec)")
+print(f"  Compiled:   {compiled_time:.3f}s ({n_iters / compiled_time:,.0f}/sec)")
+print(f"  Speedup:    {eval_time / compiled_time:.2f}x")
 
 print("\nGradient evaluation:")
-print(f"  Symbolic:   {grad_eval_time:.3f}s ({n_iters/grad_eval_time:,.0f}/sec)")
-print(f"  Numerical:  {compiled_grad_time:.3f}s ({n_iters/compiled_grad_time:,.0f}/sec)")
+print(f"  Symbolic:   {grad_eval_time:.3f}s ({n_iters / grad_eval_time:,.0f}/sec)")
+print(
+    f"  Numerical:  {compiled_grad_time:.3f}s ({n_iters / compiled_grad_time:,.0f}/sec)"
+)
 
 print("\n" + "=" * 60)
 print("✅ All Phase 1 & 2 features working!")

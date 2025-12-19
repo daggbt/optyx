@@ -11,7 +11,7 @@ Problem:
 - User satisfaction depends on condition non-linearly (Sigmoid/S-curve).
 
 Why Optyx?
-- The objective function combines Exponentials (repair physics) and 
+- The objective function combines Exponentials (repair physics) and
   Sigmoids (user satisfaction).
 - The chain rule for the derivatives is complex:
   d(Satisfaction)/d(Budget) = d(Sat)/d(PCI) * d(PCI)/d(Budget)
@@ -34,11 +34,11 @@ print("=" * 70)
 # PCI = Pavement Condition Index (0-100)
 roads = ["Hwy 101", "Route 66", "I-95", "Main St", "Broadway"]
 traffic = [50000, 12000, 85000, 5000, 15000]  # Daily vehicles
-current_pci = [45, 60, 35, 70, 55]           # Current condition (poor to fair)
-decay_rate = [5, 3, 8, 2, 4]                 # Expected drop in PCI next year
+current_pci = [45, 60, 35, 70, 55]  # Current condition (poor to fair)
+decay_rate = [5, 3, 8, 2, 4]  # Expected drop in PCI next year
 
 total_budget = 10.0  # $10M available
-max_per_road = 5.0   # Max $5M per road (practical constraint)
+max_per_road = 5.0  # Max $5M per road (practical constraint)
 
 # =============================================================================
 # 2. Define Decision Variables
@@ -54,6 +54,7 @@ for rid in road_ids:
 # 3. Define Non-Linear Models
 # =============================================================================
 
+
 def repair_model(spend):
     """
     Physics Model: Diminishing returns on investment.
@@ -61,8 +62,9 @@ def repair_model(spend):
     Formula: Gain = MaxGain * (1 - exp(-k * spend))
     """
     max_gain = 40.0  # Max possible PCI increase
-    efficiency = 0.5 # How fast we reach max gain
+    efficiency = 0.5  # How fast we reach max gain
     return max_gain * (1 - exp(-efficiency * spend))
+
 
 def satisfaction_model(pci):
     """
@@ -74,6 +76,7 @@ def satisfaction_model(pci):
     # Sigmoid: 1 / (1 + exp(-k * (x - center)))
     return 100.0 / (1 + exp(-0.12 * (pci - 50)))
 
+
 # Build the objective expression
 total_utility = 0
 print("\n📊 Building Symbolic Model...")
@@ -82,10 +85,10 @@ for i in range(len(roads)):
     # 1. Predict future condition
     # Future = Current - Decay + Repair
     future_pci = current_pci[i] - decay_rate[i] + repair_model(vars[i])
-    
+
     # 2. Calculate user satisfaction (0-100)
     user_sat = satisfaction_model(future_pci)
-    
+
     # 3. Weighted by traffic (Maximize total happy drivers)
     total_utility += traffic[i] * user_sat
 
@@ -137,20 +140,24 @@ sol = prob.solve()
 # =============================================================================
 print("\n✅ Optimal Budget Allocation:")
 print("-" * 70)
-print(f"{'Road':<12} {'Traffic':>10} {'Old PCI':>10} {'Budget':>10} {'New PCI':>10} {'Satisf%':>10}")
+print(
+    f"{'Road':<12} {'Traffic':>10} {'Old PCI':>10} {'Budget':>10} {'New PCI':>10} {'Satisf%':>10}"
+)
 print("-" * 70)
 
 total_spent = 0
 for i, r in enumerate(roads):
     spend = sol[vars[i]]
     total_spent += spend
-    
+
     # Re-calculate final state values
     pci_gain = 40.0 * (1 - np.exp(-0.5 * spend))
     final_pci = current_pci[i] - decay_rate[i] + pci_gain
     sat = 100.0 / (1 + np.exp(-0.12 * (final_pci - 50)))
-    
-    print(f"{r:<12} {traffic[i]:>10,} {current_pci[i]:>10} ${spend:>9.2f} {final_pci:>10.1f} {sat:>10.1f}")
+
+    print(
+        f"{r:<12} {traffic[i]:>10,} {current_pci[i]:>10} ${spend:>9.2f} {final_pci:>10.1f} {sat:>10.1f}"
+    )
 
 print("-" * 70)
 print(f"Total Spent: ${total_spent:.2f}M / ${total_budget:.2f}M")
@@ -171,4 +178,3 @@ This model can be extended with:
   • Network connectivity / criticality weights
 ======================================================================
 """)
-

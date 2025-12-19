@@ -37,7 +37,7 @@ print(f"  x* = {solution['x']:.6f}")
 print(f"  y* = {solution['y']:.6f}")
 print(f"  Objective = {solution.objective_value:.6f}")
 print(f"  Iterations: {solution.iterations}")
-print(f"  Solve time: {solution.solve_time*1000:.2f} ms")
+print(f"  Solve time: {solution.solve_time * 1000:.2f} ms")
 
 # =============================================================================
 # Example 2: Maximization Problem
@@ -48,7 +48,7 @@ print("-" * 40)
 # max x + 2y s.t. x + y ≤ 4, x ≤ 2, y ≤ 3, x,y ≥ 0
 prob2 = (
     Problem(name="linear_max")
-    .maximize(x + 2*y)
+    .maximize(x + 2 * y)
     .subject_to(x + y <= 4)
     .subject_to(x <= 2)
     .subject_to(y <= 3)
@@ -72,11 +72,7 @@ print("-" * 40)
 a = Variable("a")
 b = Variable("b")
 
-prob3 = (
-    Problem()
-    .minimize(a**2 + b**2)
-    .subject_to((a + b).constraint_eq(2))
-)
+prob3 = Problem().minimize(a**2 + b**2).subject_to((a + b).constraint_eq(2))
 
 print("Problem: min a² + b² s.t. a + b = 2")
 
@@ -96,7 +92,7 @@ print("-" * 40)
 r_x = Variable("x")
 r_y = Variable("y")
 
-rosenbrock = (1 - r_x)**2 + 100*(r_y - r_x**2)**2
+rosenbrock = (1 - r_x) ** 2 + 100 * (r_y - r_x**2) ** 2
 
 prob4 = Problem().minimize(rosenbrock)
 print("Problem: min (1-x)² + 100(y-x²)²")
@@ -118,7 +114,9 @@ test_prob = Problem().minimize(x**2 + y**2).subject_to(x + y >= 1)
 
 for method in ["SLSQP", "trust-constr"]:
     sol = test_prob.solve(method=method)
-    print(f"{method:15} → x={sol['x']:.4f}, y={sol['y']:.4f}, time={sol.solve_time*1000:.2f}ms")
+    print(
+        f"{method:15} → x={sol['x']:.4f}, y={sol['y']:.4f}, time={sol.solve_time * 1000:.2f}ms"
+    )
 
 print("\n" + "=" * 60)
 print("✅ Phase 3 complete! Constraint system and solvers working.")

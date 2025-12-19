@@ -35,14 +35,16 @@ expected_returns = np.array([0.08, 0.10, 0.12, 0.15, 0.18, 0.09])  # 8-18%
 
 # Covariance matrix (annualized)
 # Constructed to reflect realistic commodity correlations
-correlation = np.array([
-    [1.00, 0.75, 0.30, 0.10, 0.05, 0.15],  # Gold
-    [0.75, 1.00, 0.40, 0.15, 0.10, 0.20],  # Silver
-    [0.30, 0.40, 1.00, 0.50, 0.35, 0.25],  # Copper
-    [0.10, 0.15, 0.50, 1.00, 0.60, 0.30],  # Oil
-    [0.05, 0.10, 0.35, 0.60, 1.00, 0.20],  # Natural Gas
-    [0.15, 0.20, 0.25, 0.30, 0.20, 1.00],  # Wheat
-])
+correlation = np.array(
+    [
+        [1.00, 0.75, 0.30, 0.10, 0.05, 0.15],  # Gold
+        [0.75, 1.00, 0.40, 0.15, 0.10, 0.20],  # Silver
+        [0.30, 0.40, 1.00, 0.50, 0.35, 0.25],  # Copper
+        [0.10, 0.15, 0.50, 1.00, 0.60, 0.30],  # Oil
+        [0.05, 0.10, 0.35, 0.60, 1.00, 0.20],  # Natural Gas
+        [0.15, 0.20, 0.25, 0.30, 0.20, 1.00],  # Wheat
+    ]
+)
 
 # Standard deviations (annualized volatility)
 std_devs = np.array([0.15, 0.25, 0.28, 0.35, 0.45, 0.22])
@@ -56,8 +58,10 @@ print("-" * 48)
 risk_free_rate = 0.04  # 4% risk-free rate
 for i in range(n_assets):
     sharpe = (expected_returns[i] - risk_free_rate) / std_devs[i]
-    print(f"{commodities[i]:<12} {expected_returns[i]*100:>10.1f}% "
-          f"{std_devs[i]*100:>10.1f}% {sharpe:>10.2f}")
+    print(
+        f"{commodities[i]:<12} {expected_returns[i] * 100:>10.1f}% "
+        f"{std_devs[i] * 100:>10.1f}% {sharpe:>10.2f}"
+    )
 
 # =============================================================================
 # Decision Variables
@@ -76,9 +80,11 @@ print(f"Variables: {n_assets} portfolio weights")
 # Helper: Build Portfolio Expressions
 # =============================================================================
 
+
 def portfolio_return(weights, returns):
     """Expected portfolio return: Σ w_i * r_i"""
     return sum(weights[i] * returns[i] for i in range(len(weights)))
+
 
 def portfolio_variance(weights, cov_matrix):
     """Portfolio variance: Σ Σ w_i * w_j * cov_ij"""
@@ -89,6 +95,7 @@ def portfolio_variance(weights, cov_matrix):
             variance = variance + weights[i] * weights[j] * cov_matrix[i, j]
     return variance
 
+
 # =============================================================================
 # Problem 1: Maximum Return for Given Risk
 # =============================================================================
@@ -98,7 +105,7 @@ print("=" * 70)
 print("Objective: Maximize return subject to risk constraint")
 
 target_volatility = 0.20  # 20% max volatility
-target_variance = target_volatility ** 2
+target_variance = target_volatility**2
 
 prob1 = Problem(name="max_return")
 
@@ -117,7 +124,7 @@ prob1.subject_to(variance_expr <= target_variance)
 
 print("\nConstraints:")
 print("  • Budget: Fully invested (Σw = 1)")
-print(f"  • Risk: Volatility ≤ {target_volatility*100:.0f}%")
+print(f"  • Risk: Volatility ≤ {target_volatility * 100:.0f}%")
 print("  • No short selling: w ≥ 0")
 
 # Solve
@@ -132,29 +139,34 @@ for i in range(n_assets):
     weight = solution1[f"w_{commodities[i]}"]
     if weight > 0.001:  # Only show non-zero allocations
         contribution = weight * expected_returns[i]
-        print(f"{commodities[i]:<12} {weight*100:>9.1f}% {contribution*100:>12.2f}%")
+        print(
+            f"{commodities[i]:<12} {weight * 100:>9.1f}% {contribution * 100:>12.2f}%"
+        )
         total_weight += weight
 
 print("-" * 38)
-print(f"{'Total':<12} {total_weight*100:>9.1f}%")
+print(f"{'Total':<12} {total_weight * 100:>9.1f}%")
 
 # Calculate portfolio metrics
 port_return = solution1.objective_value
 port_var = sum(
-    solution1[f"w_{commodities[i]}"] * solution1[f"w_{commodities[j]}"] * covariance[i,j]
-    for i in range(n_assets) for j in range(n_assets)
+    solution1[f"w_{commodities[i]}"]
+    * solution1[f"w_{commodities[j]}"]
+    * covariance[i, j]
+    for i in range(n_assets)
+    for j in range(n_assets)
 )
 port_vol = np.sqrt(port_var)
 port_sharpe = (port_return - risk_free_rate) / port_vol
 
 print("\n📊 Portfolio Metrics:")
-print(f"  Expected Return: {port_return*100:.2f}%")
-print(f"  Volatility: {port_vol*100:.2f}%")
+print(f"  Expected Return: {port_return * 100:.2f}%")
+print(f"  Volatility: {port_vol * 100:.2f}%")
 print(f"  Sharpe Ratio: {port_sharpe:.2f}")
 if solution1.solve_time >= 1.0:
     print(f"  Solve time: {solution1.solve_time:.2f} s")
 else:
-    print(f"  Solve time: {solution1.solve_time*1000:.1f} ms")
+    print(f"  Solve time: {solution1.solve_time * 1000:.1f} ms")
 
 # =============================================================================
 # Problem 2: Minimum Risk for Given Return
@@ -185,7 +197,7 @@ prob2.subject_to(exp_return2 >= target_return)
 
 print("\nConstraints:")
 print("  • Budget: Fully invested (Σw = 1)")
-print(f"  • Return: Expected return ≥ {target_return*100:.0f}%")
+print(f"  • Return: Expected return ≥ {target_return * 100:.0f}%")
 print("  • No short selling: w ≥ 0")
 
 solution2 = prob2.solve(method="trust-constr")
@@ -197,17 +209,23 @@ print("-" * 24)
 for i in range(n_assets):
     weight = solution2[f"w_{commodities[i]}"]
     if weight > 0.001:
-        print(f"{commodities[i]:<12} {weight*100:>9.1f}%")
+        print(f"{commodities[i]:<12} {weight * 100:>9.1f}%")
 
 # Calculate metrics
-port_return2 = sum(solution2[f"w_{commodities[i]}"] * expected_returns[i] for i in range(n_assets))
-port_var2 = -solution2.objective_value if solution2.objective_value < 0 else solution2.objective_value
+port_return2 = sum(
+    solution2[f"w_{commodities[i]}"] * expected_returns[i] for i in range(n_assets)
+)
+port_var2 = (
+    -solution2.objective_value
+    if solution2.objective_value < 0
+    else solution2.objective_value
+)
 port_vol2 = np.sqrt(port_var2)
 port_sharpe2 = (port_return2 - risk_free_rate) / port_vol2
 
 print("\n📊 Portfolio Metrics:")
-print(f"  Expected Return: {port_return2*100:.2f}%")
-print(f"  Volatility: {port_vol2*100:.2f}%")
+print(f"  Expected Return: {port_return2 * 100:.2f}%")
+print(f"  Volatility: {port_vol2 * 100:.2f}%")
 print(f"  Sharpe Ratio: {port_sharpe2:.2f}")
 
 # =============================================================================
@@ -229,26 +247,27 @@ for target_ret in target_returns_range:
     w_ef = []
     for i in range(n_assets):
         w_ef.append(Variable(f"w_{i}", lb=0, ub=1))
-    
+
     prob_ef = Problem()
     variance_ef = portfolio_variance(w_ef, covariance)
     prob_ef.minimize(variance_ef)
-    
+
     prob_ef.subject_to(sum(w_ef[i] for i in range(n_assets)) <= 1)
     prob_ef.subject_to(sum(w_ef[i] for i in range(n_assets)) >= 0.99)
     return_ef = portfolio_return(w_ef, expected_returns)
     prob_ef.subject_to(return_ef >= target_ret)
-    
+
     sol_ef = prob_ef.solve(method="SLSQP")
-    
+
     # Calculate actual metrics
     actual_return = sum(sol_ef[f"w_{i}"] * expected_returns[i] for i in range(n_assets))
     actual_var = sum(
-        sol_ef[f"w_{i}"] * sol_ef[f"w_{j}"] * covariance[i,j]
-        for i in range(n_assets) for j in range(n_assets)
+        sol_ef[f"w_{i}"] * sol_ef[f"w_{j}"] * covariance[i, j]
+        for i in range(n_assets)
+        for j in range(n_assets)
     )
     actual_vol = np.sqrt(max(0, actual_var))
-    
+
     frontier_returns.append(actual_return)
     frontier_volatilities.append(actual_vol)
 
@@ -266,7 +285,7 @@ height = 12
 width = 50
 
 # Create grid
-grid = [[' ' for _ in range(width)] for _ in range(height)]
+grid = [[" " for _ in range(width)] for _ in range(height)]
 
 # Plot points
 for ret, vol in zip(frontier_returns, frontier_volatilities):
@@ -275,15 +294,15 @@ for ret, vol in zip(frontier_returns, frontier_volatilities):
     y = height - 1 - y  # Flip y-axis
     x = min(max(0, x), width - 1)
     y = min(max(0, y), height - 1)
-    grid[y][x] = '●'
+    grid[y][x] = "●"
 
 # Print grid
-print(f"  {max_ret*100:5.1f}% │{''.join(grid[0])}")
+print(f"  {max_ret * 100:5.1f}% │{''.join(grid[0])}")
 for row in grid[1:-1]:
     print(f"        │{''.join(row)}")
-print(f"  {min_ret*100:5.1f}% │{''.join(grid[-1])}")
+print(f"  {min_ret * 100:5.1f}% │{''.join(grid[-1])}")
 print(f"        └{'─' * width}")
-print(f"         {min_vol*100:5.1f}%{' ' * (width-12)}{max_vol*100:5.1f}%")
+print(f"         {min_vol * 100:5.1f}%{' ' * (width - 12)}{max_vol * 100:5.1f}%")
 print("                    Volatility →")
 
 # Print data table
@@ -292,7 +311,7 @@ print(f"  {'Return':>8} {'Volatility':>12} {'Sharpe':>10}")
 print("  " + "-" * 32)
 for ret, vol in zip(frontier_returns, frontier_volatilities):
     sharpe = (ret - risk_free_rate) / vol if vol > 0 else 0
-    print(f"  {ret*100:>7.2f}% {vol*100:>10.2f}% {sharpe:>10.2f}")
+    print(f"  {ret * 100:>7.2f}% {vol * 100:>10.2f}% {sharpe:>10.2f}")
 
 # =============================================================================
 # Scenario Analysis: Commodity Price Shock
@@ -333,19 +352,26 @@ for i in range(n_assets):
     change = after - before
     if abs(before) > 0.001 or abs(after) > 0.001:
         sign = "+" if change > 0 else ""
-        print(f"{commodities[i]:<12} {before*100:>9.1f}% {after*100:>9.1f}% {sign}{change*100:>8.1f}%")
+        print(
+            f"{commodities[i]:<12} {before * 100:>9.1f}% {after * 100:>9.1f}% {sign}{change * 100:>8.1f}%"
+        )
 
 # New metrics
 new_return = solution3.objective_value
 new_var = sum(
-    solution3[f"w_{commodities[i]}"] * solution3[f"w_{commodities[j]}"] * covariance[i,j]
-    for i in range(n_assets) for j in range(n_assets)
+    solution3[f"w_{commodities[i]}"]
+    * solution3[f"w_{commodities[j]}"]
+    * covariance[i, j]
+    for i in range(n_assets)
+    for j in range(n_assets)
 )
 new_vol = np.sqrt(new_var)
 
 print("\n📉 Impact:")
-print(f"  Return: {port_return*100:.2f}% → {new_return*100:.2f}% (Δ {(new_return-port_return)*100:+.2f}%)")
-print(f"  Volatility: {port_vol*100:.2f}% → {new_vol*100:.2f}%")
+print(
+    f"  Return: {port_return * 100:.2f}% → {new_return * 100:.2f}% (Δ {(new_return - port_return) * 100:+.2f}%)"
+)
+print(f"  Volatility: {port_vol * 100:.2f}% → {new_vol * 100:.2f}%")
 
 print("\n" + "=" * 70)
 print("Demo complete! This model can be extended with:")

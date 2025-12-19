@@ -34,14 +34,11 @@ uv run python -c "import optyx; print(optyx.__version__)"
 We use pre-commit hooks to automatically check code quality before commits:
 
 ```bash
-# Install pre-commit
-uv pip install pre-commit
-
-# Install the git hooks
-pre-commit install
+# Install the git hooks (pre-commit is already installed with uv sync)
+uv run pre-commit install
 
 # (Optional) Run hooks on all files
-pre-commit run --all-files
+uv run pre-commit run --all-files
 ```
 
 Now ruff (linting & formatting) and pyright (type checking) will run automatically on staged files before each commit.

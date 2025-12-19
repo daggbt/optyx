@@ -8,7 +8,7 @@ Problem:
 - Maximize NPV (Net Present Value) of extracted ore
 - Subject to:
   - Processing plant capacity limits
-  - Mining equipment capacity limits  
+  - Mining equipment capacity limits
   - Grade blending constraints (min/max ore grade)
   - Precedence constraints (can't mine lower blocks before upper blocks)
 """
@@ -58,9 +58,12 @@ max_blend_grade = 2.0  # Maximum average grade (avoid overloading plant)
 # Precedence: block i must be mined before block j
 # (upper blocks before lower blocks)
 precedence = [
-    (0, 3), (1, 3),  # Blocks 0,1 must precede block 3
-    (1, 4), (2, 4),  # Blocks 1,2 must precede block 4  
-    (3, 5), (4, 5),  # Blocks 3,4 must precede block 5
+    (0, 3),
+    (1, 3),  # Blocks 0,1 must precede block 3
+    (1, 4),
+    (2, 4),  # Blocks 1,2 must precede block 4
+    (3, 5),
+    (4, 5),  # Blocks 3,4 must precede block 5
 ]
 
 print(f"Periods: {n_periods} years")
@@ -98,17 +101,17 @@ print("-" * 50)
 npv = 0
 for t in range(n_periods):
     discount_factor = 1 / (1 + discount_rate) ** t
-    
+
     for i in range(n_blocks):
         tonnage = block_tonnage[i]
         grade = block_grade[i] / 100  # Convert to decimal
-        
+
         # Revenue from copper ($ thousands since tonnage in kt)
         revenue = tonnage * 1000 * grade * recovery_rate * copper_price / 1000
-        
+
         # Costs ($ thousands)
         cost = tonnage * 1000 * (block_mining_cost[i] + processing_cost) / 1000
-        
+
         # NPV contribution
         npv = npv + (revenue - cost) * discount_factor * x[i, t]
 
@@ -139,10 +142,12 @@ print(f"  ✓ {n_periods} mining capacity constraints ({max_mining_capacity} kt/
 for t in range(n_periods):
     period_processing = sum(block_tonnage[i] * x[i, t] for i in range(n_blocks))
     prob.subject_to(period_processing <= max_processing_capacity)
-print(f"  ✓ {n_periods} processing capacity constraints ({max_processing_capacity} kt/period)")
+print(
+    f"  ✓ {n_periods} processing capacity constraints ({max_processing_capacity} kt/period)"
+)
 
 # 4. Precedence constraints (cumulative: can't mine j until i is done)
-for (i, j) in precedence:
+for i, j in precedence:
     for t in range(n_periods):
         # Cumulative extraction of i up to period t must be ≥ cumulative of j
         cum_i = sum(x[i, s] for s in range(t + 1))
@@ -161,21 +166,23 @@ for t in range(n_periods):
         for i in range(n_blocks)
     )
     prob.subject_to(min_grade_expr >= 0)
-    
-    # Maximum grade constraint  
+
+    # Maximum grade constraint
     max_grade_expr = sum(
         block_tonnage[i] * (max_blend_grade - block_grade[i]) * x[i, t]
         for i in range(n_blocks)
     )
     prob.subject_to(max_grade_expr >= 0)
-print(f"  ✓ {n_periods * 2} grade blending constraints ({min_blend_grade}-{max_blend_grade}% Cu)")
+print(
+    f"  ✓ {n_periods * 2} grade blending constraints ({min_blend_grade}-{max_blend_grade}% Cu)"
+)
 
 total_constraints = (
-    n_blocks +  # extraction limits
-    n_periods +  # mining capacity
-    n_periods +  # processing capacity
-    len(precedence) * n_periods +  # precedence
-    n_periods * 2  # grade blending
+    n_blocks  # extraction limits
+    + n_periods  # mining capacity
+    + n_periods  # processing capacity
+    + len(precedence) * n_periods  # precedence
+    + n_periods * 2  # grade blending
 )
 print(f"\nTotal constraints: {total_constraints}")
 
@@ -193,7 +200,7 @@ print(f"Iterations: {solution.iterations}")
 if solution.solve_time >= 1.0:
     print(f"Solve time: {solution.solve_time:.2f} s")
 else:
-    print(f"Solve time: {solution.solve_time*1000:.1f} ms")
+    print(f"Solve time: {solution.solve_time * 1000:.1f} ms")
 
 # =============================================================================
 # Results Visualization
@@ -204,7 +211,7 @@ print("-" * 50)
 # Print schedule table
 print(f"\n{'Block':<8}", end="")
 for t in range(n_periods):
-    print(f"{'Period '+str(t+1):>10}", end="")
+    print(f"{'Period ' + str(t + 1):>10}", end="")
 print(f"{'Total':>10}")
 print("-" * (8 + 10 * (n_periods + 1)))
 
@@ -247,7 +254,10 @@ print("-" * 50)
 
 total_tonnage = sum(total_by_period)
 total_cu = sum(
-    block_grade[i] / 100 * block_tonnage[i] * sum(solution[f"x_{i}_{t}"] for t in range(n_periods))
+    block_grade[i]
+    / 100
+    * block_tonnage[i]
+    * sum(solution[f"x_{i}_{t}"] for t in range(n_periods))
     for i in range(n_blocks)
 )
 
