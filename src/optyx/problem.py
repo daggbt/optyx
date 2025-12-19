@@ -29,6 +29,11 @@ class Problem:
         >>> prob.subject_to(x + y >= 1)
         >>> solution = prob.solve()
         >>> print(solution.values)  # {'x': 0.5, 'y': 0.5}
+
+    Note:
+        The Problem class is not thread-safe. Compiled callables are cached
+        per instance and reused across multiple solve() calls for performance.
+        Any mutation (adding constraints, changing objective) invalidates the cache.
     """
 
     def __init__(self, name: str | None = None):
@@ -42,6 +47,8 @@ class Problem:
         self._sense: Literal["minimize", "maximize"] = "minimize"
         self._constraints: list[Constraint] = []
         self._variables: list[Variable] | None = None  # Cached
+        # Solver cache for compiled callables (reused across solve() calls)
+        self._solver_cache: dict | None = None
 
     def minimize(self, expr: Expression) -> Problem:
         """Set the objective function to minimize.
@@ -55,6 +62,7 @@ class Problem:
         self._objective = expr
         self._sense = "minimize"
         self._variables = None  # Invalidate cache
+        self._solver_cache = None  # Invalidate solver cache
         return self
 
     def maximize(self, expr: Expression) -> Problem:
@@ -69,6 +77,7 @@ class Problem:
         self._objective = expr
         self._sense = "maximize"
         self._variables = None  # Invalidate cache
+        self._solver_cache = None  # Invalidate solver cache
         return self
 
     def subject_to(self, constraint: Constraint) -> Problem:
@@ -81,6 +90,9 @@ class Problem:
             Self for method chaining.
         """
         self._constraints.append(constraint)
+        self._variables = None  # Invalidate cache
+        self._solver_cache = None  # Invalidate solver cache
+        return self
         self._variables = None  # Invalidate cache
         return self
 
