@@ -1,6 +1,7 @@
 ---
 title: "Core Concepts"
 description: "Understanding Variables, Expressions, Constraints, and Problems"
+date: last-modified
 ---
 
 Optyx is built around four core concepts:

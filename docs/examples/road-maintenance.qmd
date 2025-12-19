@@ -1,6 +1,7 @@
 ---
 title: "Road Maintenance Optimization"
 description: "Budget allocation for road infrastructure with non-linear deterioration models"
+date: last-modified
 execute:
   warning: false
 ---

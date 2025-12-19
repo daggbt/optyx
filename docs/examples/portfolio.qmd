@@ -1,6 +1,7 @@
 ---
 title: "Portfolio Optimization"
 description: "Mean-variance portfolio optimization with efficient frontier"
+date: last-modified
 execute:
   warning: false
 ---

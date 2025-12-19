@@ -1,6 +1,7 @@
 ---
 title: "Solution API"
 description: "Accessing optimization results"
+date: last-modified
 ---
 
 ## Solution

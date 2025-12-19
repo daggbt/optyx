@@ -1,6 +1,7 @@
 ---
 title: "Working with Constraints"
 description: "Advanced constraint patterns and techniques"
+date: last-modified
 ---
 
 ## Introduction
@@ -220,25 +221,30 @@ print(f"Constraint violation: {sol['slack']:.2f}")
 
 ```{python}
 from optyx import Variable, Problem
+import numpy as np
 
 n = 3
-x = [Variable(f"x_{i}", lb=0) for i in range(n)]
+x = np.array([Variable(f"x_{i}", lb=0) for i in range(n)])
 
 # Resource limits
-limits = [100, 80, 60]
-usage = [[2, 1, 3], [1, 2, 1], [1, 1, 2]]
+limits = np.array([100, 80, 60])
+usage = np.array([[2, 1, 3], [1, 2, 1], [1, 1, 2]])
 
-prob = Problem().maximize(sum(10*x[i] for i in range(n)))
+prob = Problem().maximize(np.sum(10 * x))
 
-# Add resource constraints
+# Add resource constraints using matrix notation
 for j in range(len(limits)):
-    constraint = sum(usage[j][i] * x[i] for i in range(n)) <= limits[j]
-    prob.subject_to(constraint)
+    prob.subject_to(usage[j] @ x <= limits[j])
 
 sol = prob.solve()
 for i in range(n):
     print(f"x_{i} = {sol[f'x_{i}']:.2f}")
 ```
+
+::: {.callout-tip}
+## NumPy Matrix Operations
+Optyx variables work seamlessly with NumPy arrays. Use `np.array([...])` to wrap your variables, then use `@` for matrix multiplication and `np.sum()` for summations.
+:::
 
 ### Constraint Generators
 

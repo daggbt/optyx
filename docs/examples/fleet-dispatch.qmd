@@ -1,6 +1,7 @@
 ---
 title: "Fleet Dispatch Optimization"
 description: "Truck-shovel assignment for mining operations"
+date: last-modified
 execute:
   warning: false
 ---

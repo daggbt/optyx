@@ -1,6 +1,7 @@
 ---
 title: "Quickstart"
 description: "Solve your first optimization problem in 5 minutes"
+date: last-modified
 ---
 
 ## Your First Optimization Problem

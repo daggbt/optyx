@@ -97,13 +97,18 @@ website:
 
 format:
   html:
-    theme: flatly
+    theme: cosmo
     css: styles.css
     toc: true
+    toc-depth: 3
+    number-sections: true
     code-copy: true
     code-overflow: wrap
     highlight-style: github
     include-after-body: assets/js/page-nav.js
+    date-format: "MMMM D, YYYY"
+
+author: "Optyx Contributors"
 
 execute:
   kernel: optyx-docs

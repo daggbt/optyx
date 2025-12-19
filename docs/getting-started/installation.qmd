@@ -1,6 +1,7 @@
 ---
 title: "Installation"
 description: "How to install Optyx"
+date: last-modified
 ---
 
 ## For Users

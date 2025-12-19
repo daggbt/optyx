@@ -1,6 +1,7 @@
 ---
 title: "Mine Production Scheduling"
 description: "Multi-period open-pit mine scheduling with NPV maximization"
+date: last-modified
 ---
 
 ## Overview

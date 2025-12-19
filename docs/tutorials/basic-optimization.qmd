@@ -1,6 +1,7 @@
 ---
 title: "Basic Optimization Tutorial"
 description: "Step-by-step guide to solving optimization problems"
+date: last-modified
 ---
 
 ## Introduction

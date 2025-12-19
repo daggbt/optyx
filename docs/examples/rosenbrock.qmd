@@ -1,6 +1,7 @@
 ---
 title: "Rosenbrock Function"
 description: "Classic optimization benchmark"
+date: last-modified
 execute:
   warning: false
 ---

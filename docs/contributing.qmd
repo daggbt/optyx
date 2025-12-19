@@ -1,6 +1,7 @@
 ---
 title: "Contributing"
 description: "How to contribute to Optyx development"
+date: last-modified
 ---
 
 ## Welcome Contributors! 🎉
