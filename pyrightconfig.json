@@ -1,0 +1,21 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": true,
+  "reportOptionalOperand": "warning",
+  "reportArgumentType": "warning",
+  "reportAttributeAccessIssue": "warning",
+  "reportCallIssue": "warning",
+  "reportAssignmentType": "warning",
+  "reportPossiblyUnboundVariable": "warning",
+  "reportOperatorIssue": "warning",
+  "exclude": [
+    "**/__pycache__",
+    ".venv",
+    "docs/_site",
+    "docs/_freeze",
+    ".pytest_cache",
+    "*.egg-info"
+  ]
+}

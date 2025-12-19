@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Literal
+from typing import Mapping
 
 import numpy as np
 
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
 
 class Expression(ABC):
     """Abstract base class for all symbolic expressions.
-    
+
     Expressions form a tree structure that can be evaluated given variable values.
     All arithmetic operators are overloaded to build expression trees automatically.
     """
@@ -22,12 +23,14 @@ class Expression(ABC):
     __slots__ = ("_hash",)
 
     @abstractmethod
-    def evaluate(self, values: dict[str, ArrayLike]) -> NDArray[np.floating] | float:
+    def evaluate(
+        self, values: Mapping[str, ArrayLike | float]
+    ) -> NDArray[np.floating] | float:
         """Evaluate the expression given variable values.
-        
+
         Args:
             values: Dictionary mapping variable names to their values.
-            
+
         Returns:
             The numerical result of evaluating the expression.
         """
@@ -86,24 +89,27 @@ class Expression(ABC):
         return self
 
     # Comparison operators - create constraints
-    
+
     def __le__(self, other: Expression | float | int) -> Constraint:
         """Create a <= constraint: self <= other."""
         from optyx.constraints import _make_constraint
+
         return _make_constraint(self, "<=", other)
-    
+
     def __ge__(self, other: Expression | float | int) -> Constraint:
         """Create a >= constraint: self >= other."""
         from optyx.constraints import _make_constraint
+
         return _make_constraint(self, ">=", other)
-    
+
     def constraint_eq(self, other: Expression | float | int) -> Constraint:
         """Create an == constraint: self == other.
-        
+
         Note: We use constraint_eq() instead of __eq__ because __eq__ is used
         for object identity comparison which is needed for sets/dicts.
         """
         from optyx.constraints import _make_constraint
+
         return _make_constraint(self, "==", other)
 
     def __repr__(self) -> str:
@@ -112,7 +118,7 @@ class Expression(ABC):
 
 class Constant(Expression):
     """A constant numerical value in an expression.
-    
+
     Wraps scalars or numpy arrays as expression nodes.
     """
 
@@ -121,7 +127,9 @@ class Constant(Expression):
     def __init__(self, value: float | int | ArrayLike) -> None:
         self.value = np.asarray(value) if not isinstance(value, (int, float)) else value
 
-    def evaluate(self, values: dict[str, ArrayLike]) -> NDArray[np.floating] | float:
+    def evaluate(
+        self, values: Mapping[str, ArrayLike | float]
+    ) -> NDArray[np.floating] | float:
         return self.value
 
     def get_variables(self) -> set[Variable]:
@@ -133,7 +141,7 @@ class Constant(Expression):
 
 class Variable(Expression):
     """A decision variable in an optimization problem.
-    
+
     Args:
         name: Unique identifier for this variable.
         lb: Lower bound (None for unbounded).
@@ -160,10 +168,14 @@ class Variable(Expression):
             self.lb = 0.0
             self.ub = 1.0
 
-    def evaluate(self, values: dict[str, ArrayLike]) -> NDArray[np.floating] | float:
+    def evaluate(
+        self, values: Mapping[str, ArrayLike | float]
+    ) -> NDArray[np.floating] | float:
         if self.name not in values:
             raise KeyError(f"Variable '{self.name}' not found in values")
-        return values[self.name]
+        value = values[self.name]
+        # Return as-is, can be array or scalar
+        return value  # type: ignore[return-value]
 
     def get_variables(self) -> set[Variable]:
         return {self}
@@ -186,7 +198,7 @@ class Variable(Expression):
 
 class BinaryOp(Expression):
     """A binary operation between two expressions.
-    
+
     Supported operators: +, -, *, /, **
     """
 
@@ -211,7 +223,9 @@ class BinaryOp(Expression):
         self.right = right
         self.op = op
 
-    def evaluate(self, values: dict[str, ArrayLike]) -> NDArray[np.floating] | float:
+    def evaluate(
+        self, values: Mapping[str, ArrayLike | float]
+    ) -> NDArray[np.floating] | float:
         left_val = self.left.evaluate(values)
         right_val = self.right.evaluate(values)
         return self._OPS[self.op](left_val, right_val)
@@ -225,7 +239,7 @@ class BinaryOp(Expression):
 
 class UnaryOp(Expression):
     """A unary operation on an expression.
-    
+
     Supported operators: neg, abs, and transcendental functions.
     """
 
@@ -261,7 +275,9 @@ class UnaryOp(Expression):
         self.op = op
         self._numpy_func = self._OPS[op]
 
-    def evaluate(self, values: dict[str, ArrayLike]) -> NDArray[np.floating] | float:
+    def evaluate(
+        self, values: Mapping[str, ArrayLike | float]
+    ) -> NDArray[np.floating] | float:
         operand_val = self.operand.evaluate(values)
         return self._numpy_func(operand_val)
 

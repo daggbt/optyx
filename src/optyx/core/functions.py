@@ -16,10 +16,10 @@ if TYPE_CHECKING:
 
 def sin(x: Expression | float) -> UnaryOp:
     """Sine function.
-    
+
     Args:
         x: Expression or numeric value.
-        
+
     Returns:
         Expression representing sin(x).
     """
@@ -28,10 +28,10 @@ def sin(x: Expression | float) -> UnaryOp:
 
 def cos(x: Expression | float) -> UnaryOp:
     """Cosine function.
-    
+
     Args:
         x: Expression or numeric value.
-        
+
     Returns:
         Expression representing cos(x).
     """
@@ -40,10 +40,10 @@ def cos(x: Expression | float) -> UnaryOp:
 
 def tan(x: Expression | float) -> UnaryOp:
     """Tangent function.
-    
+
     Args:
         x: Expression or numeric value.
-        
+
     Returns:
         Expression representing tan(x).
     """
@@ -52,10 +52,10 @@ def tan(x: Expression | float) -> UnaryOp:
 
 def exp(x: Expression | float) -> UnaryOp:
     """Exponential function (e^x).
-    
+
     Args:
         x: Expression or numeric value.
-        
+
     Returns:
         Expression representing exp(x).
     """
@@ -64,10 +64,10 @@ def exp(x: Expression | float) -> UnaryOp:
 
 def log(x: Expression | float) -> UnaryOp:
     """Natural logarithm.
-    
+
     Args:
         x: Expression or numeric value (must be positive).
-        
+
     Returns:
         Expression representing log(x).
     """
@@ -76,10 +76,10 @@ def log(x: Expression | float) -> UnaryOp:
 
 def sqrt(x: Expression | float) -> UnaryOp:
     """Square root.
-    
+
     Args:
         x: Expression or numeric value (must be non-negative).
-        
+
     Returns:
         Expression representing sqrt(x).
     """
@@ -88,12 +88,12 @@ def sqrt(x: Expression | float) -> UnaryOp:
 
 def abs_(x: Expression | float) -> UnaryOp:
     """Absolute value.
-    
+
     Note: Named abs_ to avoid shadowing Python's built-in abs.
-    
+
     Args:
         x: Expression or numeric value.
-        
+
     Returns:
         Expression representing |x|.
     """
@@ -102,10 +102,10 @@ def abs_(x: Expression | float) -> UnaryOp:
 
 def tanh(x: Expression | float) -> UnaryOp:
     """Hyperbolic tangent.
-    
+
     Args:
         x: Expression or numeric value.
-        
+
     Returns:
         Expression representing tanh(x).
     """
@@ -114,10 +114,10 @@ def tanh(x: Expression | float) -> UnaryOp:
 
 def sinh(x: Expression | float) -> UnaryOp:
     """Hyperbolic sine.
-    
+
     Args:
         x: Expression or numeric value.
-        
+
     Returns:
         Expression representing sinh(x).
     """
@@ -126,10 +126,10 @@ def sinh(x: Expression | float) -> UnaryOp:
 
 def cosh(x: Expression | float) -> UnaryOp:
     """Hyperbolic cosine.
-    
+
     Args:
         x: Expression or numeric value.
-        
+
     Returns:
         Expression representing cosh(x).
     """
@@ -140,12 +140,13 @@ def cosh(x: Expression | float) -> UnaryOp:
 # Inverse Trigonometric Functions
 # =============================================================================
 
+
 def asin(x: Expression | float) -> UnaryOp:
     """Inverse sine (arcsine).
-    
+
     Args:
         x: Expression or numeric value in [-1, 1].
-        
+
     Returns:
         Expression representing arcsin(x), result in [-π/2, π/2].
     """
@@ -154,10 +155,10 @@ def asin(x: Expression | float) -> UnaryOp:
 
 def acos(x: Expression | float) -> UnaryOp:
     """Inverse cosine (arccosine).
-    
+
     Args:
         x: Expression or numeric value in [-1, 1].
-        
+
     Returns:
         Expression representing arccos(x), result in [0, π].
     """
@@ -166,10 +167,10 @@ def acos(x: Expression | float) -> UnaryOp:
 
 def atan(x: Expression | float) -> UnaryOp:
     """Inverse tangent (arctangent).
-    
+
     Args:
         x: Expression or numeric value.
-        
+
     Returns:
         Expression representing arctan(x), result in (-π/2, π/2).
     """
@@ -180,12 +181,13 @@ def atan(x: Expression | float) -> UnaryOp:
 # Inverse Hyperbolic Functions
 # =============================================================================
 
+
 def asinh(x: Expression | float) -> UnaryOp:
     """Inverse hyperbolic sine.
-    
+
     Args:
         x: Expression or numeric value.
-        
+
     Returns:
         Expression representing arcsinh(x).
     """
@@ -194,10 +196,10 @@ def asinh(x: Expression | float) -> UnaryOp:
 
 def acosh(x: Expression | float) -> UnaryOp:
     """Inverse hyperbolic cosine.
-    
+
     Args:
         x: Expression or numeric value >= 1.
-        
+
     Returns:
         Expression representing arccosh(x).
     """
@@ -206,10 +208,10 @@ def acosh(x: Expression | float) -> UnaryOp:
 
 def atanh(x: Expression | float) -> UnaryOp:
     """Inverse hyperbolic tangent.
-    
+
     Args:
         x: Expression or numeric value in (-1, 1).
-        
+
     Returns:
         Expression representing arctanh(x).
     """
@@ -220,12 +222,13 @@ def atanh(x: Expression | float) -> UnaryOp:
 # Additional Logarithm Bases
 # =============================================================================
 
+
 def log2(x: Expression | float) -> UnaryOp:
     """Base-2 logarithm.
-    
+
     Args:
         x: Expression or numeric value (must be positive).
-        
+
     Returns:
         Expression representing log₂(x).
     """
@@ -234,10 +237,10 @@ def log2(x: Expression | float) -> UnaryOp:
 
 def log10(x: Expression | float) -> UnaryOp:
     """Base-10 logarithm.
-    
+
     Args:
         x: Expression or numeric value (must be positive).
-        
+
     Returns:
         Expression representing log₁₀(x).
     """

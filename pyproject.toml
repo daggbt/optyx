@@ -32,6 +32,7 @@ classifiers = [
 dependencies = [
     "matplotlib>=3.10.7",
     "numpy>=2.3.5",
+    "pre-commit>=4.5.1",
     "scipy>=1.16.3",
 ]
 
@@ -53,4 +54,5 @@ dev = [
     "ipykernel",
     "jupyter",
     "pyyaml",
+    "pyright>=1.1.407",
 ]

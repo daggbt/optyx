@@ -44,4 +44,4 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-test_com*
+compare_optyx_scipy.py
