@@ -11,7 +11,7 @@ Thank you for your interest in contributing to Optyx! This guide will help you g
 
 ### Prerequisites
 
-- Python 3.10 or higher
+- Python 3.12 or higher
 - [uv](https://docs.astral.sh/uv/) package manager (recommended)
 - Git
 
@@ -28,6 +28,23 @@ uv sync
 # Verify installation
 uv run python -c "import optyx; print(optyx.__version__)"
 ```
+
+### Set Up Pre-commit Hooks
+
+We use pre-commit hooks to automatically check code quality before commits:
+
+```bash
+# Install pre-commit
+uv pip install pre-commit
+
+# Install the git hooks
+pre-commit install
+
+# (Optional) Run hooks on all files
+pre-commit run --all-files
+```
+
+Now ruff (linting & formatting) and pyright (type checking) will run automatically on staged files before each commit.
 
 ### Alternative: pip
 
@@ -164,6 +181,8 @@ uv run ruff check src tests
 uv run pyright src
 ```
 
+**Note**: If you've set up pre-commit hooks, these checks run automatically on commit. You can also run them manually with `pre-commit run --all-files`.
+
 ### 4. Commit and Push
 
 ```bash
@@ -210,23 +229,35 @@ test: add edge cases for autodiff
 
 ## Areas for Contribution
 
-### Good First Issues
-
-Look for issues labeled `good first issue` on GitHub. These are ideal for newcomers.
-
 ### Current Priorities
 
-1. **Documentation improvements** - Examples, tutorials, API docs
-2. **Test coverage** - Edge cases, numerical stability tests
-3. **New mathematical functions** - Extend `functions.py`
-4. **Performance optimizations** - Expression simplification, caching
+1. **Documentation & Examples**
+   - More real-world application examples (finance, logistics, engineering, ML)
+   - Tutorial enhancements and walkthroughs
+   - API reference improvements with usage patterns
 
-### Future Features (v2.x)
+2. **Developer Experience**
+   - Better error messages and diagnostic output
+   - Debugging utilities for gradient verification
+   - Enhanced IDE support and type hints
 
-- Convex optimization detection
-- Custom solver backends
-- Sparse matrix support
-- JIT compilation
+3. **Performance & Benchmarking**
+   - Benchmark suite against other optimization libraries
+   - Performance profiling and optimization
+   - Expression simplification algorithms
+   - Compilation and caching strategies
+
+4. **Test Coverage**
+   - Edge cases and boundary conditions
+   - Numerical stability tests
+   - Cross-platform compatibility
+
+### Future Features (v1.2+)
+
+- **Advanced Backends**: JAX integration for GPU acceleration and JIT compilation, custom solver backends (Gurobi, CPLEX, MOSEK)
+- **Optimization Intelligence**: Convex optimization detection, problem classification and solver recommendation
+- **Scalability**: Sparse matrix support for large-scale problems, distributed computing capabilities
+- **Ecosystem Integration**: PyTorch/TensorFlow integration examples, scikit-learn pipeline compatibility, pandas DataFrame workflows
 
 ## Documentation
 
