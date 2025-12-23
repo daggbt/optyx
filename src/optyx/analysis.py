@@ -207,18 +207,21 @@ def is_linear(expr: Expression) -> bool:
     """Return True if expression is linear (degree ≤ 1).
 
     Constant expressions are considered linear (degree 0).
-    Uses optimized bounded-degree traversal that terminates early.
+    Uses cached degree property on Expression for performance.
     """
-    return _check_degree_bounded(expr, 1)
+    # Use cached degree property on Expression
+    deg = expr.degree
+    return deg is not None and deg <= 1
 
 
 def is_quadratic(expr: Expression) -> bool:
     """Return True if expression is quadratic (degree ≤ 2).
 
     Returns False for non-polynomial expressions.
-    Uses optimized bounded-degree traversal that terminates early.
+    Uses cached degree property on Expression for performance.
     """
-    return _check_degree_bounded(expr, 2)
+    deg = expr.degree
+    return deg is not None and deg <= 2
 
 
 def clear_degree_cache() -> None:

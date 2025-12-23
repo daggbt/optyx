@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
+    from optyx.analysis import LPData
     from optyx.constraints import Constraint
     from optyx.core.expressions import Expression, Variable
     from optyx.solution import Solution
@@ -56,6 +57,17 @@ class Problem:
         self._variables: list[Variable] | None = None  # Cached
         # Solver cache for compiled callables (reused across solve() calls)
         self._solver_cache: dict | None = None
+        # LP data cache (reused across solve() calls for LP problems)
+        self._lp_cache: LPData | None = None
+        # Cached linearity check result (None = not computed, True/False = result)
+        self._is_linear_cache: bool | None = None
+
+    def _invalidate_caches(self) -> None:
+        """Invalidate all cached data when problem is modified."""
+        self._variables = None
+        self._solver_cache = None
+        self._lp_cache = None
+        self._is_linear_cache = None
 
     def minimize(self, expr: Expression) -> Problem:
         """Set the objective function to minimize.
@@ -68,8 +80,7 @@ class Problem:
         """
         self._objective = expr
         self._sense = "minimize"
-        self._variables = None  # Invalidate cache
-        self._solver_cache = None  # Invalidate solver cache
+        self._invalidate_caches()
         return self
 
     def maximize(self, expr: Expression) -> Problem:
@@ -83,8 +94,7 @@ class Problem:
         """
         self._objective = expr
         self._sense = "maximize"
-        self._variables = None  # Invalidate cache
-        self._solver_cache = None  # Invalidate solver cache
+        self._invalidate_caches()
         return self
 
     def subject_to(self, constraint: Constraint) -> Problem:
@@ -97,10 +107,7 @@ class Problem:
             Self for method chaining.
         """
         self._constraints.append(constraint)
-        self._variables = None  # Invalidate cache
-        self._solver_cache = None  # Invalidate solver cache
-        return self
-        self._variables = None  # Invalidate cache
+        self._invalidate_caches()
         return self
 
     @property
@@ -161,19 +168,28 @@ class Problem:
         """Check if the problem is a linear program.
 
         Returns True if both the objective and all constraints are linear.
+        Result is cached until problem is modified.
         """
+        # Return cached result if available
+        if self._is_linear_cache is not None:
+            return self._is_linear_cache
+
         from optyx.analysis import is_linear
 
         if self._objective is None:
+            self._is_linear_cache = False
             return False
 
         if not is_linear(self._objective):
+            self._is_linear_cache = False
             return False
 
         for constraint in self._constraints:
             if not is_linear(constraint.expr):
+                self._is_linear_cache = False
                 return False
 
+        self._is_linear_cache = True
         return True
 
     def _only_simple_bounds(self) -> bool:

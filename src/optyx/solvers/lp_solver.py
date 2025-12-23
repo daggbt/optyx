@@ -113,12 +113,16 @@ def solve_lp(
         # For older scipy, highs-ds is usually available
         method = "highs-ds"
 
-    # Extract LP coefficients
-    extractor = LinearProgramExtractor()
-    try:
-        lp_data = extractor.extract(problem)
-    except ValueError as e:
-        raise ValueError(f"Failed to extract LP coefficients: {e}") from e
+    # Extract LP coefficients (use cache if available)
+    if problem._lp_cache is not None:
+        lp_data = problem._lp_cache
+    else:
+        extractor = LinearProgramExtractor()
+        try:
+            lp_data = extractor.extract(problem)
+            problem._lp_cache = lp_data  # Cache for future solves
+        except ValueError as e:
+            raise ValueError(f"Failed to extract LP coefficients: {e}") from e
 
     # Handle maximization by negating objective
     c = lp_data.c
