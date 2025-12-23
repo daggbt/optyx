@@ -126,6 +126,7 @@ def solve_scipy(
         # Check if Hessian is cached for this method
         if "hess_fn" not in cache:
             obj_expr = problem.objective
+            assert obj_expr is not None, "Objective must be set before solving"
             if problem.sense == "maximize":
                 obj_expr = -obj_expr  # type: ignore[operator]
             compiled_hess = compile_hessian(obj_expr, variables)

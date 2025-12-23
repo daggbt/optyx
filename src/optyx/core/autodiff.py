@@ -7,7 +7,7 @@ gradient expressions that can be compiled for fast evaluation.
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
@@ -403,7 +403,10 @@ def compile_jacobian(
     if all_constant:
         # Pre-compute constant Jacobian matrix
         const_jac = np.array(
-            [[jacobian_exprs[i][j].value for j in range(n)] for i in range(m)],
+            [
+                [cast(Constant, jacobian_exprs[i][j]).value for j in range(n)]
+                for i in range(m)
+            ],
             dtype=np.float64,
         )
 
