@@ -119,12 +119,12 @@ prob.subject_to(constraint)
 Solve the optimization problem.
 
 ```python
-solution = prob.solve(method="SLSQP", strict=False, x0=None, tol=None, maxiter=None)
+solution = prob.solve(method="auto", strict=False, x0=None, tol=None, maxiter=None)
 ```
 
 | Parameter | Type | Description | Default |
 |-----------|------|-------------|---------|
-| `method` | `str` | Solver method | `"SLSQP"` |
+| `method` | `str` | Solver method | `"auto"` |
 | `strict` | `bool` | Raise error for unsupported features | `False` |
 | `x0` | `np.ndarray | None` | Initial point | Auto-generated |
 | `tol` | `float | None` | Solver tolerance | Solver default |
@@ -134,11 +134,27 @@ solution = prob.solve(method="SLSQP", strict=False, x0=None, tol=None, maxiter=N
 
 **Raises:** `ValueError` if `strict=True` and the problem contains features the solver cannot handle (e.g., integer/binary variables with SciPy).
 
+**Automatic method selection (`method="auto"`):**
+
+When `method="auto"` (default), Optyx automatically selects the best solver based on problem structure:
+
+| Problem Type | Selected Method |
+|--------------|-----------------|
+| Linear objective and constraints | `linprog` (HiGHS LP solver) |
+| Unconstrained, n ≤ 3 | `Nelder-Mead` |
+| Unconstrained, n > 1000 | `L-BFGS-B` |
+| Unconstrained, else | `BFGS` |
+| Bounds only (no general constraints) | `L-BFGS-B` |
+| Has equality constraints | `trust-constr` |
+| Inequality constraints only | `SLSQP` |
+
 **Available methods:**
 
 | Method | Bounds | Constraints | Gradient | Hessian | Description |
 |--------|--------|-------------|----------|---------|-------------|
-| `"SLSQP"` | ✅ | ✅ | ✅ | ❌ | Sequential Least Squares Programming (default) |
+| `"auto"` | ✅ | ✅ | ✅ | ✅ | Automatic selection (default) |
+| `"linprog"` | ✅ | ✅ (linear) | N/A | N/A | HiGHS LP solver (for linear problems) |
+| `"SLSQP"` | ✅ | ✅ | ✅ | ❌ | Sequential Least Squares Programming |
 | `"trust-constr"` | ✅ | ✅ | ✅ | ✅ | Trust-region constrained optimization |
 | `"L-BFGS-B"` | ✅ | ❌ | ✅ | ❌ | Limited-memory BFGS with bounds |
 | `"COBYLA"` | ❌ | ✅ (ineq) | ❌ | ❌ | Constrained Optimization BY Linear Approx |
@@ -155,7 +171,8 @@ solution = prob.solve(method="SLSQP", strict=False, x0=None, tol=None, maxiter=N
 
 ::: {.callout-tip}
 ## Recommended Methods
-- **With constraints**: Use `"SLSQP"` (default) or `"trust-constr"`
+- **Linear problems**: Use `"auto"` or `"linprog"` for best performance
+- **With constraints**: Use `"SLSQP"` or `"trust-constr"`
 - **Bounds only**: Use `"L-BFGS-B"` for large-scale problems
 - **Unconstrained**: Use `"BFGS"` or `"trust-ncg"` for smooth problems
 :::

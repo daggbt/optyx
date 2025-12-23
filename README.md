@@ -184,10 +184,10 @@ prob.subject_to(constraint2)
 ```
 
 ### ✅ Solver Integration
-Solve with SciPy backends. Get structured results.
+Solve with SciPy backends. Optyx automatically selects the best solver for your problem.
 
 ```python
-solution = prob.solve(method="SLSQP")  # or "trust-constr"
+solution = prob.solve()  # Auto-selects: linprog for LP, SLSQP/BFGS for NLP
 
 print(solution.status)          # SolverStatus.OPTIMAL
 print(solution.objective_value) # 0.5
@@ -195,6 +195,11 @@ print(solution["x"])            # Access optimal value by variable name
 print(solution.iterations)      # 12
 print(solution.solve_time)      # 0.003 seconds
 ```
+
+**Automatic solver selection** picks the best method based on problem structure:
+- Linear problems → HiGHS LP solver (fastest)
+- Unconstrained → BFGS or Nelder-Mead
+- With constraints → SLSQP or trust-constr
 
 ---
 
@@ -341,12 +346,12 @@ solution = prob.solve()  # I-95: $5M, Main St: $0 (optimal)
 
 **Optyx is actively evolving.** Here's where we're heading:
 
+- ✅ **Smarter modeling** — Automatic problem classification and solver selection *(completed in v1.1)*
+- ✅ **Production-ready** — Caching for fast repeated solves *(completed in v1.1)*
 - **Larger problems** — Support for vector and matrix variables to handle optimization with thousands of decision variables
 - **Faster execution** — JIT-compiled backends for significant performance improvements on complex models
 - **More solvers** — Integration with industry-standard solvers like IPOPT for large-scale nonlinear optimization
-- **Smarter modeling** — Automatic problem classification, convexity detection, and solver recommendations
 - **Better debugging** — Infeasibility diagnostics, constraint violation reports, and model inspection tools
-- **Production-ready** — Warm starts, caching, and callbacks for real-time and iterative applications
 
 ---
 
