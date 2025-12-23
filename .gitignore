@@ -44,4 +44,8 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
+# Local GitHub templates (not committed)
+.github/ISSUE_TEMPLATE/
+.github/PULL_REQUEST_TEMPLATE.md
+
 compare_optyx_scipy.py
