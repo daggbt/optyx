@@ -18,6 +18,13 @@ if TYPE_CHECKING:
     from optyx.solution import Solution
 
 
+# Threshold for "small" problems where gradient-free methods are faster
+SMALL_PROBLEM_THRESHOLD = 3
+
+# Threshold for "large" problems where memory-efficient methods are preferred
+LARGE_PROBLEM_THRESHOLD = 1000
+
+
 class Problem:
     """An optimization problem with objective and constraints.
 
@@ -150,16 +157,100 @@ class Problem:
         """
         return [(v.lb, v.ub) for v in self.variables]
 
+    def _is_linear_problem(self) -> bool:
+        """Check if the problem is a linear program.
+
+        Returns True if both the objective and all constraints are linear.
+        """
+        from optyx.analysis import is_linear
+
+        if self._objective is None:
+            return False
+
+        if not is_linear(self._objective):
+            return False
+
+        for constraint in self._constraints:
+            if not is_linear(constraint.expr):
+                return False
+
+        return True
+
+    def _only_simple_bounds(self) -> bool:
+        """Check if all constraints are simple variable bounds.
+
+        Simple bounds are constraints on a single variable like x >= 0 or x <= 10.
+        """
+        if not self._constraints:
+            return True
+
+        from optyx.analysis import is_simple_bound
+
+        return all(is_simple_bound(c, self.variables) for c in self._constraints)
+
+    def _has_equality_constraints(self) -> bool:
+        """Check if problem has any equality constraints."""
+        return any(c.sense == "==" for c in self._constraints)
+
+    def _auto_select_method(self) -> str:
+        """Automatically select the best solver method for this problem.
+
+        Decision tree:
+        1. Linear problem → "linprog" (handled separately in solve())
+        2. Unconstrained:
+           - n ≤ 3 → "Nelder-Mead" (no gradient overhead)
+           - n > 1000 → "L-BFGS-B" (memory efficient)
+           - else → "BFGS" (fast with gradients)
+        3. Only simple bounds → "L-BFGS-B"
+        4. Has equality constraints → "trust-constr"
+        5. Inequality only → "SLSQP"
+        """
+        n = len(self.variables)
+
+        # Unconstrained
+        if not self._constraints:
+            if n <= SMALL_PROBLEM_THRESHOLD:
+                return "Nelder-Mead"
+            elif n > LARGE_PROBLEM_THRESHOLD:
+                return "L-BFGS-B"
+            else:
+                return "BFGS"
+
+        # Only variable bounds (no general constraints)
+        if self._only_simple_bounds():
+            return "L-BFGS-B"
+
+        # Has equality constraints → use trust-constr (most robust)
+        if self._has_equality_constraints():
+            return "trust-constr"
+
+        # Inequality-only constraints → use SLSQP (fast)
+        return "SLSQP"
+
     def solve(
         self,
-        method: str = "SLSQP",
+        method: str = "auto",
         strict: bool = False,
         **kwargs,
     ) -> Solution:
         """Solve the optimization problem.
 
         Args:
-            method: Solver method. Options: "SLSQP", "trust-constr", "L-BFGS-B".
+            method: Solver method. Options:
+                - "auto" (default): Automatically select the best method:
+                    - Linear problems → linprog (HiGHS)
+                    - Unconstrained, n ≤ 3 → Nelder-Mead
+                    - Unconstrained, n > 1000 → L-BFGS-B
+                    - Unconstrained, else → BFGS
+                    - Bounds only → L-BFGS-B
+                    - Equality constraints → trust-constr
+                    - Inequality only → SLSQP
+                - "linprog": Force LP solver (scipy.optimize.linprog)
+                - "SLSQP": Sequential Least Squares Programming
+                - "trust-constr": Trust-region constrained optimization
+                - "L-BFGS-B": Limited-memory BFGS with bounds
+                - "BFGS": Broyden-Fletcher-Goldfarb-Shanno
+                - "Nelder-Mead": Derivative-free simplex method
             strict: If True, raise ValueError when the problem contains features
                 that the solver cannot handle exactly (e.g., integer/binary
                 variables with SciPy). If False (default), emit a warning and
@@ -176,6 +267,22 @@ class Problem:
         if self._objective is None:
             raise ValueError("No objective set. Call minimize() or maximize() first.")
 
+        # Handle automatic method selection
+        if method == "auto":
+            if self._is_linear_problem():
+                from optyx.solvers.lp_solver import solve_lp
+
+                return solve_lp(self, strict=strict, **kwargs)
+            else:
+                method = self._auto_select_method()
+
+        # Handle explicit linprog request
+        if method == "linprog":
+            from optyx.solvers.lp_solver import solve_lp
+
+            return solve_lp(self, strict=strict, **kwargs)
+
+        # Use scipy solver for NLP methods
         from optyx.solvers.scipy_solver import solve_scipy
 
         return solve_scipy(self, method=method, strict=strict, **kwargs)

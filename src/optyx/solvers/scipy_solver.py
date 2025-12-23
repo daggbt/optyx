@@ -64,6 +64,13 @@ def solve_scipy(
         "trust-exact",
     }
 
+    # Derivative-free methods that don't use gradient information
+    DERIVATIVE_FREE_METHODS = {
+        "Nelder-Mead",
+        "Powell",
+        "COBYLA",
+    }
+
     # Methods that support bounds
     BOUNDS_METHODS = {
         "L-BFGS-B",
@@ -159,10 +166,14 @@ def solve_scipy(
         if "delta_grad == 0.0" in str(message):
             linear_problem_detected = True
             return  # Suppress this specific warning
-        # Let other warnings through
-        warnings.showwarning(message, category, filename, lineno, file, line)
+        # Let other warnings through using the original handler
+        old_showwarning(message, category, filename, lineno, file, line)
 
     old_showwarning = warnings.showwarning
+
+    # Determine if gradient should be passed (not for derivative-free methods)
+    use_gradient = method not in DERIVATIVE_FREE_METHODS
+
     try:
         # Temporarily override warning handling during solve
         warnings.showwarning = warning_handler
@@ -171,7 +182,7 @@ def solve_scipy(
             fun=objective,
             x0=x0,
             method=method,
-            jac=gradient,
+            jac=gradient if use_gradient else None,
             hess=hess_fn if hess_fn is not None else None,
             bounds=bounds if bounds and method in BOUNDS_METHODS else None,
             constraints=scipy_constraints if scipy_constraints else (),

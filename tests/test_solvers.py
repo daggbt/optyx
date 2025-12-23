@@ -209,7 +209,11 @@ class TestConstrainedOptimization:
         assert abs(sol["x"] - 5.0) < 1e-4
 
     def test_multiple_constraints(self):
-        """min -x - y s.t. x + y <= 4, x <= 2, y <= 3 → (x*, y*) = (2, 2)"""
+        """min -x - y s.t. x + y <= 4, x <= 2, y <= 3 → objective = -4
+
+        Multiple optimal solutions exist: (2, 2) and (1, 3) are both optimal.
+        We test the objective value instead of specific variable values.
+        """
         x = Variable("x", lb=0)
         y = Variable("y", lb=0)
         prob = (
@@ -222,8 +226,11 @@ class TestConstrainedOptimization:
         sol = prob.solve()
 
         assert sol.is_optimal
-        assert abs(sol["x"] - 2.0) < 1e-4
-        assert abs(sol["y"] - 2.0) < 1e-4
+        assert abs(sol.objective_value - (-4.0)) < 1e-4
+        # Verify feasibility of solution
+        assert sol["x"] + sol["y"] <= 4.0 + 1e-6
+        assert sol["x"] <= 2.0 + 1e-6
+        assert sol["y"] <= 3.0 + 1e-6
 
 
 class TestMaximization:
