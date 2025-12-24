@@ -19,10 +19,17 @@ uv pip install optyx
 ## Requirements
 
 - **Python 3.12+**
-- NumPy
-- SciPy
+- **NumPy** ≥ 2.0
+- **SciPy** ≥ 1.6.0 (for HiGHS LP solver)
 
 All dependencies are installed automatically.
+
+::: {.callout-note}
+## SciPy Version for LP Fast Path
+Optyx uses the HiGHS solver (via `scipy.optimize.linprog`) for linear programs, which requires **SciPy ≥ 1.6.0**. If you have an older version, Optyx will fall back to the simplex method with a warning.
+
+For best performance, we recommend **SciPy ≥ 1.11** which includes the latest HiGHS improvements.
+:::
 
 ## Development Setup
 

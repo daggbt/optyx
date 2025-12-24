@@ -18,9 +18,13 @@ class Expression(ABC):
 
     Expressions form a tree structure that can be evaluated given variable values.
     All arithmetic operators are overloaded to build expression trees automatically.
+
+    Attributes:
+        _hash: Cached hash value for the expression.
+        _degree: Cached polynomial degree (None if not computed, -1 if non-polynomial).
     """
 
-    __slots__ = ("_hash",)
+    __slots__ = ("_hash", "_degree")
 
     @abstractmethod
     def evaluate(
@@ -114,6 +118,42 @@ class Expression(ABC):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(... )"
+
+    @property
+    def degree(self) -> int | None:
+        """Polynomial degree of the expression (cached).
+
+        Returns:
+            - integer degree >= 0 if the expression is a polynomial
+            - None if the expression is non-polynomial (e.g., sin, exp,
+              division by variable, non-integer powers)
+
+        The result is computed once and cached for all subsequent calls.
+        """
+        # Check if cached (_degree attr exists and is not uninitialized)
+        # We use a sentinel: not hasattr means uninitialized
+        # -1 means cached as non-polynomial (return None)
+        # >= 0 means cached polynomial degree
+        if hasattr(self, "_degree") and self._degree is not None:
+            return None if self._degree == -1 else self._degree
+
+        # Compute and cache
+        from optyx.analysis import compute_degree
+
+        result = compute_degree(self)
+        self._degree = result if result is not None else -1
+        return result
+
+    def is_linear(self) -> bool:
+        """Check if this expression is linear (degree <= 1).
+
+        Returns:
+            True if the expression is constant or linear in variables.
+
+        Uses cached degree computation for performance.
+        """
+        deg = self.degree
+        return deg is not None and deg <= 1
 
 
 class Constant(Expression):

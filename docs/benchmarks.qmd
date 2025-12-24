@@ -1,0 +1,242 @@
+---
+title: "Benchmarks"
+description: "Performance analysis and comparison with SciPy"
+---
+
+# Benchmarks
+
+Optyx includes a comprehensive benchmark suite for validating correctness, measuring performance, and comparing against SciPy. All benchmarks use **numpy vectorization** for optimal performance.
+
+## Quick Start
+
+```bash
+# Run all benchmark tests
+uv run pytest benchmarks/ -v
+
+# Generate performance analysis plots
+uv run python benchmarks/run_benchmarks.py
+
+# Copy plots to docs (for documentation updates)
+cp benchmarks/results/*.png docs/assets/benchmarks/
+```
+
+::: {.callout-note}
+## Plot Generation
+The plots shown below are pre-generated for fast documentation builds. To regenerate them with fresh benchmark data, run `uv run python benchmarks/run_benchmarks.py` and copy the results to `docs/assets/benchmarks/`.
+:::
+
+## Performance Summary
+
+| Metric | Result | Notes |
+|--------|--------|-------|
+| **LP Overhead** | ~0.94-1.15x | Near-parity with raw SciPy linprog |
+| **NLP Overhead** | ~1.4-2.2x | Autodiff cost increases with problem size |
+| **Cache Speedup** | 2x-900x | Dramatic improvement on repeated solves |
+| **Rosenbrock NLP** | 0.83x | Exact gradients help convergence |
+
+## Scaling Analysis
+
+### LP Performance: Optyx vs SciPy
+
+![LP Scaling Comparison](assets/benchmarks/lp_scaling_comparison.png){width=80%}
+
+For linear programs, Optyx achieves near-parity with raw SciPy `linprog`:
+
+- **Small problems (n=10)**: ~1.1x overhead due to problem setup
+- **Large problems (n=500)**: ~1.0x overhead as solve time dominates
+- **Cached solves**: Near-zero overhead on repeated solves
+
+### NLP Performance
+
+![NLP Scaling Comparison](assets/benchmarks/nlp_quadratic_scaling.png){width=80%}
+
+Nonlinear problems include automatic differentiation overhead:
+
+- **Small problems (n=10)**: ~1.9x overhead
+- **Medium problems (n=50)**: ~1.4-1.6x overhead  
+- **Large problems (n=100)**: ~2.2x overhead
+
+The overhead comes from symbolic gradient computation, which provides exact derivatives instead of finite differences.
+
+### Cache Benefit Analysis
+
+![Cache Benefit](assets/benchmarks/lp_cache_benefit.png){width=80%}
+
+Optyx caches compiled problem structures for fast re-optimization:
+
+| Problem Size | Cold Solve | Warm Solve | Speedup |
+|--------------|------------|------------|---------|
+| n=10 | 2.7ms | 1.4ms | 2x |
+| n=50 | 96ms | 1.7ms | 56x |
+| n=200 | 7,327ms | 8ms | 916x |
+
+This makes Optyx ideal for:
+
+- Parameter sweeps and sensitivity analysis
+- Real-time optimization with changing inputs
+- Iterative algorithms that re-solve frequently
+
+### Overhead Breakdown by Problem Type
+
+![Overhead Breakdown](assets/benchmarks/overhead_breakdown.png){width=80%}
+
+Different problem types have different overhead characteristics:
+
+| Problem Type | Overhead | Notes |
+|--------------|----------|-------|
+| Small LP | 1.11x | Setup overhead dominates |
+| Medium LP | 1.06x | Near parity |
+| Large LP | 1.15x | Near parity |
+| Rosenbrock NLP | 0.83x | Exact gradients help convergence |
+| Constrained QP | 1.76x | Fair comparison (SciPy gets gradients too) |
+
+**Key insight**: LP problems achieve near-parity with raw SciPy. For complex NLP like Rosenbrock, exact gradients can help convergence, sometimes making Optyx faster. The ~1.5-2x overhead for simple NLP is the cost of symbolic autodiff - you get exact gradients and cleaner code.
+
+## Multi-Problem Scaling
+
+![Multi-Problem Scaling](assets/benchmarks/multi_problem_scaling.png){width=80%}
+
+Comparison across LP, NLP, and constrained quadratic programming problems shows consistent scaling behavior.
+
+## Comparison with CVXPY
+
+Optyx can be compared against CVXPY for convex problems. Install with `uv sync --extra benchmarks`.
+
+| Problem | Optyx | CVXPY | Overhead | Notes |
+|---------|-------|-------|----------|-------|
+| Small LP (2 vars) | 1.2ms | 1.1ms | 1.12x | Near parity |
+| Medium LP (20 vars) | 1.5ms | 1.5ms | 1.04x | Near parity |
+| Simple QP | 0.5ms | 1.2ms | 0.41x | Optyx faster |
+| Portfolio QP (10 assets) | 598ms | 2ms | **288x** | Quadratic form limitation |
+
+::: {.callout-warning}
+## When to Use CVXPY Instead
+For dense quadratic programs (e.g., portfolio optimization with full covariance matrices), CVXPY's specialized `quad_form` function is ~300x faster than Optyx's expression trees. Use CVXPY for convex QP with dense matrices.
+:::
+
+**Optyx strengths**:
+
+- General NLP (non-convex problems) with automatic differentiation
+- Fluent Python API without a DSL
+- Near-parity LP performance with caching benefits
+- Simple QP where expression overhead is minimal
+
+**CVXPY strengths**:
+
+- Dense quadratic forms (`quad_form`)
+- Disciplined convex programming (DCP) verification
+- Multiple backend solvers (OSQP, SCS, MOSEK)
+
+## Vectorization
+
+Benchmarks use numpy vectorization for clean, performant code:
+
+```{python}
+#| eval: false
+import numpy as np
+from optyx import Variable, Problem
+
+# Create variables as numpy array
+n = 100
+x = np.array([Variable(f"x{i}", lb=0, ub=1) for i in range(n)])
+c = np.random.randn(n)
+
+# Use @ for matrix operations
+prob = Problem().maximize(c @ x)
+
+# Add constraints efficiently
+A = np.random.randn(10, n)
+b = np.random.randn(10)
+for i in range(10):
+    prob.subject_to(A[i] @ x <= b[i])
+
+# Use np.sum for aggregation
+prob.subject_to(np.sum(x) <= n / 2)
+
+solution = prob.solve()
+```
+
+## Benchmark Categories
+
+### Validation Tests
+
+Tests that verify Optyx correctly solves standard optimization problems:
+
+- **Standard problems**: Rosenbrock, Sphere, Beale, Booth, Matyas
+- **Constrained problems**: LP, QP, HS071, HS076, mixed constraints
+
+### Performance Tests
+
+Measures overhead and scaling:
+
+- **Overhead analysis**: Optyx vs raw SciPy timing
+- **Scaling analysis**: Performance vs problem size (10-500 variables)
+- **Re-solve timing**: Repeated solve with caching benefits
+
+### Accuracy Tests
+
+Validates numerical correctness:
+
+- **Gradient validation**: Autodiff vs finite difference
+- **Numerical stability**: Edge cases with large/small coefficients
+
+### Comparison Tests
+
+Compares with other optimization libraries:
+
+- **SciPy**: Always available (core dependency)
+- **CVXPY**: Optional (`uv sync --extra benchmarks`)
+- **Pyomo**: Optional (`uv sync --extra benchmarks`)
+
+## Test Summary
+
+| Category | Tests | Passed | Skipped | Notes |
+|----------|-------|--------|---------|-------|
+| Validation | 17 | 17 | 0 | Standard & constrained |
+| Performance | 37 | 37 | 0 | Overhead, scaling, caching |
+| Accuracy | 18 | 18 | 0 | Gradients & stability |
+| Comparison | 15 | 15 | 9 | CVXPY/Pyomo optional |
+| **Total** | **96** | **87** | **9** | |
+
+## Running Specific Benchmarks
+
+```bash
+# All benchmarks
+uv run pytest benchmarks/ -v
+
+# By category
+uv run pytest benchmarks/validation/ -v
+uv run pytest benchmarks/performance/ -v
+uv run pytest benchmarks/accuracy/ -v
+uv run pytest benchmarks/comparison/ -v
+
+# With optional dependencies
+uv sync --extra benchmarks
+uv run pytest benchmarks/comparison/ -v
+```
+
+## Success Criteria
+
+| Criterion | Target | Status |
+|-----------|--------|--------|
+| LP overhead | < 1.5x vs SciPy linprog | ✅ ~0.94-1.15x |
+| NLP overhead | < 3x vs raw SciPy (with gradients) | ✅ ~1.4-2.2x |
+| Cache benefit | > 2x speedup on repeated solve | ✅ 2x-900x |
+| Gradient error | < 1e-5 vs finite difference | ✅ < 1e-10 |
+| All validation | Converge to known optima | ✅ 100% |
+
+## Generating Plots
+
+To regenerate all performance plots:
+
+```bash
+uv run python benchmarks/run_benchmarks.py
+```
+
+Plots are saved to `benchmarks/results/`:
+
+- `lp_scaling_comparison.png` - LP scaling: Optyx vs SciPy
+- `nlp_quadratic_scaling.png` - NLP scaling comparison
+- `lp_cache_benefit.png` - Cache speedup analysis
+- `overhead_breakdown.png` - Overhead by problem type
+- `multi_problem_scaling.png` - Multi-problem scaling

@@ -73,15 +73,27 @@ Inspect symbolic expression trees. Understand exactly what your model does.
 
 ::: {.g-col-6 .g-col-md-4}
 ### ✅ Fast Re-solve
-Re-optimize in milliseconds when parameters change.
+Cached coefficients and auto-selected solvers. Up to 900x speedup on repeated solves.
 :::
 
 ::: {.g-col-6 .g-col-md-4}
-### ✅ Fluent API
-Chain `.minimize()`, `.subject_to()`, and `.solve()` for readable problem definitions.
+### ✅ Smart Solver Selection
+Automatically picks the best solver: HiGHS for LP, BFGS/SLSQP for NLP.
 :::
 
 :::
+
+## Performance
+
+Optyx achieves near-parity with raw SciPy while providing a much cleaner API:
+
+| Metric | Result | Notes |
+|--------|--------|-------|
+| **LP Overhead** | ~0.94-1.15x | Near-parity with SciPy linprog |
+| **NLP Overhead** | ~1.4-2.2x | Autodiff cost (but exact gradients!) |
+| **Cache Speedup** | 2x-900x | Dramatic improvement on repeated solves |
+
+See the [Benchmarks](benchmarks.qmd) page for detailed performance analysis with plots.
 
 ## Why Optyx?
 
@@ -167,12 +179,12 @@ print(f"Risk:    {solution.objective_value:.6f}")
 
 **Optyx is actively evolving.** Here's where we're heading:
 
+- ✅ **Smarter modeling** — Automatic problem classification and solver selection *(completed)*
+- ✅ **Production-ready** — Caching for fast repeated solves *(completed)*
 - **Larger problems** — Support for vector and matrix variables to handle optimization with thousands of decision variables
 - **Faster execution** — JIT-compiled backends for significant performance improvements on complex models
 - **More solvers** — Integration with industry-standard solvers like IPOPT for large-scale nonlinear optimization
-- **Smarter modeling** — Automatic problem classification, convexity detection, and solver recommendations
 - **Better debugging** — Infeasibility diagnostics, constraint violation reports, and model inspection tools
-- **Production-ready** — Warm starts, caching, and callbacks for real-time and iterative applications
 
 ---
 

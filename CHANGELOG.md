@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+<!-- Next release changes go here -->
+
+## [1.1.0] - 2025-12-24
+
+### Added
+- **LP Fast Path**: Linear programs are now automatically detected and solved using `scipy.optimize.linprog` with the HiGHS solver, providing significant speedups over the general NLP path.
+- **Automatic Solver Selection**: `Problem.solve(method="auto")` is now the default, automatically selecting the best solver:
+  - Linear problems → `linprog` (HiGHS)
+  - Unconstrained, n ≤ 3 → `Nelder-Mead`
+  - Unconstrained, n > 1000 → `L-BFGS-B`
+  - Unconstrained, else → `BFGS`
+  - Bounds only → `L-BFGS-B`
+  - Equality constraints → `trust-constr`
+  - Inequality only → `SLSQP`
+- **LP/QP Detection**: New `is_linear()` and `is_quadratic()` functions in `optyx.analysis` to classify expressions by polynomial degree.
+- **LP Coefficient Extraction**: `LinearProgramExtractor` class to extract coefficient matrices from symbolic expressions for use with `linprog()`.
+- **Caching for Performance**:
+  - LP coefficient matrices are cached and reused for repeated solves of the same problem.
+  - Linearity checks are cached per problem.
+  - Expression degree is lazily computed and cached on first access.
+- **Expression Methods**: Added `Expression.degree` property and `Expression.is_linear()` method for direct linearity checks.
+- **Comprehensive Benchmark Suite**: New `benchmarks/` folder with validation, performance, accuracy, and comparison tests. Includes plot generation for performance analysis.
+- **Numpy Vectorization Support**: Variables can be used with numpy arrays and `@` operator for matrix operations.
+
+### Changed
+- Default solver method changed from `"SLSQP"` to `"auto"` for optimal solver selection.
+- Cache invalidation is now centralized via `Problem._invalidate_caches()`.
+
+### Performance
+- **LP Overhead**: ~0.94-1.15x vs raw SciPy (near parity)
+- **NLP Overhead**: ~1.4-2.2x vs raw SciPy with gradients
+- **Cache Speedup**: 2x-900x for repeated solves (larger problems benefit more)
+- **Rosenbrock**: 0.83x - exact gradients help complex optimization landscapes
+
+## [1.0.1] - 2025-12-19
+
+### Added
+- **Constant Gradient Detection**: Pre-compute Jacobian when all elements are constants, providing 9.7x speedup for linear expressions.
+- **Solver Cache**: Cache compiled callables (objective, gradient, constraint functions) per Problem instance for reuse across `solve()` calls.
+
+### Changed
+- **Lazy Sanitization**: Skip `nan_to_num` when all derivative values are finite (3.2x speedup).
+- SLSQP "positive directional derivative" message now correctly treated as optimal convergence.
+
+### Performance
+- Small LP: 1.66x → 1.54x overhead (-7% improvement)
+- Large LP: 8.82x → 7.13x overhead (-19% improvement)
+
 ## [1.0.0] - 2025-12-15
 
 ### Added

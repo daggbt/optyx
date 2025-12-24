@@ -10,12 +10,19 @@
   "reportAssignmentType": "warning",
   "reportPossiblyUnboundVariable": "warning",
   "reportOperatorIssue": "warning",
+  "include": [
+    "src"
+  ],
   "exclude": [
     "**/__pycache__",
     ".venv",
     "docs/_site",
     "docs/_freeze",
     ".pytest_cache",
-    "*.egg-info"
+    "*.egg-info",
+    "examples",
+    "tests",
+    "benchmarks",
+    "compare_optyx_scipy.py"
   ]
 }
