@@ -53,6 +53,8 @@ website:
             href: api/solution.qmd
           - text: "Autodiff"
             href: api/autodiff.qmd
+      - text: "Benchmarks"
+        href: benchmarks.qmd
       - text: "Contributing"
         href: contributing.qmd
     right:
@@ -88,6 +90,10 @@ website:
         - api/problem.qmd
         - api/solution.qmd
         - api/autodiff.qmd
+    
+    - title: "Benchmarks"
+      contents:
+        - benchmarks.qmd
   
   page-footer:
     left: "© 2025 Optyx Contributors"
@@ -107,8 +113,6 @@ format:
     highlight-style: github
     include-after-body: assets/js/page-nav.js
     date-format: "MMMM D, YYYY"
-
-author: "Optyx Contributors"
 
 execute:
   kernel: optyx-docs

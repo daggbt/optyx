@@ -177,6 +177,15 @@ When `method="auto"` (default), Optyx automatically selects the best solver base
 - **Unconstrained**: Use `"BFGS"` or `"trust-ncg"` for smooth problems
 :::
 
+::: {.callout-note}
+## Performance
+- **LP problems**: ~1x overhead vs raw SciPy (near parity)
+- **NLP problems**: ~1.4-2.2x overhead (autodiff cost, but exact gradients)
+- **Repeated solves**: 2x-900x speedup due to caching
+
+See the [Benchmarks](../benchmarks.qmd) page for detailed performance analysis.
+:::
+
 ---
 
 ## Strict Mode

@@ -39,6 +39,12 @@ print(f"y* = {solution['y']:.4f}")  # 0.5000
 pip install optyx
 ```
 
+### Requirements
+
+- **Python 3.12+**
+- **NumPy** ≥ 2.0
+- **SciPy** ≥ 1.6.0 (≥ 1.11 recommended for best LP performance)
+
 ### For Developers
 
 ```bash
@@ -339,6 +345,68 @@ Budget allocation with non-linear deterioration and satisfaction models.
 # Auto-diff computes gradients through complex chain rule
 solution = prob.solve()  # I-95: $5M, Main St: $0 (optimal)
 ```
+
+---
+
+## Benchmarks
+
+Optyx includes a comprehensive benchmark suite comparing performance against SciPy. All benchmarks use numpy vectorization (`@`, `np.sum`) for optimal performance.
+
+### Performance Summary
+
+| Metric | Result | Notes |
+|--------|--------|-------|
+| **LP Overhead** | ~0.94-1.15x | Near-parity with raw SciPy linprog |
+| **NLP Overhead** | ~1.4-2.2x | Autodiff cost increases with problem size |
+| **Cache Speedup** | 2x-900x | Dramatic improvement on repeated solves |
+| **Rosenbrock NLP** | 0.83x | Exact gradients help convergence |
+
+### Scaling Analysis
+
+<p align="center">
+  <img src="benchmarks/results/lp_scaling_comparison.png" width="90%" alt="LP Scaling: Optyx vs SciPy"/>
+</p>
+
+**LP Performance**: Optyx achieves near-parity with raw SciPy `linprog`. The overhead ratio stays between 0.94x-1.15x across all problem sizes (10-500 variables).
+
+<p align="center">
+  <img src="benchmarks/results/nlp_quadratic_scaling.png" width="90%" alt="NLP Scaling: Optyx vs SciPy"/>
+</p>
+
+**NLP Performance**: Autodiff adds ~1.4-2.2x overhead, but provides exact gradients (no finite difference errors) and cleaner code.
+
+### Cache Benefit
+
+<p align="center">
+  <img src="benchmarks/results/lp_cache_benefit.png" width="90%" alt="Cache Benefit Analysis"/>
+</p>
+
+**Repeated solves are dramatically faster**: The first solve compiles the problem; subsequent solves reuse the cached structure. Speedups range from 2x (small problems) to **900x** (large problems).
+
+### Overhead by Problem Type
+
+<p align="center">
+  <img src="benchmarks/results/overhead_breakdown.png" width="70%" alt="Overhead Breakdown"/>
+</p>
+
+- **LP problems**: Near parity (~1.1x overhead)
+- **NLP problems**: ~1.4-2.2x overhead (autodiff cost)
+- **Rosenbrock**: 0.83x - exact gradients help complex optimization landscapes
+
+### Running Benchmarks
+
+```bash
+# Run all benchmarks (tests only)
+uv run pytest benchmarks/ -v
+
+# Generate performance plots
+uv run python benchmarks/run_benchmarks.py
+
+# Run specific category
+uv run pytest benchmarks/performance/ -v
+```
+
+See the [Benchmarks Documentation](https://daggbt.github.io/optyx/benchmarks.html) for detailed methodology and results.
 
 ---
 

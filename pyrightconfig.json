@@ -22,6 +22,7 @@
     "*.egg-info",
     "examples",
     "tests",
+    "benchmarks",
     "compare_optyx_scipy.py"
   ]
 }

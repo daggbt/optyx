@@ -30,9 +30,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "matplotlib>=3.10.7",
     "numpy>=2.3.5",
-    "pre-commit>=4.5.1",
     "scipy>=1.16.3",
 ]
 
@@ -41,13 +39,23 @@ Homepage = "https://github.com/daggbt/optyx"
 Repository = "https://github.com/daggbt/optyx"
 Issues = "https://github.com/daggbt/optyx/issues"
 
+[project.optional-dependencies]
+benchmarks = [
+    "cvxpy>=1.4.0",
+    "matplotlib>=3.10.0",
+    "pyomo>=6.7.0",
+]
+
 [build-system]
 requires = ["uv_build>=0.9.16,<0.10.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "mypy>=1.19.0",
+    "cvxpy>=1.4.0",
+    "matplotlib>=3.10.0",
+    "pre-commit>=4.5.1",
+    "pyomo>=6.7.0",
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
     "ruff>=0.14.8",
@@ -55,4 +63,20 @@ dev = [
     "jupyter",
     "pyyaml",
     "pyright>=1.1.407",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = [
+    "test_*.py",
+    "*_test.py",
+    # Benchmark file patterns
+    "standard_problems.py",
+    "constrained_problems.py",
+    "gradient_validation.py",
+    "numerical_stability.py",
+    "overhead_analysis.py",
+    "scaling_analysis.py",
+    "resolve_timing.py",
+    "bench_vs_*.py",
 ]

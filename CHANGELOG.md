@@ -7,8 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+<!-- Next release changes go here -->
+
+## [1.1.0] - 2025-12-24
+
 ### Added
-- **LP Fast Path**: Linear programs are now automatically detected and solved using `scipy.optimize.linprog` with the HiGHS solver, providing 3-5x speedups over the general NLP path.
+- **LP Fast Path**: Linear programs are now automatically detected and solved using `scipy.optimize.linprog` with the HiGHS solver, providing significant speedups over the general NLP path.
 - **Automatic Solver Selection**: `Problem.solve(method="auto")` is now the default, automatically selecting the best solver:
   - Linear problems → `linprog` (HiGHS)
   - Unconstrained, n ≤ 3 → `Nelder-Mead`
@@ -24,15 +28,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Linearity checks are cached per problem.
   - Expression degree is lazily computed and cached on first access.
 - **Expression Methods**: Added `Expression.degree` property and `Expression.is_linear()` method for direct linearity checks.
+- **Comprehensive Benchmark Suite**: New `benchmarks/` folder with validation, performance, accuracy, and comparison tests. Includes plot generation for performance analysis.
+- **Numpy Vectorization Support**: Variables can be used with numpy arrays and `@` operator for matrix operations.
 
 ### Changed
 - Default solver method changed from `"SLSQP"` to `"auto"` for optimal solver selection.
 - Cache invalidation is now centralized via `Problem._invalidate_caches()`.
 
 ### Performance
-- Repeated LP solves are 3.5x faster due to coefficient caching (4.15ms → 1.17ms).
-- Large LP problems are 5x faster with the linprog fast path compared to SLSQP.
-- Near-parity with bare SciPy for cached LP solves (1.08x overhead).
+- **LP Overhead**: ~0.94-1.15x vs raw SciPy (near parity)
+- **NLP Overhead**: ~1.4-2.2x vs raw SciPy with gradients
+- **Cache Speedup**: 2x-900x for repeated solves (larger problems benefit more)
+- **Rosenbrock**: 0.83x - exact gradients help complex optimization landscapes
 
 ## [1.0.1] - 2025-12-19
 

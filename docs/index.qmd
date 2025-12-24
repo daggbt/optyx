@@ -73,7 +73,7 @@ Inspect symbolic expression trees. Understand exactly what your model does.
 
 ::: {.g-col-6 .g-col-md-4}
 ### ✅ Fast Re-solve
-Cached coefficients and auto-selected solvers for millisecond re-optimization.
+Cached coefficients and auto-selected solvers. Up to 900x speedup on repeated solves.
 :::
 
 ::: {.g-col-6 .g-col-md-4}
@@ -82,6 +82,18 @@ Automatically picks the best solver: HiGHS for LP, BFGS/SLSQP for NLP.
 :::
 
 :::
+
+## Performance
+
+Optyx achieves near-parity with raw SciPy while providing a much cleaner API:
+
+| Metric | Result | Notes |
+|--------|--------|-------|
+| **LP Overhead** | ~0.94-1.15x | Near-parity with SciPy linprog |
+| **NLP Overhead** | ~1.4-2.2x | Autodiff cost (but exact gradients!) |
+| **Cache Speedup** | 2x-900x | Dramatic improvement on repeated solves |
+
+See the [Benchmarks](benchmarks.qmd) page for detailed performance analysis with plots.
 
 ## Why Optyx?
 
