@@ -1,0 +1,19 @@
+# core.functions.log { #optyx.core.functions.log }
+
+```python
+core.functions.log(x)
+```
+
+Natural logarithm.
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                                  | Description                                     | Default    |
+|--------|-----------------------------------------------------------------------|-------------------------------------------------|------------|
+| x      | [Expression](`optyx.core.expressions.Expression`) \| [float](`float`) | Expression or numeric value (must be positive). | _required_ |
+
+## Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                        | Description                     |
+|--------|---------------------------------------------|---------------------------------|
+|        | [UnaryOp](`optyx.core.expressions.UnaryOp`) | Expression representing log(x). |

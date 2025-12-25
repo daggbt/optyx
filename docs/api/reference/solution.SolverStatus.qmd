@@ -1,0 +1,7 @@
+# solution.SolverStatus { #optyx.solution.SolverStatus }
+
+```python
+solution.SolverStatus()
+```
+
+Status of an optimization solve.

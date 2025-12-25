@@ -1,0 +1,16 @@
+# core.expressions.Variable { #optyx.core.expressions.Variable }
+
+```python
+core.expressions.Variable(name, lb=None, ub=None, domain='continuous')
+```
+
+A decision variable in an optimization problem.
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                                   | Description                                           | Default        |
+|--------|------------------------------------------------------------------------|-------------------------------------------------------|----------------|
+| name   | [str](`str`)                                                           | Unique identifier for this variable.                  | _required_     |
+| lb     | [float](`float`) \| None                                               | Lower bound (None for unbounded).                     | `None`         |
+| ub     | [float](`float`) \| None                                               | Upper bound (None for unbounded).                     | `None`         |
+| domain | [Literal](`typing.Literal`)\[\'continuous\', \'integer\', \'binary\'\] | Variable type - 'continuous', 'integer', or 'binary'. | `'continuous'` |

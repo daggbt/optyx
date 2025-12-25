@@ -1,0 +1,62 @@
+# API Reference {.doc .doc-index}
+
+## Core Classes
+
+Fundamental building blocks for optimization models
+
+| | |
+| --- | --- |
+| [core.expressions.Variable](core.expressions.Variable.qmd#optyx.core.expressions.Variable) | A decision variable in an optimization problem. |
+| [core.expressions.Constant](core.expressions.Constant.qmd#optyx.core.expressions.Constant) | A constant numerical value in an expression. |
+| [core.expressions.Expression](core.expressions.Expression.qmd#optyx.core.expressions.Expression) | Abstract base class for all symbolic expressions. |
+
+## Constraints
+
+Equality and inequality constraints
+
+| | |
+| --- | --- |
+| [constraints.Constraint](constraints.Constraint.qmd#optyx.constraints.Constraint) | Represents an optimization constraint. |
+
+## Problem Definition
+
+Building and solving optimization problems
+
+| | |
+| --- | --- |
+| [problem.Problem](problem.Problem.qmd#optyx.problem.Problem) | An optimization problem with objective and constraints. |
+| [solution.Solution](solution.Solution.qmd#optyx.solution.Solution) | Result of solving an optimization problem. |
+| [solution.SolverStatus](solution.SolverStatus.qmd#optyx.solution.SolverStatus) | Status of an optimization solve. |
+
+## Mathematical Functions
+
+Transcendental and special functions for expressions
+
+| | |
+| --- | --- |
+| [core.functions.sin](core.functions.sin.qmd#optyx.core.functions.sin) | Sine function. |
+| [core.functions.cos](core.functions.cos.qmd#optyx.core.functions.cos) | Cosine function. |
+| [core.functions.tan](core.functions.tan.qmd#optyx.core.functions.tan) | Tangent function. |
+| [core.functions.exp](core.functions.exp.qmd#optyx.core.functions.exp) | Exponential function (e^x). |
+| [core.functions.log](core.functions.log.qmd#optyx.core.functions.log) | Natural logarithm. |
+| [core.functions.log2](core.functions.log2.qmd#optyx.core.functions.log2) | Base-2 logarithm. |
+| [core.functions.log10](core.functions.log10.qmd#optyx.core.functions.log10) | Base-10 logarithm. |
+| [core.functions.sqrt](core.functions.sqrt.qmd#optyx.core.functions.sqrt) | Square root. |
+| [core.functions.abs_](core.functions.abs_.qmd#optyx.core.functions.abs_) | Absolute value. |
+| [core.functions.sinh](core.functions.sinh.qmd#optyx.core.functions.sinh) | Hyperbolic sine. |
+| [core.functions.cosh](core.functions.cosh.qmd#optyx.core.functions.cosh) | Hyperbolic cosine. |
+| [core.functions.tanh](core.functions.tanh.qmd#optyx.core.functions.tanh) | Hyperbolic tangent. |
+| [core.functions.asin](core.functions.asin.qmd#optyx.core.functions.asin) | Inverse sine (arcsine). |
+| [core.functions.acos](core.functions.acos.qmd#optyx.core.functions.acos) | Inverse cosine (arccosine). |
+| [core.functions.atan](core.functions.atan.qmd#optyx.core.functions.atan) | Inverse tangent (arctangent). |
+| [core.functions.asinh](core.functions.asinh.qmd#optyx.core.functions.asinh) | Inverse hyperbolic sine. |
+| [core.functions.acosh](core.functions.acosh.qmd#optyx.core.functions.acosh) | Inverse hyperbolic cosine. |
+| [core.functions.atanh](core.functions.atanh.qmd#optyx.core.functions.atanh) | Inverse hyperbolic tangent. |
+
+## Autodiff
+
+Automatic differentiation internals
+
+| | |
+| --- | --- |
+| [core.autodiff](core.autodiff.qmd#optyx.core.autodiff) | Automatic differentiation for symbolic expressions. |

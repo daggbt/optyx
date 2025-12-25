@@ -1,0 +1,19 @@
+# core.functions.asin { #optyx.core.functions.asin }
+
+```python
+core.functions.asin(x)
+```
+
+Inverse sine (arcsine).
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                                  | Description                             | Default    |
+|--------|-----------------------------------------------------------------------|-----------------------------------------|------------|
+| x      | [Expression](`optyx.core.expressions.Expression`) \| [float](`float`) | Expression or numeric value in [-1, 1]. | _required_ |
+
+## Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                        | Description                                               |
+|--------|---------------------------------------------|-----------------------------------------------------------|
+|        | [UnaryOp](`optyx.core.expressions.UnaryOp`) | Expression representing arcsin(x), result in [-π/2, π/2]. |

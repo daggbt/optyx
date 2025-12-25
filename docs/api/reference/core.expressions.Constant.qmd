@@ -1,0 +1,9 @@
+# core.expressions.Constant { #optyx.core.expressions.Constant }
+
+```python
+core.expressions.Constant(value)
+```
+
+A constant numerical value in an expression.
+
+Wraps scalars or numpy arrays as expression nodes.

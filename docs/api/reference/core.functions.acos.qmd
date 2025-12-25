@@ -1,0 +1,19 @@
+# core.functions.acos { #optyx.core.functions.acos }
+
+```python
+core.functions.acos(x)
+```
+
+Inverse cosine (arccosine).
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                                  | Description                             | Default    |
+|--------|-----------------------------------------------------------------------|-----------------------------------------|------------|
+| x      | [Expression](`optyx.core.expressions.Expression`) \| [float](`float`) | Expression or numeric value in [-1, 1]. | _required_ |
+
+## Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                        | Description                                          |
+|--------|---------------------------------------------|------------------------------------------------------|
+|        | [UnaryOp](`optyx.core.expressions.UnaryOp`) | Expression representing arccos(x), result in [0, π]. |

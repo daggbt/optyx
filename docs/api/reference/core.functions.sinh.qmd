@@ -1,0 +1,19 @@
+# core.functions.sinh { #optyx.core.functions.sinh }
+
+```python
+core.functions.sinh(x)
+```
+
+Hyperbolic sine.
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                                  | Description                  | Default    |
+|--------|-----------------------------------------------------------------------|------------------------------|------------|
+| x      | [Expression](`optyx.core.expressions.Expression`) \| [float](`float`) | Expression or numeric value. | _required_ |
+
+## Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                        | Description                      |
+|--------|---------------------------------------------|----------------------------------|
+|        | [UnaryOp](`optyx.core.expressions.UnaryOp`) | Expression representing sinh(x). |

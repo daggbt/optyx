@@ -1,0 +1,103 @@
+---
+title: "API Reference"
+description: "Complete reference for all Optyx classes and functions"
+---
+
+## Overview
+
+Optyx provides a symbolic optimization interface with automatic differentiation. This reference documents all public classes, functions, and modules.
+
+## Quick Links
+
+### Core Classes
+
+| Class | Description | Module |
+|-------|-------------|--------|
+| [Variable](expressions.qmd#variable) | Scalar decision variable | `optyx` |
+| [Constant](expressions.qmd#constant) | Fixed numerical value | `optyx` |
+| [Expression](expressions.qmd) | Base class for symbolic expressions | `optyx` |
+| [Constraint](constraints.qmd) | Equality/inequality constraint | `optyx` |
+| [Problem](problem.qmd) | Optimization problem container | `optyx` |
+| [Solution](solution.qmd) | Solve result with optimal values | `optyx` |
+
+### Mathematical Functions
+
+| Function | Description |
+|----------|-------------|
+| `sin`, `cos`, `tan` | Trigonometric functions |
+| `exp`, `log`, `log2`, `log10` | Exponential and logarithmic |
+| `sqrt`, `abs_` | Power and absolute value |
+| `sinh`, `cosh`, `tanh` | Hyperbolic functions |
+| `asin`, `acos`, `atan` | Inverse trigonometric |
+| `asinh`, `acosh`, `atanh` | Inverse hyperbolic |
+
+### Solvers
+
+| Class | Description |
+|-------|-------------|
+| `SolverStatus` | Enum for solve outcome (optimal, infeasible, etc.) |
+
+## Usage Pattern
+
+```python
+from optyx import Variable, Problem, sin, exp
+
+# Create variables
+x = Variable("x", lb=-10, ub=10)
+y = Variable("y", lb=0)
+
+# Build objective
+objective = (x - 3)**2 + (y - 2)**2
+
+# Create and solve problem
+problem = Problem()
+problem.minimize(objective)
+problem.subject_to(x + y >= 1)
+problem.subject_to(sin(x) + exp(-y) <= 2)
+
+solution = problem.solve()
+print(f"x = {solution['x']:.4f}")
+print(f"y = {solution['y']:.4f}")
+```
+
+## Detailed Documentation
+
+### Guides (with examples)
+
+- [Expressions](expressions.qmd) - Variables, constants, and building expressions
+- [Constraints](constraints.qmd) - Equality and inequality constraints
+- [Problem](problem.qmd) - Creating and solving optimization problems
+- [Solution](solution.qmd) - Accessing results and diagnostics
+- [Autodiff](autodiff.qmd) - How automatic differentiation works
+
+### Auto-Generated Reference
+
+For complete API documentation generated directly from source code docstrings:
+
+→ [Full API Reference](reference/index.qmd)
+
+## Importing
+
+```python
+# Import everything you need
+from optyx import (
+    # Core classes
+    Variable, Constant, Expression,
+    Constraint, Problem, Solution,
+    
+    # Mathematical functions
+    sin, cos, tan,
+    exp, log, log2, log10,
+    sqrt, abs_,
+    sinh, cosh, tanh,
+    asin, acos, atan,
+    asinh, acosh, atanh,
+    
+    # Solver status
+    SolverStatus,
+)
+
+# Check version
+import optyx
+print(optyx.__version__)
+```

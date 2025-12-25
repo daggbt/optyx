@@ -2,6 +2,63 @@ project:
   type: website
   output-dir: _site
 
+# Quartodoc configuration for auto-generating API docs
+quartodoc:
+  package: optyx
+  source_dir: ../src/optyx
+  dir: api/reference
+  title: API Reference
+  style: pkgdown
+  parser: google
+  render_interlinks: true
+  
+  sections:
+    - title: Core Classes
+      desc: "Fundamental building blocks for optimization models"
+      contents:
+        - core.expressions.Variable
+        - core.expressions.Constant
+        - core.expressions.Expression
+    
+    - title: Constraints
+      desc: "Equality and inequality constraints"
+      contents:
+        - constraints.Constraint
+    
+    - title: Problem Definition
+      desc: "Building and solving optimization problems"
+      contents:
+        - problem.Problem
+        - solution.Solution
+        - solution.SolverStatus
+    
+    - title: Mathematical Functions
+      desc: "Transcendental and special functions for expressions"
+      contents:
+        - core.functions.sin
+        - core.functions.cos
+        - core.functions.tan
+        - core.functions.exp
+        - core.functions.log
+        - core.functions.log2
+        - core.functions.log10
+        - core.functions.sqrt
+        - core.functions.abs_
+        - core.functions.sinh
+        - core.functions.cosh
+        - core.functions.tanh
+        - core.functions.asin
+        - core.functions.acos
+        - core.functions.atan
+        - core.functions.asinh
+        - core.functions.acosh
+        - core.functions.atanh
+    
+    - title: Autodiff
+      desc: "Automatic differentiation internals"
+      contents:
+        - core.autodiff
+
 website:
   title: "Optyx"
   description: "Symbolic optimization for people who hate writing gradients"
@@ -43,6 +100,10 @@ website:
             href: examples/rosenbrock.qmd
       - text: "API Reference"
         menu:
+          - text: "Overview"
+            href: api/index.qmd
+          - text: "---"
+          - text: "Guides"
           - text: "Expressions"
             href: api/expressions.qmd
           - text: "Constraints"
@@ -53,6 +114,10 @@ website:
             href: api/solution.qmd
           - text: "Autodiff"
             href: api/autodiff.qmd
+          - text: "---"
+          - text: "Auto-Generated"
+          - text: "Full API Reference"
+            href: api/reference/index.qmd
       - text: "Benchmarks"
         href: benchmarks.qmd
       - text: "Contributing"
@@ -85,11 +150,17 @@ website:
     
     - title: "API Reference"
       contents:
-        - api/expressions.qmd
-        - api/constraints.qmd
-        - api/problem.qmd
-        - api/solution.qmd
-        - api/autodiff.qmd
+        - api/index.qmd
+        - section: "Guides"
+          contents:
+            - api/expressions.qmd
+            - api/constraints.qmd
+            - api/problem.qmd
+            - api/solution.qmd
+            - api/autodiff.qmd
+        - section: "Full Reference"
+          contents:
+            - api/reference/index.qmd
     
     - title: "Benchmarks"
       contents:

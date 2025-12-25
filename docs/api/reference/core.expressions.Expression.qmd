@@ -1,0 +1,96 @@
+# core.expressions.Expression { #optyx.core.expressions.Expression }
+
+```python
+core.expressions.Expression()
+```
+
+Abstract base class for all symbolic expressions.
+
+Expressions form a tree structure that can be evaluated given variable values.
+All arithmetic operators are overloaded to build expression trees automatically.
+
+## Attributes {.doc-section .doc-section-attributes}
+
+| Name    | Type   | Description                                                            |
+|---------|--------|------------------------------------------------------------------------|
+| _hash   |        | Cached hash value for the expression.                                  |
+| _degree |        | Cached polynomial degree (None if not computed, -1 if non-polynomial). |
+
+## Methods
+
+| Name | Description |
+| --- | --- |
+| [constraint_eq](#optyx.core.expressions.Expression.constraint_eq) | Create an == constraint: self == other. |
+| [eq](#optyx.core.expressions.Expression.eq) | Create an == constraint: self == other. |
+| [evaluate](#optyx.core.expressions.Expression.evaluate) | Evaluate the expression given variable values. |
+| [get_variables](#optyx.core.expressions.Expression.get_variables) | Return all variables this expression depends on. |
+| [is_linear](#optyx.core.expressions.Expression.is_linear) | Check if this expression is linear (degree <= 1). |
+
+### constraint_eq { #optyx.core.expressions.Expression.constraint_eq }
+
+```python
+core.expressions.Expression.constraint_eq(other)
+```
+
+Create an == constraint: self == other.
+
+Note: We use constraint_eq() instead of __eq__ because __eq__ is used
+for object identity comparison which is needed for sets/dicts.
+
+.. deprecated::
+    Use :meth:`eq` instead. This method is kept for backwards compatibility.
+
+### eq { #optyx.core.expressions.Expression.eq }
+
+```python
+core.expressions.Expression.eq(other)
+```
+
+Create an == constraint: self == other.
+
+Note: We use eq() instead of __eq__ because __eq__ is used
+for object identity comparison which is needed for sets/dicts.
+
+### evaluate { #optyx.core.expressions.Expression.evaluate }
+
+```python
+core.expressions.Expression.evaluate(values)
+```
+
+Evaluate the expression given variable values.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                                                                   | Description                                        | Default    |
+|--------|--------------------------------------------------------------------------------------------------------|----------------------------------------------------|------------|
+| values | [Mapping](`typing.Mapping`)\[[str](`str`), [ArrayLike](`numpy.typing.ArrayLike`) \| [float](`float`)\] | Dictionary mapping variable names to their values. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                                                                | Description                                        |
+|--------|-----------------------------------------------------------------------------------------------------|----------------------------------------------------|
+|        | [NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[floating](`numpy.floating`)\] \| [float](`float`) | The numerical result of evaluating the expression. |
+
+### get_variables { #optyx.core.expressions.Expression.get_variables }
+
+```python
+core.expressions.Expression.get_variables()
+```
+
+Return all variables this expression depends on.
+
+### is_linear { #optyx.core.expressions.Expression.is_linear }
+
+```python
+core.expressions.Expression.is_linear()
+```
+
+Check if this expression is linear (degree <= 1).
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type           | Description                                                |
+|--------|----------------|------------------------------------------------------------|
+|        | [bool](`bool`) | True if the expression is constant or linear in variables. |
+
+Uses cached degree computation for performance.
