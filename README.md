@@ -167,7 +167,7 @@ prob = (
     .minimize(x**2 + y**2)
     .subject_to(x + y >= 1)        # Inequality: x + y ≥ 1
     .subject_to(x <= 5)            # Inequality: x ≤ 5
-    .subject_to((x - y).constraint_eq(0))  # Equality: x = y
+    .subject_to((x - y).eq(0))     # Equality: x = y
 )
 ```
 

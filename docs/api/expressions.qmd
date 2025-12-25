@@ -193,7 +193,7 @@ Expressions support standard Python operators.
 |----------|-------------|---------|
 | `>=` | Greater or equal | `Constraint` |
 | `<=` | Less or equal | `Constraint` |
-| `.constraint_eq()` | Equality | `Constraint` |
+| `.eq()` | Equality | `Constraint` |
 
 ### Examples
 
@@ -211,7 +211,7 @@ polynomial = x**3 - 3*x**2 + 3*x - 1  # (x-1)³
 # Create constraints
 c1 = x + y >= 10
 c2 = x - y <= 5
-c3 = (x + y).constraint_eq(15)
+c3 = (x + y).eq(15)
 ```
 
 ---

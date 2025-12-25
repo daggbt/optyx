@@ -1,5 +1,7 @@
 """Optyx: Symbolic optimization without the boilerplate."""
 
+from importlib.metadata import version
+
 from optyx.core.expressions import (
     Expression,
     Variable,
@@ -29,7 +31,7 @@ from optyx.constraints import Constraint
 from optyx.problem import Problem
 from optyx.solution import Solution, SolverStatus
 
-__version__ = "1.0.0"
+__version__ = version("optyx")
 
 __all__ = [
     # Core

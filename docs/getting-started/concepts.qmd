@@ -138,12 +138,12 @@ from optyx import Variable
 x = Variable("x")
 y = Variable("y")
 
-# Use constraint_eq() for equality
-c = (x + y).constraint_eq(10)  # x + y = 10
+# Use eq() for equality
+c = (x + y).eq(10)  # x + y = 10
 ```
 
 ::: {.callout-note}
-We use `.constraint_eq()` instead of `==` because Python requires `__eq__` to return a boolean for hash table operations. This is a common pattern in symbolic math libraries.
+We use `.eq()` instead of `==` because Python requires `__eq__` to return a boolean for hash table operations. This is a common pattern in symbolic math libraries.
 :::
 
 ### Constraint Internals

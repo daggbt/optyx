@@ -47,14 +47,14 @@ from optyx import Variable
 x = Variable("x")
 y = Variable("y")
 
-# Use .constraint_eq() for equality
-c = (x + y).constraint_eq(1)  # x + y = 1
+# Use .eq() for equality
+c = (x + y).eq(1)  # x + y = 1
 
 print(f"Equality sense: {c.sense}")
 ```
 
 ::: {.callout-important}
-Don't use `==` for constraints! Python's `==` returns a boolean, not a constraint. Always use `.constraint_eq()`.
+Don't use `==` for constraints! Python's `==` returns a boolean, not a constraint. Always use `.eq()`.
 :::
 
 ---

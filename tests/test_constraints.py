@@ -23,6 +23,13 @@ class TestConstraintCreation:
 
     def test_eq_constraint_via_method(self):
         x = Variable("x")
+        c = x.eq(5)
+        assert isinstance(c, Constraint)
+        assert c.sense == "=="
+
+    def test_constraint_eq_alias(self):
+        """constraint_eq() should work as an alias for eq()."""
+        x = Variable("x")
         c = x.constraint_eq(5)
         assert isinstance(c, Constraint)
         assert c.sense == "=="
@@ -68,7 +75,7 @@ class TestConstraintEvaluation:
 
     def test_eq_constraint_satisfied(self):
         x = Variable("x")
-        c = x.constraint_eq(5)
+        c = x.eq(5)
         assert c.is_satisfied({"x": 5.0})
         assert not c.is_satisfied({"x": 5.1})
 
@@ -88,7 +95,7 @@ class TestConstraintEvaluation:
 
     def test_eq_violation(self):
         x = Variable("x")
-        c = x.constraint_eq(5)
+        c = x.eq(5)
         assert c.violation({"x": 5.0}) == 0.0
         assert c.violation({"x": 7.0}) == pytest.approx(2.0)
         assert c.violation({"x": 3.0}) == pytest.approx(2.0)

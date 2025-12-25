@@ -106,15 +106,26 @@ class Expression(ABC):
 
         return _make_constraint(self, ">=", other)
 
-    def constraint_eq(self, other: Expression | float | int) -> Constraint:
+    def eq(self, other: Expression | float | int) -> Constraint:
         """Create an == constraint: self == other.
 
-        Note: We use constraint_eq() instead of __eq__ because __eq__ is used
+        Note: We use eq() instead of __eq__ because __eq__ is used
         for object identity comparison which is needed for sets/dicts.
         """
         from optyx.constraints import _make_constraint
 
         return _make_constraint(self, "==", other)
+
+    def constraint_eq(self, other: Expression | float | int) -> Constraint:
+        """Create an == constraint: self == other.
+
+        Note: We use constraint_eq() instead of __eq__ because __eq__ is used
+        for object identity comparison which is needed for sets/dicts.
+
+        .. deprecated::
+            Use :meth:`eq` instead. This method is kept for backwards compatibility.
+        """
+        return self.eq(other)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(... )"

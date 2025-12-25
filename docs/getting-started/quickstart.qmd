@@ -88,12 +88,12 @@ prob = (
     .minimize(a**2 + b**2)
     .subject_to(a + b >= 1)          # Inequality: a + b ≥ 1
     .subject_to(a <= 5)              # Upper bound as constraint
-    .subject_to((a - b).constraint_eq(0))  # Equality: a = b
+    .subject_to((a - b).eq(0))  # Equality: a = b
 )
 ```
 
 ::: {.callout-note}
-For equality constraints, use `.constraint_eq()` instead of `==` because Python's `==` is used for object comparison.
+For equality constraints, use `.eq()` instead of `==` because Python's `==` is used for object comparison.
 :::
 
 ### 4. Solve and Inspect

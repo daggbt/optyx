@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- Next release changes go here -->
 
+## [1.1.1] - 2025-12-25
+
+### Fixed
+- **Version reporting**: `optyx.__version__` now correctly reads from package metadata instead of a hardcoded value. Previously, v1.1.0 incorrectly reported as "1.0.0".
+
+### Added
+- **New `eq()` method**: Added concise `Expression.eq()` method for equality constraints. `constraint_eq()` is retained for backwards compatibility.
+
 ## [1.1.0] - 2025-12-24
 
 ### Added

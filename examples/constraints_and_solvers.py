@@ -2,7 +2,7 @@
 
 Demonstrates:
 - Creating optimization problems with natural syntax
-- Adding constraints using <=, >=, and constraint_eq()
+- Adding constraints using <=, >=, and eq()
 - Solving with different methods
 - Accessing solution values
 """
@@ -72,7 +72,7 @@ print("-" * 40)
 a = Variable("a")
 b = Variable("b")
 
-prob3 = Problem().minimize(a**2 + b**2).subject_to((a + b).constraint_eq(2))
+prob3 = Problem().minimize(a**2 + b**2).subject_to((a + b).eq(2))
 
 print("Problem: min a² + b² s.t. a + b = 2")
 

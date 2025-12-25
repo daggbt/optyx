@@ -21,7 +21,7 @@ c1 = x + y >= 1      # Greater than or equal
 c2 = x - y <= 5      # Less than or equal
 
 # Equality constraint
-c3 = (x + y).constraint_eq(10)
+c3 = (x + y).eq(10)
 ```
 
 ---
@@ -49,7 +49,7 @@ c4 = x <= 10
 
 ### Equality Constraints
 
-Use the `.constraint_eq()` method:
+Use the `.eq()` method:
 
 ```{python}
 from optyx import Variable
@@ -58,17 +58,17 @@ x = Variable("x")
 y = Variable("y")
 
 # x + y = 10
-c1 = (x + y).constraint_eq(10)
+c1 = (x + y).eq(10)
 
 # x = y (equivalent to x - y = 0)
-c2 = (x - y).constraint_eq(0)
+c2 = (x - y).eq(0)
 
 # More complex equality
-c3 = (x**2 + y**2).constraint_eq(1)  # Unit circle
+c3 = (x**2 + y**2).eq(1)  # Unit circle
 ```
 
 ::: {.callout-note}
-We use `.constraint_eq()` instead of `==` because Python requires `__eq__` to return a boolean for hash operations. This is standard practice in symbolic math libraries.
+We use `.eq()` instead of `==` because Python requires `__eq__` to return a boolean for hash operations. This is standard practice in symbolic math libraries.
 :::
 
 ---
@@ -111,7 +111,7 @@ solution = (
     .minimize(x**2 + y**2)
     .subject_to(x + y >= 1)        # Inequality
     .subject_to(x <= 5)            # Upper bound as constraint
-    .subject_to((x - y).constraint_eq(0))  # Equality
+    .subject_to((x - y).eq(0))  # Equality
     .solve()
 )
 
@@ -188,7 +188,7 @@ constraints = [
     x + y >= 10,
     x - y <= 5,
     2*x + y <= 20,
-    (x - 5).constraint_eq(y - 5)
+    (x - 5).eq(y - 5)
 ]
 
 for c in constraints:

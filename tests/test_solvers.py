@@ -192,7 +192,7 @@ class TestConstrainedOptimization:
         """min x^2 + y^2 s.t. x + y == 2 → (x*, y*) = (1, 1)"""
         x = Variable("x")
         y = Variable("y")
-        prob = Problem().minimize(x**2 + y**2).subject_to((x + y).constraint_eq(2))
+        prob = Problem().minimize(x**2 + y**2).subject_to((x + y).eq(2))
         sol = prob.solve()
 
         assert sol.is_optimal
