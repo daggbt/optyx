@@ -1,0 +1,147 @@
+# core.autodiff { #optyx.core.autodiff }
+
+`core.autodiff`
+
+Automatic differentiation for symbolic expressions.
+
+Implements symbolic differentiation using the chain rule, producing
+gradient expressions that can be compiled for fast evaluation.
+
+## Functions
+
+| Name | Description |
+| --- | --- |
+| [compile_hessian](#optyx.core.autodiff.compile_hessian) | Compile the Hessian for fast evaluation. |
+| [compile_jacobian](#optyx.core.autodiff.compile_jacobian) | Compile the Jacobian for fast evaluation. |
+| [compute_hessian](#optyx.core.autodiff.compute_hessian) | Compute the Hessian matrix of an expression. |
+| [compute_jacobian](#optyx.core.autodiff.compute_jacobian) | Compute the Jacobian matrix of expressions with respect to variables. |
+| [gradient](#optyx.core.autodiff.gradient) | Compute the symbolic gradient of an expression with respect to a variable. |
+
+### compile_hessian { #optyx.core.autodiff.compile_hessian }
+
+```python
+core.autodiff.compile_hessian(expr, variables)
+```
+
+Compile the Hessian for fast evaluation.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name      | Type                                                            | Description                      | Default    |
+|-----------|-----------------------------------------------------------------|----------------------------------|------------|
+| expr      | [Expression](`optyx.core.expressions.Expression`)               | The expression to differentiate. | _required_ |
+| variables | [list](`list`)\[[Variable](`optyx.core.expressions.Variable`)\] | List of variables.               | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type   | Description                                                             |
+|--------|--------|-------------------------------------------------------------------------|
+|        |        | A callable that takes a 1D array and returns the Hessian as a 2D array. |
+
+### compile_jacobian { #optyx.core.autodiff.compile_jacobian }
+
+```python
+core.autodiff.compile_jacobian(exprs, variables)
+```
+
+Compile the Jacobian for fast evaluation.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name      | Type                                                                | Description          | Default    |
+|-----------|---------------------------------------------------------------------|----------------------|------------|
+| exprs     | [list](`list`)\[[Expression](`optyx.core.expressions.Expression`)\] | List of expressions. | _required_ |
+| variables | [list](`list`)\[[Variable](`optyx.core.expressions.Variable`)\]     | List of variables.   | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type   | Description                                                              |
+|--------|--------|--------------------------------------------------------------------------|
+|        |        | A callable that takes a 1D array and returns the Jacobian as a 2D array. |
+
+#### Performance {.doc-section .doc-section-performance}
+
+For linear expressions where all Jacobian elements are constants,
+returns a pre-computed array directly (9.7x speedup vs element-by-element).
+
+### compute_hessian { #optyx.core.autodiff.compute_hessian }
+
+```python
+core.autodiff.compute_hessian(expr, variables)
+```
+
+Compute the Hessian matrix of an expression.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name      | Type                                                            | Description                            | Default    |
+|-----------|-----------------------------------------------------------------|----------------------------------------|------------|
+| expr      | [Expression](`optyx.core.expressions.Expression`)               | The expression to differentiate twice. | _required_ |
+| variables | [list](`list`)\[[Variable](`optyx.core.expressions.Variable`)\] | List of variables.                     | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                                                  | Description                                            |
+|--------|---------------------------------------------------------------------------------------|--------------------------------------------------------|
+|        | [list](`list`)\[[list](`list`)\[[Expression](`optyx.core.expressions.Expression`)\]\] | Hessian matrix as H[i][j] = d²(expr)/d(var_i)d(var_j). |
+
+#### Note {.doc-section .doc-section-note}
+
+The Hessian is symmetric, so H[i][j] = H[j][i].
+We compute the full matrix but could optimize by exploiting symmetry.
+
+### compute_jacobian { #optyx.core.autodiff.compute_jacobian }
+
+```python
+core.autodiff.compute_jacobian(exprs, variables)
+```
+
+Compute the Jacobian matrix of expressions with respect to variables.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name      | Type                                                                | Description                                         | Default    |
+|-----------|---------------------------------------------------------------------|-----------------------------------------------------|------------|
+| exprs     | [list](`list`)\[[Expression](`optyx.core.expressions.Expression`)\] | List of expressions (constraints or objectives).    | _required_ |
+| variables | [list](`list`)\[[Variable](`optyx.core.expressions.Variable`)\]     | List of variables to differentiate with respect to. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                                                  | Description                                      |
+|--------|---------------------------------------------------------------------------------------|--------------------------------------------------|
+|        | [list](`list`)\[[list](`list`)\[[Expression](`optyx.core.expressions.Expression`)\]\] | Jacobian matrix as J[i][j] = d(expr_i)/d(var_j). |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> x, y = Variable("x"), Variable("y")
+>>> exprs = [x**2 + y, x*y]
+>>> J = compute_jacobian(exprs, [x, y])
+>>> # J[0][0] = 2*x, J[0][1] = 1
+>>> # J[1][0] = y, J[1][1] = x
+
+### gradient { #optyx.core.autodiff.gradient }
+
+```python
+core.autodiff.gradient(expr, wrt)
+```
+
+Compute the symbolic gradient of an expression with respect to a variable.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                              | Description                                    | Default    |
+|--------|---------------------------------------------------|------------------------------------------------|------------|
+| expr   | [Expression](`optyx.core.expressions.Expression`) | The expression to differentiate.               | _required_ |
+| wrt    | [Variable](`optyx.core.expressions.Variable`)     | The variable to differentiate with respect to. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                              | Description                                   |
+|--------|---------------------------------------------------|-----------------------------------------------|
+|        | [Expression](`optyx.core.expressions.Expression`) | A new Expression representing the derivative. |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> x = Variable("x")
+>>> expr = x**2 + 3*x
+>>> grad = gradient(expr, x)  # Returns: 2*x + 3

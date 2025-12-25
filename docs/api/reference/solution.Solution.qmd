@@ -1,0 +1,54 @@
+# solution.Solution { #optyx.solution.Solution }
+
+```python
+solution.Solution(
+    status,
+    objective_value=None,
+    values=dict(),
+    multipliers=None,
+    iterations=None,
+    message='',
+    solve_time=None,
+)
+```
+
+Result of solving an optimization problem.
+
+## Attributes {.doc-section .doc-section-attributes}
+
+| Name            | Type                                                     | Description                                            |
+|-----------------|----------------------------------------------------------|--------------------------------------------------------|
+| status          | [SolverStatus](`optyx.solution.SolverStatus`)            | Solver termination status.                             |
+| objective_value | [float](`float`) \| None                                 | Optimal objective function value (None if not solved). |
+| values          | [dict](`dict`)\[[str](`str`), [float](`float`)\]         | Dictionary mapping variable names to optimal values.   |
+| multipliers     | [dict](`dict`)\[[str](`str`), [float](`float`)\] \| None | Lagrange multipliers for constraints (if available).   |
+| iterations      | [int](`int`) \| None                                     | Number of solver iterations.                           |
+| message         | [str](`str`)                                             | Solver message or error description.                   |
+| solve_time      | [float](`float`) \| None                                 | Time taken to solve (seconds).                         |
+
+## Methods
+
+| Name | Description |
+| --- | --- |
+| [get](#optyx.solution.Solution.get) | Get the optimal value of a variable with a default. |
+
+### get { #optyx.solution.Solution.get }
+
+```python
+solution.Solution.get(var, default=None)
+```
+
+Get the optimal value of a variable with a default.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name    | Type                                                          | Description                            | Default    |
+|---------|---------------------------------------------------------------|----------------------------------------|------------|
+| var     | [Variable](`optyx.core.expressions.Variable`) \| [str](`str`) | Variable object or variable name.      | _required_ |
+| default | [float](`float`) \| None                                      | Value to return if variable not found. | `None`     |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                     | Description                   |
+|--------|--------------------------|-------------------------------|
+|        | [float](`float`) \| None | The optimal value or default. |

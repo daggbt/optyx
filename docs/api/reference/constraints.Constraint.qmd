@@ -1,0 +1,93 @@
+# constraints.Constraint { #optyx.constraints.Constraint }
+
+```python
+constraints.Constraint(expr, sense, name=None)
+```
+
+Represents an optimization constraint.
+
+A constraint has the form: expr sense 0
+where sense is one of: <=, >=, ==
+
+The expression is normalized so RHS is always 0.
+For example, x + y <= 5 becomes (x + y - 5) <= 0.
+
+## Attributes {.doc-section .doc-section-attributes}
+
+| Name   | Type                                              | Description                                                          |
+|--------|---------------------------------------------------|----------------------------------------------------------------------|
+| expr   | [Expression](`optyx.core.expressions.Expression`) | The constraint expression (LHS - RHS, so constraint is expr sense 0) |
+| sense  | [str](`str`)                                      | The constraint type: "<=", ">=", or "=="                             |
+| name   | [str](`str`) \| None                              | Optional name for the constraint                                     |
+
+## Methods
+
+| Name | Description |
+| --- | --- |
+| [evaluate](#optyx.constraints.Constraint.evaluate) | Evaluate the constraint expression at a point. |
+| [get_variables](#optyx.constraints.Constraint.get_variables) | Get all variables in this constraint. |
+| [is_satisfied](#optyx.constraints.Constraint.is_satisfied) | Check if constraint is satisfied at a point. |
+| [violation](#optyx.constraints.Constraint.violation) | Compute constraint violation (0 if satisfied). |
+
+### evaluate { #optyx.constraints.Constraint.evaluate }
+
+```python
+constraints.Constraint.evaluate(point)
+```
+
+Evaluate the constraint expression at a point.
+
+Returns the value of expr at the point.
+For a satisfied constraint:
+    - <= constraint: value <= 0
+    - >= constraint: value >= 0
+    - == constraint: value == 0
+
+### get_variables { #optyx.constraints.Constraint.get_variables }
+
+```python
+constraints.Constraint.get_variables()
+```
+
+Get all variables in this constraint.
+
+### is_satisfied { #optyx.constraints.Constraint.is_satisfied }
+
+```python
+constraints.Constraint.is_satisfied(point, tol=1e-08)
+```
+
+Check if constraint is satisfied at a point.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                             | Description                       | Default    |
+|--------|--------------------------------------------------|-----------------------------------|------------|
+| point  | [dict](`dict`)\[[str](`str`), [float](`float`)\] | Dictionary of variable values.    | _required_ |
+| tol    | [float](`float`)                                 | Tolerance for satisfaction check. | `1e-08`    |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type           | Description                                       |
+|--------|----------------|---------------------------------------------------|
+|        | [bool](`bool`) | True if constraint is satisfied within tolerance. |
+
+### violation { #optyx.constraints.Constraint.violation }
+
+```python
+constraints.Constraint.violation(point)
+```
+
+Compute constraint violation (0 if satisfied).
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                             | Description                    | Default    |
+|--------|--------------------------------------------------|--------------------------------|------------|
+| point  | [dict](`dict`)\[[str](`str`), [float](`float`)\] | Dictionary of variable values. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type             | Description                                          |
+|--------|------------------|------------------------------------------------------|
+|        | [float](`float`) | Non-negative violation amount. Zero means satisfied. |

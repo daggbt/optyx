@@ -1,0 +1,19 @@
+# core.functions.tanh { #optyx.core.functions.tanh }
+
+```python
+core.functions.tanh(x)
+```
+
+Hyperbolic tangent.
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                                  | Description                  | Default    |
+|--------|-----------------------------------------------------------------------|------------------------------|------------|
+| x      | [Expression](`optyx.core.expressions.Expression`) \| [float](`float`) | Expression or numeric value. | _required_ |
+
+## Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                        | Description                      |
+|--------|---------------------------------------------|----------------------------------|
+|        | [UnaryOp](`optyx.core.expressions.UnaryOp`) | Expression representing tanh(x). |

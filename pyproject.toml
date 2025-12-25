@@ -63,6 +63,7 @@ dev = [
     "jupyter",
     "pyyaml",
     "pyright>=1.1.407",
+    "quartodoc>=0.11.1",
 ]
 
 [tool.pytest.ini_options]

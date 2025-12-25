@@ -1,0 +1,19 @@
+# core.functions.acosh { #optyx.core.functions.acosh }
+
+```python
+core.functions.acosh(x)
+```
+
+Inverse hyperbolic cosine.
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                                  | Description                       | Default    |
+|--------|-----------------------------------------------------------------------|-----------------------------------|------------|
+| x      | [Expression](`optyx.core.expressions.Expression`) \| [float](`float`) | Expression or numeric value >= 1. | _required_ |
+
+## Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                        | Description                         |
+|--------|---------------------------------------------|-------------------------------------|
+|        | [UnaryOp](`optyx.core.expressions.UnaryOp`) | Expression representing arccosh(x). |

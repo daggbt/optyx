@@ -1,0 +1,146 @@
+# problem.Problem { #optyx.problem.Problem }
+
+```python
+problem.Problem(name=None)
+```
+
+An optimization problem with objective and constraints.
+
+## Example {.doc-section .doc-section-example}
+
+>>> x = Variable("x", lb=0)
+>>> y = Variable("y", lb=0)
+>>> prob = Problem()
+>>> prob.minimize(x**2 + y**2)
+>>> prob.subject_to(x + y >= 1)
+>>> solution = prob.solve()
+>>> print(solution.values)  # {'x': 0.5, 'y': 0.5}
+
+## Note {.doc-section .doc-section-note}
+
+The Problem class is not thread-safe. Compiled callables are cached
+per instance and reused across multiple solve() calls for performance.
+Any mutation (adding constraints, changing objective) invalidates the cache.
+
+## Attributes
+
+| Name | Description |
+| --- | --- |
+| [constraints](#optyx.problem.Problem.constraints) | List of constraints. |
+| [n_constraints](#optyx.problem.Problem.n_constraints) | Number of constraints. |
+| [n_variables](#optyx.problem.Problem.n_variables) | Number of decision variables. |
+| [objective](#optyx.problem.Problem.objective) | The objective function expression. |
+| [sense](#optyx.problem.Problem.sense) | The optimization sense (minimize or maximize). |
+| [variables](#optyx.problem.Problem.variables) | All decision variables in the problem. |
+
+## Methods
+
+| Name | Description |
+| --- | --- |
+| [get_bounds](#optyx.problem.Problem.get_bounds) | Get variable bounds as a list of (lb, ub) tuples. |
+| [maximize](#optyx.problem.Problem.maximize) | Set the objective function to maximize. |
+| [minimize](#optyx.problem.Problem.minimize) | Set the objective function to minimize. |
+| [solve](#optyx.problem.Problem.solve) | Solve the optimization problem. |
+| [subject_to](#optyx.problem.Problem.subject_to) | Add a constraint to the problem. |
+
+### get_bounds { #optyx.problem.Problem.get_bounds }
+
+```python
+problem.Problem.get_bounds()
+```
+
+Get variable bounds as a list of (lb, ub) tuples.
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                                                     | Description                       |
+|--------|------------------------------------------------------------------------------------------|-----------------------------------|
+|        | [list](`list`)\[[tuple](`tuple`)\[[float](`float`) \| None, [float](`float`) \| None\]\] | List of bounds in variable order. |
+
+### maximize { #optyx.problem.Problem.maximize }
+
+```python
+problem.Problem.maximize(expr)
+```
+
+Set the objective function to maximize.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                              | Description             | Default    |
+|--------|---------------------------------------------------|-------------------------|------------|
+| expr   | [Expression](`optyx.core.expressions.Expression`) | Expression to maximize. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                               | Description               |
+|--------|------------------------------------|---------------------------|
+|        | [Problem](`optyx.problem.Problem`) | Self for method chaining. |
+
+### minimize { #optyx.problem.Problem.minimize }
+
+```python
+problem.Problem.minimize(expr)
+```
+
+Set the objective function to minimize.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                              | Description             | Default    |
+|--------|---------------------------------------------------|-------------------------|------------|
+| expr   | [Expression](`optyx.core.expressions.Expression`) | Expression to minimize. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                               | Description               |
+|--------|------------------------------------|---------------------------|
+|        | [Problem](`optyx.problem.Problem`) | Self for method chaining. |
+
+### solve { #optyx.problem.Problem.solve }
+
+```python
+problem.Problem.solve(method='auto', strict=False, **kwargs)
+```
+
+Solve the optimization problem.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name     | Type           | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Default   |
+|----------|----------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------|
+| method   | [str](`str`)   | Solver method. Options: - "auto" (default): Automatically select the best method:     - Linear problems → linprog (HiGHS)     - Unconstrained, n ≤ 3 → Nelder-Mead     - Unconstrained, n > 1000 → L-BFGS-B     - Unconstrained, else → BFGS     - Bounds only → L-BFGS-B     - Equality constraints → trust-constr     - Inequality only → SLSQP - "linprog": Force LP solver (scipy.optimize.linprog) - "SLSQP": Sequential Least Squares Programming - "trust-constr": Trust-region constrained optimization - "L-BFGS-B": Limited-memory BFGS with bounds - "BFGS": Broyden-Fletcher-Goldfarb-Shanno - "Nelder-Mead": Derivative-free simplex method | `'auto'`  |
+| strict   | [bool](`bool`) | If True, raise ValueError when the problem contains features that the solver cannot handle exactly (e.g., integer/binary variables with SciPy). If False (default), emit a warning and use the best available approximation.                                                                                                                                                                                                                                                                                                                                                                                                                             | `False`   |
+| **kwargs |                | Additional arguments passed to the solver.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | `{}`      |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                  | Description                   |
+|--------|---------------------------------------|-------------------------------|
+|        | [Solution](`optyx.solution.Solution`) | Solution object with results. |
+
+#### Raises {.doc-section .doc-section-raises}
+
+| Name   | Type                       | Description                                                                                    |
+|--------|----------------------------|------------------------------------------------------------------------------------------------|
+|        | [ValueError](`ValueError`) | If no objective has been set, or if strict=True and the problem contains unsupported features. |
+
+### subject_to { #optyx.problem.Problem.subject_to }
+
+```python
+problem.Problem.subject_to(constraint)
+```
+
+Add a constraint to the problem.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name       | Type                                         | Description        | Default    |
+|------------|----------------------------------------------|--------------------|------------|
+| constraint | [Constraint](`optyx.constraints.Constraint`) | Constraint to add. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                               | Description               |
+|--------|------------------------------------|---------------------------|
+|        | [Problem](`optyx.problem.Problem`) | Self for method chaining. |

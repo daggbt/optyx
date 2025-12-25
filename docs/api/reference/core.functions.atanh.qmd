@@ -1,0 +1,19 @@
+# core.functions.atanh { #optyx.core.functions.atanh }
+
+```python
+core.functions.atanh(x)
+```
+
+Inverse hyperbolic tangent.
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                                  | Description                             | Default    |
+|--------|-----------------------------------------------------------------------|-----------------------------------------|------------|
+| x      | [Expression](`optyx.core.expressions.Expression`) \| [float](`float`) | Expression or numeric value in (-1, 1). | _required_ |
+
+## Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                        | Description                         |
+|--------|---------------------------------------------|-------------------------------------|
+|        | [UnaryOp](`optyx.core.expressions.UnaryOp`) | Expression representing arctanh(x). |
