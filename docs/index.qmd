@@ -1,6 +1,6 @@
 ---
 title: "Optyx"
-subtitle: "Write optimization problems in natural Python. No manual gradients. No solver headaches"
+subtitle: "Optimization that reads like Python"
 page-layout: full
 toc: false
 ---
@@ -10,27 +10,13 @@ toc: false
 [View on GitHub](https://github.com/daggbt/optyx){.btn .btn-outline-secondary .btn-lg}
 :::
 
-## Installation
+## See the Difference
 
-### For Users
+::: {.grid}
 
-```bash
-pip install optyx
-```
-
-### For Developers
-
-```bash
-git clone https://github.com/daggbt/optyx.git
-cd optyx
-uv sync  # or: pip install -e .
-```
-
-## What is Optyx?
-
-Optyx is a Python library for **nonlinear optimization** that lets you express problems naturally:
-
-```{python}
+::: {.g-col-12 .g-col-md-6}
+### With Optyx
+```python
 from optyx import Variable, Problem
 
 x = Variable("x", lb=0)
@@ -42,155 +28,242 @@ solution = (
     .subject_to(x + y >= 1)
     .solve()
 )
+# x=0.5, y=0.5, objective=0.5
+```
+:::
 
-print(f"x* = {solution['x']:.4f}, y* = {solution['y']:.4f}")
-print(f"Optimal objective = {solution.objective_value:.4f}")
+::: {.g-col-12 .g-col-md-6}
+### With SciPy
+```python
+from scipy.optimize import minimize
+import numpy as np
+
+def objective(vars):
+    return vars[0]**2 + vars[1]**2
+
+def gradient(vars):  # manual gradient!
+    return np.array([2*vars[0], 2*vars[1]])
+
+result = minimize(
+    objective, x0=[1, 1], jac=gradient,
+    method='SLSQP',
+    bounds=[(0, None), (0, None)],
+    constraints={'type': 'ineq', 
+                 'fun': lambda v: v[0]+v[1]-1}
+)
+```
+:::
+
+:::
+
+Your optimization code should read like your math. With Optyx, `x + y >= 1` is exactly that—not a lambda buried in a constraint dictionary.
+
+---
+
+## Why Another Optimization Library?
+
+Python has excellent tools. **SciPy** provides algorithms. **CVXPY** handles convex problems elegantly. **Pyomo** scales to industrial applications.
+
+**Optyx takes a different path: radical simplicity.**
+
+We believe most optimization code is harder to write than it needs to be. Optyx is for developers who want to:
+
+- **Write problems as they think them** — `x**2 + y**2` not `lambda v: v[0]**2 + v[1]**2`
+- **Never compute a gradient by hand** — symbolic autodiff handles it
+- **Skip the solver configuration** — sensible defaults, automatic solver selection
+
+### Being Honest
+
+Optyx is young (v1.1.1) and opinionated. It's **not** a replacement for specialized tools:
+
+- Need MILP at scale? → Use Pyomo or Gurobi
+- Need convex guarantees? → Use CVXPY  
+- Need maximum performance? → Use raw solver APIs
+
+But if you want readable optimization code that just works for most problems, keep reading.
+
+---
+
+## What You Can Do
+
+```{python}
+#| echo: false
+#| output: false
+import warnings
+warnings.filterwarnings('ignore')
 ```
 
-## Key Features
-
-::: {.grid}
-
-::: {.g-col-6 .g-col-md-4}
-### ✅ Natural Syntax
-Write `x + y >= 1` instead of manual constraint arrays. Your code reads like math.
-:::
-
-::: {.g-col-6 .g-col-md-4}
-### ✅ Automatic Gradients
-Symbolic differentiation computes gradients, Jacobians, and Hessians automatically.
-:::
-
-::: {.g-col-6 .g-col-md-4}
-### ✅ No Solver Setup
-Uses SciPy as the backend—no external solver installation required.
-:::
-
-::: {.g-col-6 .g-col-md-4}
-### ✅ Debuggable
-Inspect symbolic expression trees. Understand exactly what your model does.
-:::
-
-::: {.g-col-6 .g-col-md-4}
-### ✅ Fast Re-solve
-Cached coefficients and auto-selected solvers. Up to 900x speedup on repeated solves.
-:::
-
-::: {.g-col-6 .g-col-md-4}
-### ✅ Smart Solver Selection
-Automatically picks the best solver: HiGHS for LP, BFGS/SLSQP for NLP.
-:::
-
-:::
-
-## Performance
-
-Optyx achieves near-parity with raw SciPy while providing a much cleaner API:
-
-| Metric | Result | Notes |
-|--------|--------|-------|
-| **LP Overhead** | ~0.94-1.15x | Near-parity with SciPy linprog |
-| **NLP Overhead** | ~1.4-2.2x | Autodiff cost (but exact gradients!) |
-| **Cache Speedup** | 2x-900x | Dramatic improvement on repeated solves |
-
-See the [Benchmarks](benchmarks.qmd) page for detailed performance analysis with plots.
-
-## Why Optyx?
-
-| Feature | Optyx | SciPy | CVXPY | Pyomo |
-|---------|-------|-------|-------|-------|
-| **Natural Python syntax** | ✅ `x + y >= 1` | ❌ Manual arrays | ⚠️ DSL-like | ⚠️ Verbose |
-| **Automatic gradients** | ✅ Built-in | ❌ Manual/finite diff | ✅ For convex | ❌ Manual |
-| **No solver install** | ✅ Uses SciPy | ✅ | ❌ Needs solvers | ❌ Needs solvers |
-| **Inspect expressions** | ✅ Symbolic trees | ❌ | ⚠️ Limited | ⚠️ Limited |
-| **Fast re-optimization** | ✅ Fast | ✅ | ✅ | ⚠️ Slower |
-| **Learning curve** | Low | Medium | Medium | High |
-
-### Optyx is ideal when you want:
-- Clean, readable optimization code without boilerplate
-- Automatic differentiation handled internally (gradients, Jacobians, and Hessians computed symbolically)
-- Quick prototyping with SciPy solvers (no external solver installs)
-- Debuggable symbolic expressions you can inspect
-
-### Consider alternatives when you need:
-- Convex optimization guarantees → CVXPY
-- Mixed-integer programming → PuLP, Pyomo, or Gurobi
-- Large-scale industrial optimization → Pyomo + commercial solvers
-
-## Quick Example: Portfolio Optimization
-
-Minimize portfolio risk while achieving a target return:
+### Constrained Nonlinear Optimization
 
 ```{python}
 from optyx import Variable, Problem
 
-# Asset weights
-w1 = Variable("tech", lb=0, ub=0.4)
-w2 = Variable("energy", lb=0, ub=0.4)
-w3 = Variable("finance", lb=0, ub=0.4)
+# Find the minimum of Rosenbrock function in a box
+x = Variable("x", lb=-2, ub=2)
+y = Variable("y", lb=-2, ub=2)
 
-# Expected returns
-returns = 0.12*w1 + 0.08*w2 + 0.10*w3
+rosenbrock = 100*(y - x**2)**2 + (1 - x)**2
 
-# Simplified risk (variance proxy)
-risk = w1**2 * 0.04 + w2**2 * 0.02 + w3**2 * 0.03
+solution = (
+    Problem("rosenbrock")
+    .minimize(rosenbrock)
+    .solve()
+)
+
+print(f"Minimum at ({solution['x']:.4f}, {solution['y']:.4f})")
+print(f"Objective value: {solution.objective_value:.6f}")
+```
+
+### Portfolio Optimization
+
+```{python}
+from optyx import Variable, Problem
+
+# Three assets with position limits
+tech = Variable("tech", lb=0, ub=0.4)
+energy = Variable("energy", lb=0, ub=0.4) 
+finance = Variable("finance", lb=0, ub=0.4)
+
+# Maximize return while controlling risk
+expected_return = 0.12*tech + 0.08*energy + 0.10*finance
+risk = 0.04*tech**2 + 0.02*energy**2 + 0.03*finance**2
 
 solution = (
     Problem("portfolio")
     .minimize(risk)
-    .subject_to(w1 + w2 + w3 >= 0.99)  # Fully invested
-    .subject_to(w1 + w2 + w3 <= 1.01)
-    .subject_to(returns >= 0.09)        # Target return
+    .subject_to((tech + energy + finance).eq(1))  # fully invested
+    .subject_to(expected_return >= 0.095)          # target return
     .solve()
 )
 
-print(f"Tech:    {solution['tech']:.1%}")
-print(f"Energy:  {solution['energy']:.1%}")
-print(f"Finance: {solution['finance']:.1%}")
-print(f"Risk:    {solution.objective_value:.6f}")
+print(f"Allocation: tech={solution['tech']:.1%}, energy={solution['energy']:.1%}, finance={solution['finance']:.1%}")
+print(f"Expected return: {0.12*solution['tech'] + 0.08*solution['energy'] + 0.10*solution['finance']:.1%}")
+print(f"Portfolio risk: {solution.objective_value:.4f}")
 ```
 
-## When to Use Optyx
+### Inspect What You Built
 
-| Use Case | Optyx | Alternative |
-|----------|-------|-------------|
-| Quick NLP prototyping | ✅ Ideal | — |
-| Educational/learning | ✅ Ideal | — |
-| Production NLP (small-medium) | ✅ Good | — |
-| Convex with guarantees | ⚠️ No DCP | CVXPY |
-| Mixed-integer programming | ❌ Not supported | PuLP, Gurobi |
-| Large-scale (10k+ vars) | ⚠️ Performance | Pyomo + IPOPT |
+Unlike black-box solvers, Optyx lets you see exactly what's happening:
 
----
+```{python}
+from optyx import Variable
 
-## Documentation
+x = Variable("x")
+y = Variable("y")
 
-**Getting Started:** [Installation](getting-started/installation.qmd) · [Quickstart](getting-started/quickstart.qmd) · [Core Concepts](getting-started/concepts.qmd)
+# Build an expression
+expr = (x + 2*y)**2 - x*y
 
-**Tutorials:** [Basic Optimization](tutorials/basic-optimization.qmd) · [Constraints](tutorials/constraints.qmd) · [Autodiff](tutorials/autodiff.qmd)
-
-**Examples:** [Portfolio](examples/portfolio.qmd) · [Fleet Dispatch](examples/fleet-dispatch.qmd) · [Rosenbrock](examples/rosenbrock.qmd)
-
-**API Reference:** [Expressions](api/expressions.qmd) · [Problem](api/problem.qmd) · [Solution](api/solution.qmd) · [Autodiff](api/autodiff.qmd)
+# See its structure
+print(f"Expression: {expr}")
+print(f"Variables: {[v.name for v in expr.get_variables()]}")
+print(f"Value at x=1, y=2: {expr.evaluate({'x': 1, 'y': 2})}")
+```
 
 ---
 
-## What's Next
+## The Core Ideas
 
-**Optyx is actively evolving.** Here's where we're heading:
+::: {.grid}
 
-- ✅ **Smarter modeling** — Automatic problem classification and solver selection *(completed)*
-- ✅ **Production-ready** — Caching for fast repeated solves *(completed)*
-- **Larger problems** — Support for vector and matrix variables to handle optimization with thousands of decision variables
-- **Faster execution** — JIT-compiled backends for significant performance improvements on complex models
-- **More solvers** — Integration with industry-standard solvers like IPOPT for large-scale nonlinear optimization
-- **Better debugging** — Infeasibility diagnostics, constraint violation reports, and model inspection tools
+::: {.g-col-12 .g-col-md-6}
+### Expressions are Symbolic
+
+When you write `x + y`, Optyx builds a symbolic tree—not a Python value. This means:
+
+- Expressions can be inspected, differentiated, and analyzed
+- Gradients are exact (no finite differences)
+- Errors are caught before solving, not during
+:::
+
+::: {.g-col-12 .g-col-md-6}
+### Problems are Fluent
+
+The `Problem` API chains naturally:
+
+```python
+Problem("name")
+    .minimize(objective)
+    .subject_to(constraint1)
+    .subject_to(constraint2)
+    .solve()
+```
+
+One line to read, one line to understand.
+:::
+
+::: {.g-col-12 .g-col-md-6}
+### Solvers are Automatic
+
+Optyx analyzes your problem and picks the right solver:
+
+- **Linear?** → HiGHS (fast industrial LP solver)
+- **Unconstrained NLP?** → L-BFGS-B
+- **Constrained NLP?** → SLSQP or trust-constr
+
+You can override, but you rarely need to.
+:::
+
+::: {.g-col-12 .g-col-md-6}
+### Re-solving is Fast
+
+Changed a parameter? Optyx caches the problem structure:
+
+```python
+# First solve compiles the problem
+solution = problem.solve()
+
+# Subsequent solves reuse compilation
+for scenario in scenarios:
+    solution = problem.solve(x0=scenario)
+```
+
+Up to **900x faster** on repeated solves.
+:::
+
+:::
 
 ---
 
-## License
+## Performance
 
-Optyx is released under the [MIT License](https://github.com/daggbt/optyx/blob/main/LICENSE).
+Optyx is designed for developer productivity first, but it's not slow:
 
-</div>
-</div>
+| Scenario | Overhead vs Raw SciPy | Notes |
+|----------|----------------------|-------|
+| Linear programs | ~1x | Near-parity via HiGHS |
+| Nonlinear (first solve) | ~1.5-2x | Autodiff compilation cost |
+| Nonlinear (re-solve) | **0.001-0.5x** | Cached structure wins |
+
+For problems where compilation is amortized over many solves, Optyx can be *faster* than hand-written code.
+
+See [Benchmarks](benchmarks.qmd) for detailed analysis.
+
+---
+
+## Get Started
+
+```bash
+pip install optyx
+```
+
+Then try the [5-minute quickstart](getting-started/quickstart.qmd) or explore the [tutorials](tutorials/basic-optimization.qmd).
+
+---
+
+## What's Coming
+
+Optyx is actively developed. On the roadmap:
+
+- **Vector & Matrix variables** — Handle problems with thousands of decision variables cleanly
+- **JAX backend** — JIT-compiled autodiff for complex models  
+- **More solvers** — IPOPT integration for large-scale NLP
+- **Debugging tools** — Infeasibility diagnostics and constraint analysis
+
+See the [roadmap](https://github.com/daggbt/optyx/blob/main/optyx-project/ROADMAP.md) for details.
+
+---
+
+::: {.text-center}
+**Ready to try it?** [Get Started →](getting-started/quickstart.qmd)
+:::
