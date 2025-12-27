@@ -265,7 +265,7 @@ class TestScalingComparison:
             print(
                 f"n={n:4d}: Optyx={optyx_timing.mean_ms:.3f}ms, "
                 f"SciPy={scipy_timing.mean_ms:.3f}ms, "
-                f"ratio={optyx_timing.mean_ms/scipy_timing.mean_ms:.2f}x"
+                f"ratio={optyx_timing.mean_ms / scipy_timing.mean_ms:.2f}x"
             )
 
         plot_scaling_comparison(
@@ -315,7 +315,7 @@ class TestScalingComparison:
             print(
                 f"n={n:4d}: Optyx={optyx_timing.mean_ms:.3f}ms, "
                 f"SciPy={scipy_timing.mean_ms:.3f}ms, "
-                f"ratio={optyx_timing.mean_ms/scipy_timing.mean_ms:.2f}x"
+                f"ratio={optyx_timing.mean_ms / scipy_timing.mean_ms:.2f}x"
             )
 
         plot_scaling_comparison(
