@@ -2,7 +2,12 @@
 
 import pytest
 
-from optyx.core.vectors import VectorVariable
+from optyx.core.vectors import (
+    VectorVariable,
+    VectorExpression,
+    VectorSum,
+    vector_sum,
+)
 from optyx.core.expressions import Variable
 
 
@@ -229,3 +234,178 @@ class TestVectorVariableRepr:
         """Repr shows non-continuous domain."""
         x = VectorVariable("x", 5, domain="binary")
         assert "binary" in repr(x)
+
+
+class TestVectorSum:
+    """Tests for VectorSum expression."""
+
+    def test_sum_creation(self):
+        """vector_sum returns VectorSum for VectorVariable."""
+        x = VectorVariable("x", 5)
+        s = vector_sum(x)
+        assert isinstance(s, VectorSum)
+
+    def test_sum_evaluate(self):
+        """VectorSum evaluates correctly."""
+        x = VectorVariable("x", 3)
+        s = vector_sum(x)
+        result = s.evaluate({"x[0]": 1, "x[1]": 2, "x[2]": 3})
+        assert result == 6.0
+
+    def test_sum_evaluate_floats(self):
+        """VectorSum works with float values."""
+        x = VectorVariable("x", 3)
+        s = vector_sum(x)
+        result = s.evaluate({"x[0]": 1.5, "x[1]": 2.5, "x[2]": 3.0})
+        assert result == 7.0
+
+    def test_sum_get_variables(self):
+        """VectorSum returns all vector variables."""
+        x = VectorVariable("x", 3)
+        s = vector_sum(x)
+        variables = s.get_variables()
+        assert len(variables) == 3
+        assert all(v in variables for v in x)
+
+    def test_sum_repr(self):
+        """VectorSum has useful repr."""
+        x = VectorVariable("x", 5)
+        s = vector_sum(x)
+        assert "x" in repr(s)
+
+
+class TestVectorExpression:
+    """Tests for VectorExpression."""
+
+    def test_vector_expression_creation(self):
+        """VectorExpression can be created from expressions."""
+        x = VectorVariable("x", 3)
+        ve = VectorExpression(list(x))
+        assert len(ve) == 3
+
+    def test_vector_expression_indexing(self):
+        """VectorExpression supports indexing."""
+        x = VectorVariable("x", 3)
+        ve = VectorExpression(list(x))
+        assert ve[0] == x[0]
+        assert ve[-1] == x[2]
+
+    def test_vector_expression_evaluate(self):
+        """VectorExpression can evaluate all elements."""
+        x = VectorVariable("x", 3)
+        ve = VectorExpression(list(x))
+        result = ve.evaluate({"x[0]": 1, "x[1]": 2, "x[2]": 3})
+        assert result == [1, 2, 3]
+
+    def test_empty_vector_expression_raises(self):
+        """Empty VectorExpression raises ValueError."""
+        with pytest.raises(ValueError, match="empty"):
+            VectorExpression([])
+
+
+class TestVectorArithmetic:
+    """Tests for element-wise arithmetic operations."""
+
+    def test_add_two_vectors(self):
+        """x + y creates element-wise sum."""
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        z = x + y
+        assert isinstance(z, VectorExpression)
+        assert len(z) == 3
+        # Evaluate
+        values = {"x[0]": 1, "x[1]": 2, "x[2]": 3, "y[0]": 10, "y[1]": 20, "y[2]": 30}
+        result = z.evaluate(values)
+        assert result == [11, 22, 33]
+
+    def test_add_scalar_right(self):
+        """x + 5 broadcasts scalar to all elements."""
+        x = VectorVariable("x", 3)
+        z = x + 5
+        assert isinstance(z, VectorExpression)
+        result = z.evaluate({"x[0]": 1, "x[1]": 2, "x[2]": 3})
+        assert result == [6, 7, 8]
+
+    def test_add_scalar_left(self):
+        """5 + x broadcasts scalar to all elements."""
+        x = VectorVariable("x", 3)
+        z = 5 + x
+        assert isinstance(z, VectorExpression)
+        result = z.evaluate({"x[0]": 1, "x[1]": 2, "x[2]": 3})
+        assert result == [6, 7, 8]
+
+    def test_sub_two_vectors(self):
+        """x - y creates element-wise difference."""
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        z = x - y
+        values = {"x[0]": 10, "x[1]": 20, "x[2]": 30, "y[0]": 1, "y[1]": 2, "y[2]": 3}
+        result = z.evaluate(values)
+        assert result == [9, 18, 27]
+
+    def test_sub_scalar(self):
+        """x - 5 subtracts scalar from all elements."""
+        x = VectorVariable("x", 3)
+        z = x - 5
+        result = z.evaluate({"x[0]": 10, "x[1]": 20, "x[2]": 30})
+        assert result == [5, 15, 25]
+
+    def test_rsub_scalar(self):
+        """5 - x subtracts vector from scalar."""
+        x = VectorVariable("x", 3)
+        z = 5 - x
+        result = z.evaluate({"x[0]": 1, "x[1]": 2, "x[2]": 3})
+        assert result == [4, 3, 2]
+
+    def test_mul_scalar_right(self):
+        """x * 2 multiplies all elements by scalar."""
+        x = VectorVariable("x", 3)
+        z = x * 2
+        result = z.evaluate({"x[0]": 1, "x[1]": 2, "x[2]": 3})
+        assert result == [2, 4, 6]
+
+    def test_mul_scalar_left(self):
+        """2 * x multiplies all elements by scalar."""
+        x = VectorVariable("x", 3)
+        z = 2 * x
+        result = z.evaluate({"x[0]": 1, "x[1]": 2, "x[2]": 3})
+        assert result == [2, 4, 6]
+
+    def test_div_scalar(self):
+        """x / 2 divides all elements by scalar."""
+        x = VectorVariable("x", 3)
+        z = x / 2
+        result = z.evaluate({"x[0]": 2, "x[1]": 4, "x[2]": 6})
+        assert result == [1, 2, 3]
+
+    def test_neg(self):
+        """-x negates all elements."""
+        x = VectorVariable("x", 3)
+        z = -x
+        result = z.evaluate({"x[0]": 1, "x[1]": -2, "x[2]": 3})
+        assert result == [-1, 2, -3]
+
+    def test_size_mismatch_raises(self):
+        """Adding vectors of different sizes raises ValueError."""
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 5)
+        with pytest.raises(ValueError, match="size mismatch"):
+            x + y
+
+    def test_chained_operations(self):
+        """Chained operations work correctly."""
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        z = 2 * x + y - 1
+        values = {"x[0]": 1, "x[1]": 2, "x[2]": 3, "y[0]": 10, "y[1]": 20, "y[2]": 30}
+        result = z.evaluate(values)
+        assert result == [11, 23, 35]  # 2*1+10-1, 2*2+20-1, 2*3+30-1
+
+    def test_vector_expression_arithmetic(self):
+        """VectorExpression supports further arithmetic."""
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        z = (x + y) * 2
+        values = {"x[0]": 1, "x[1]": 2, "x[2]": 3, "y[0]": 1, "y[1]": 2, "y[2]": 3}
+        result = z.evaluate(values)
+        assert result == [4, 8, 12]
