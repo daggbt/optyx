@@ -6,7 +6,11 @@ from optyx.core.vectors import (
     VectorVariable,
     VectorExpression,
     VectorSum,
+    DotProduct,
+    L2Norm,
+    L1Norm,
     vector_sum,
+    norm,
 )
 from optyx.core.expressions import Variable
 
@@ -590,3 +594,178 @@ class TestProblemWithVectorConstraints:
         assert len(prob.variables) == 3
         names = {v.name for v in prob.variables}
         assert names == {"x[0]", "x[1]", "x[2]"}
+
+
+class TestDotProduct:
+    """Tests for dot product operations."""
+
+    def test_dot_product_basic(self):
+        """x.dot(y) computes dot product."""
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        d = x.dot(y)
+        assert isinstance(d, DotProduct)
+
+    def test_dot_product_evaluates_correctly(self):
+        """Dot product [1,2,3] · [4,5,6] = 32."""
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        d = x.dot(y)
+        values = {
+            "x[0]": 1,
+            "x[1]": 2,
+            "x[2]": 3,
+            "y[0]": 4,
+            "y[1]": 5,
+            "y[2]": 6,
+        }
+        result = d.evaluate(values)
+        assert result == 32  # 1*4 + 2*5 + 3*6 = 4 + 10 + 18 = 32
+
+    def test_self_dot_product(self):
+        """x.dot(x) works (sum of squares)."""
+        x = VectorVariable("x", 3)
+        d = x.dot(x)
+        values = {"x[0]": 1, "x[1]": 2, "x[2]": 3}
+        result = d.evaluate(values)
+        assert result == 14  # 1 + 4 + 9 = 14
+
+    def test_dot_product_variables(self):
+        """Dot product tracks all variables."""
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        d = x.dot(y)
+        vars_set = d.get_variables()
+        assert len(vars_set) == 6
+        names = {v.name for v in vars_set}
+        assert names == {"x[0]", "x[1]", "x[2]", "y[0]", "y[1]", "y[2]"}
+
+    def test_dot_product_size_mismatch(self):
+        """Dot product with different sizes raises ValueError."""
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 5)
+        with pytest.raises(ValueError, match="size mismatch"):
+            x.dot(y)
+
+    def test_dot_product_repr(self):
+        """DotProduct has readable repr."""
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        d = x.dot(y)
+        assert "DotProduct" in repr(d)
+        assert "x" in repr(d)
+        assert "y" in repr(d)
+
+    def test_vector_expression_dot(self):
+        """VectorExpression.dot() works."""
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        z = x + 1  # VectorExpression
+        d = z.dot(y)
+        values = {
+            "x[0]": 1,
+            "x[1]": 2,
+            "x[2]": 3,
+            "y[0]": 1,
+            "y[1]": 1,
+            "y[2]": 1,
+        }
+        result = d.evaluate(values)
+        assert result == 9  # (1+1)*1 + (2+1)*1 + (3+1)*1 = 2 + 3 + 4 = 9
+
+
+class TestL2Norm:
+    """Tests for L2 (Euclidean) norm."""
+
+    def test_norm_basic(self):
+        """norm(x) returns L2Norm expression."""
+        x = VectorVariable("x", 2)
+        n = norm(x)
+        assert isinstance(n, L2Norm)
+
+    def test_norm_evaluates_correctly(self):
+        """||[3, 4]|| = 5."""
+        x = VectorVariable("x", 2)
+        n = norm(x)
+        values = {"x[0]": 3, "x[1]": 4}
+        result = n.evaluate(values)
+        assert result == 5.0
+
+    def test_norm_3d(self):
+        """3D norm evaluates correctly."""
+        x = VectorVariable("x", 3)
+        n = norm(x)
+        values = {"x[0]": 1, "x[1]": 2, "x[2]": 2}
+        result = n.evaluate(values)
+        assert result == 3.0  # sqrt(1 + 4 + 4) = 3
+
+    def test_norm_variables(self):
+        """Norm tracks all variables."""
+        x = VectorVariable("x", 3)
+        n = norm(x)
+        vars_set = n.get_variables()
+        assert len(vars_set) == 3
+
+    def test_norm_repr(self):
+        """L2Norm has readable repr."""
+        x = VectorVariable("x", 3)
+        n = norm(x)
+        assert "L2Norm" in repr(n)
+
+
+class TestL1Norm:
+    """Tests for L1 (Manhattan) norm."""
+
+    def test_l1_norm_basic(self):
+        """norm(x, ord=1) returns L1Norm expression."""
+        x = VectorVariable("x", 3)
+        n = norm(x, ord=1)
+        assert isinstance(n, L1Norm)
+
+    def test_l1_norm_evaluates_correctly(self):
+        """L1 norm with negative values: |1| + |-2| + |3| = 6."""
+        x = VectorVariable("x", 3)
+        n = norm(x, ord=1)
+        values = {"x[0]": 1, "x[1]": -2, "x[2]": 3}
+        result = n.evaluate(values)
+        assert result == 6.0
+
+    def test_l1_norm_positive(self):
+        """L1 norm with all positive values."""
+        x = VectorVariable("x", 3)
+        n = norm(x, ord=1)
+        values = {"x[0]": 1, "x[1]": 2, "x[2]": 3}
+        result = n.evaluate(values)
+        assert result == 6.0
+
+    def test_l1_norm_repr(self):
+        """L1Norm has readable repr."""
+        x = VectorVariable("x", 3)
+        n = norm(x, ord=1)
+        assert "L1Norm" in repr(n)
+
+
+class TestNormFunction:
+    """Tests for the norm() function."""
+
+    def test_norm_unsupported_order(self):
+        """norm with unsupported order raises ValueError."""
+        x = VectorVariable("x", 3)
+        with pytest.raises(ValueError, match="Unsupported norm order"):
+            norm(x, ord=3)
+
+    def test_norm_default_is_l2(self):
+        """norm() defaults to L2."""
+        x = VectorVariable("x", 3)
+        n = norm(x)
+        assert isinstance(n, L2Norm)
+
+    def test_norm_on_vector_expression(self):
+        """norm works on VectorExpression."""
+        x = VectorVariable("x", 2)
+        z = 2 * x  # VectorExpression
+        n = norm(z)
+        values = {"x[0]": 1.5, "x[1]": 2}
+        # ||[3, 4]|| = 5
+        result = n.evaluate(values)
+        assert result == 5.0

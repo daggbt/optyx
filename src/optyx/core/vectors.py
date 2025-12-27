@@ -61,6 +61,181 @@ class VectorSum(Expression):
         return f"VectorSum({self.vector.name})"
 
 
+class DotProduct(Expression):
+    """Dot product of two vectors: x · y = x[0]*y[0] + x[1]*y[1] + ... + x[n-1]*y[n-1].
+
+    This is a scalar expression representing the inner product.
+
+    Args:
+        left: First vector.
+        right: Second vector.
+
+    Example:
+        >>> x = VectorVariable("x", 3)
+        >>> y = VectorVariable("y", 3)
+        >>> d = DotProduct(x, y)
+        >>> d.evaluate({"x[0]": 1, "x[1]": 2, "x[2]": 3, "y[0]": 4, "y[1]": 5, "y[2]": 6})
+        32.0
+    """
+
+    __slots__ = ("left", "right")
+
+    def __init__(
+        self,
+        left: VectorVariable | VectorExpression,
+        right: VectorVariable | VectorExpression,
+    ) -> None:
+        left_size = (
+            left.size
+            if isinstance(left, (VectorVariable, VectorExpression))
+            else len(left)
+        )
+        right_size = (
+            right.size
+            if isinstance(right, (VectorVariable, VectorExpression))
+            else len(right)
+        )
+        if left_size != right_size:
+            raise ValueError(
+                f"Vector size mismatch for dot product: {left_size} vs {right_size}"
+            )
+        self.left = left
+        self.right = right
+
+    def evaluate(
+        self, values: Mapping[str, ArrayLike | float]
+    ) -> NDArray[np.floating] | float:
+        """Evaluate the dot product given variable values."""
+        left_vals = [v.evaluate(values) for v in self._iter_left()]
+        right_vals = [v.evaluate(values) for v in self._iter_right()]
+        return sum(lv * rv for lv, rv in zip(left_vals, right_vals))  # type: ignore[return-value]
+
+    def _iter_left(self) -> Iterator[Expression]:
+        """Iterate over left vector elements."""
+        if isinstance(self.left, VectorVariable):
+            return iter(self.left._variables)
+        return iter(self.left._expressions)
+
+    def _iter_right(self) -> Iterator[Expression]:
+        """Iterate over right vector elements."""
+        if isinstance(self.right, VectorVariable):
+            return iter(self.right._variables)
+        return iter(self.right._expressions)
+
+    def get_variables(self) -> set[Variable]:
+        """Return all variables this expression depends on."""
+        result: set[Variable] = set()
+        if isinstance(self.left, VectorVariable):
+            result.update(self.left._variables)
+        else:
+            result.update(self.left.get_variables())
+        if isinstance(self.right, VectorVariable):
+            result.update(self.right._variables)
+        else:
+            result.update(self.right.get_variables())
+        return result
+
+    def __repr__(self) -> str:
+        left_name = self.left.name if isinstance(self.left, VectorVariable) else "expr"
+        right_name = (
+            self.right.name if isinstance(self.right, VectorVariable) else "expr"
+        )
+        return f"DotProduct({left_name}, {right_name})"
+
+
+class L2Norm(Expression):
+    """L2 (Euclidean) norm of a vector: ||x|| = sqrt(x[0]^2 + x[1]^2 + ... + x[n-1]^2).
+
+    This is a scalar expression representing the Euclidean length.
+
+    Args:
+        vector: The vector to compute the norm of.
+
+    Example:
+        >>> x = VectorVariable("x", 2)
+        >>> n = L2Norm(x)
+        >>> n.evaluate({"x[0]": 3, "x[1]": 4})
+        5.0
+    """
+
+    __slots__ = ("vector",)
+
+    def __init__(self, vector: VectorVariable | VectorExpression) -> None:
+        self.vector = vector
+
+    def evaluate(
+        self, values: Mapping[str, ArrayLike | float]
+    ) -> NDArray[np.floating] | float:
+        """Evaluate the L2 norm given variable values."""
+        vals = [v.evaluate(values) for v in self._iter_vector()]
+        sum_sq = sum(v * v for v in vals)
+        return np.sqrt(sum_sq)  # type: ignore[return-value]
+
+    def _iter_vector(self) -> Iterator[Expression]:
+        """Iterate over vector elements."""
+        if isinstance(self.vector, VectorVariable):
+            return iter(self.vector._variables)
+        return iter(self.vector._expressions)
+
+    def get_variables(self) -> set[Variable]:
+        """Return all variables this expression depends on."""
+        if isinstance(self.vector, VectorVariable):
+            return set(self.vector._variables)
+        return self.vector.get_variables()
+
+    def __repr__(self) -> str:
+        vec_name = (
+            self.vector.name if isinstance(self.vector, VectorVariable) else "expr"
+        )
+        return f"L2Norm({vec_name})"
+
+
+class L1Norm(Expression):
+    """L1 (Manhattan) norm of a vector: ||x||_1 = |x[0]| + |x[1]| + ... + |x[n-1]|.
+
+    This is a scalar expression representing the sum of absolute values.
+
+    Args:
+        vector: The vector to compute the norm of.
+
+    Example:
+        >>> x = VectorVariable("x", 3)
+        >>> n = L1Norm(x)
+        >>> n.evaluate({"x[0]": 1, "x[1]": -2, "x[2]": 3})
+        6.0
+    """
+
+    __slots__ = ("vector",)
+
+    def __init__(self, vector: VectorVariable | VectorExpression) -> None:
+        self.vector = vector
+
+    def evaluate(
+        self, values: Mapping[str, ArrayLike | float]
+    ) -> NDArray[np.floating] | float:
+        """Evaluate the L1 norm given variable values."""
+        vals = [v.evaluate(values) for v in self._iter_vector()]
+        return sum(abs(v) for v in vals)  # type: ignore[return-value]
+
+    def _iter_vector(self) -> Iterator[Expression]:
+        """Iterate over vector elements."""
+        if isinstance(self.vector, VectorVariable):
+            return iter(self.vector._variables)
+        return iter(self.vector._expressions)
+
+    def get_variables(self) -> set[Variable]:
+        """Return all variables this expression depends on."""
+        if isinstance(self.vector, VectorVariable):
+            return set(self.vector._variables)
+        return self.vector.get_variables()
+
+    def __repr__(self) -> str:
+        vec_name = (
+            self.vector.name if isinstance(self.vector, VectorVariable) else "expr"
+        )
+        return f"L1Norm({vec_name})"
+
+
 class VectorExpression:
     """A vector of expressions (result of vector arithmetic).
 
@@ -187,6 +362,24 @@ class VectorExpression:
             >>> constraints = x.eq(y)  # 3 constraints: x[i] == y[i]
         """
         return _vector_constraint(self, other, "==")
+
+    def dot(self, other: VectorExpression | VectorVariable) -> DotProduct:
+        """Compute dot product with another vector.
+
+        Args:
+            other: Vector to compute dot product with.
+
+        Returns:
+            DotProduct expression (scalar).
+
+        Example:
+            >>> x = VectorVariable("x", 3)
+            >>> y = VectorVariable("y", 3)
+            >>> d = x.dot(y)
+            >>> d.evaluate({"x[0]": 1, "x[1]": 2, "x[2]": 3, "y[0]": 4, "y[1]": 5, "y[2]": 6})
+            32.0
+        """
+        return DotProduct(self, other)
 
 
 class VectorVariable:
@@ -413,6 +606,24 @@ class VectorVariable:
         """
         return _vector_constraint(self, other, "==")
 
+    def dot(self, other: VectorVariable | VectorExpression) -> DotProduct:
+        """Compute dot product with another vector.
+
+        Args:
+            other: Vector to compute dot product with.
+
+        Returns:
+            DotProduct expression (scalar).
+
+        Example:
+            >>> x = VectorVariable("x", 3)
+            >>> y = VectorVariable("y", 3)
+            >>> d = x.dot(y)
+            >>> d.evaluate({"x[0]": 1, "x[1]": 2, "x[2]": 3, "y[0]": 4, "y[1]": 5, "y[2]": 6})
+            32.0
+        """
+        return DotProduct(self, other)
+
 
 def _vector_constraint(
     left: VectorVariable | VectorExpression,
@@ -539,3 +750,30 @@ def vector_sum(vector: VectorVariable | VectorExpression) -> VectorSum | Express
         raise TypeError(
             f"Expected VectorVariable or VectorExpression, got {type(vector)}"
         )
+
+
+def norm(vector: VectorVariable | VectorExpression, ord: int = 2) -> L2Norm | L1Norm:
+    """Compute the norm of a vector.
+
+    Args:
+        vector: VectorVariable or VectorExpression to compute norm of.
+        ord: Order of the norm. 2 for L2 (Euclidean), 1 for L1 (Manhattan).
+
+    Returns:
+        L2Norm or L1Norm expression.
+
+    Example:
+        >>> x = VectorVariable("x", 2)
+        >>> n = norm(x)
+        >>> n.evaluate({"x[0]": 3, "x[1]": 4})
+        5.0
+        >>> n1 = norm(x, ord=1)
+        >>> n1.evaluate({"x[0]": 3, "x[1]": -4})
+        7.0
+    """
+    if ord == 2:
+        return L2Norm(vector)
+    elif ord == 1:
+        return L1Norm(vector)
+    else:
+        raise ValueError(f"Unsupported norm order: {ord}. Use 1 or 2.")
