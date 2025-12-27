@@ -20,6 +20,7 @@ from optyx.core.expressions import (
 )
 
 if TYPE_CHECKING:
+    from optyx.constraints import Constraint
     from numpy.typing import ArrayLike, NDArray
 
 # Type alias for variable domain
@@ -151,6 +152,41 @@ class VectorExpression:
     def __neg__(self) -> VectorExpression:
         """Negate all elements."""
         return VectorExpression([-expr for expr in self._expressions])
+
+    # Comparison operators - create lists of constraints
+    def __le__(
+        self, other: VectorExpression | VectorVariable | float | int
+    ) -> list[Constraint]:
+        """Element-wise <= constraint.
+
+        Example:
+            >>> x = VectorVariable("x", 3)
+            >>> constraints = x <= 10  # 3 constraints: x[i] <= 10
+        """
+        return _vector_constraint(self, other, "<=")
+
+    def __ge__(
+        self, other: VectorExpression | VectorVariable | float | int
+    ) -> list[Constraint]:
+        """Element-wise >= constraint.
+
+        Example:
+            >>> x = VectorVariable("x", 3)
+            >>> constraints = x >= 0  # 3 constraints: x[i] >= 0
+        """
+        return _vector_constraint(self, other, ">=")
+
+    def eq(
+        self, other: VectorExpression | VectorVariable | float | int
+    ) -> list[Constraint]:
+        """Element-wise == constraint.
+
+        Example:
+            >>> x = VectorVariable("x", 3)
+            >>> y = VectorVariable("y", 3)
+            >>> constraints = x.eq(y)  # 3 constraints: x[i] == y[i]
+        """
+        return _vector_constraint(self, other, "==")
 
 
 class VectorVariable:
@@ -341,6 +377,89 @@ class VectorVariable:
     def __neg__(self) -> VectorExpression:
         """Negate all elements: -x."""
         return VectorExpression([-v for v in self._variables])
+
+    # Comparison operators - create lists of constraints
+    def __le__(
+        self, other: VectorVariable | VectorExpression | float | int
+    ) -> list[Constraint]:
+        """Element-wise <= constraint.
+
+        Example:
+            >>> x = VectorVariable("x", 3)
+            >>> constraints = x <= 10  # 3 constraints: x[i] <= 10
+        """
+        return _vector_constraint(self, other, "<=")
+
+    def __ge__(
+        self, other: VectorVariable | VectorExpression | float | int
+    ) -> list[Constraint]:
+        """Element-wise >= constraint.
+
+        Example:
+            >>> x = VectorVariable("x", 3)
+            >>> constraints = x >= 0  # 3 constraints: x[i] >= 0
+        """
+        return _vector_constraint(self, other, ">=")
+
+    def eq(
+        self, other: VectorVariable | VectorExpression | float | int
+    ) -> list[Constraint]:
+        """Element-wise == constraint.
+
+        Example:
+            >>> x = VectorVariable("x", 3)
+            >>> y = VectorVariable("y", 3)
+            >>> constraints = x.eq(y)  # 3 constraints: x[i] == y[i]
+        """
+        return _vector_constraint(self, other, "==")
+
+
+def _vector_constraint(
+    left: VectorVariable | VectorExpression,
+    right: VectorVariable | VectorExpression | float | int,
+    sense: Literal["<=", ">=", "=="],
+) -> list[Constraint]:
+    """Create element-wise constraints for vectors.
+
+    Args:
+        left: Left operand (VectorVariable or VectorExpression).
+        right: Right operand (vector or scalar).
+        sense: Constraint sense (<=, >=, or ==).
+
+    Returns:
+        List of Constraint objects, one per element.
+
+    Raises:
+        ValueError: If vector sizes don't match.
+    """
+    from optyx.constraints import _make_constraint
+
+    # Get expressions from left
+    if isinstance(left, VectorVariable):
+        left_exprs: list[Expression] = list(left._variables)
+    else:
+        left_exprs = list(left._expressions)
+
+    # Handle right operand
+    if isinstance(right, (int, float)):
+        # Scalar broadcast - create constraints directly
+        return [_make_constraint(expr, sense, right) for expr in left_exprs]
+    elif isinstance(right, VectorVariable):
+        if len(right) != len(left_exprs):
+            raise ValueError(f"Vector size mismatch: {len(left_exprs)} vs {len(right)}")
+        right_exprs: list[Expression] = list(right._variables)
+    elif isinstance(right, VectorExpression):
+        if right.size != len(left_exprs):
+            raise ValueError(f"Vector size mismatch: {len(left_exprs)} vs {right.size}")
+        right_exprs = list(right._expressions)
+    else:
+        raise TypeError(f"Unsupported operand type: {type(right)}")
+
+    # Create element-wise constraints
+    return [
+        _make_constraint(left_expr, sense, right_expr)
+        for left_expr, right_expr in zip(left_exprs, right_exprs)
+    ]
 
 
 def _vector_binary_op(

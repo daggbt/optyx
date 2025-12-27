@@ -409,3 +409,184 @@ class TestVectorArithmetic:
         values = {"x[0]": 1, "x[1]": 2, "x[2]": 3, "y[0]": 1, "y[1]": 2, "y[2]": 3}
         result = z.evaluate(values)
         assert result == [4, 8, 12]
+
+
+class TestVectorConstraints:
+    """Tests for vectorized constraints."""
+
+    def test_le_scalar(self):
+        """x <= scalar returns list of constraints."""
+        x = VectorVariable("x", 3)
+        constraints = x <= 10
+        assert len(constraints) == 3
+        # Each constraint should reference the corresponding variable
+        for i, c in enumerate(constraints):
+            assert c.sense == "<="
+            vars_in_constraint = c.get_variables()
+            assert len(vars_in_constraint) == 1
+            var = list(vars_in_constraint)[0]
+            assert var.name == f"x[{i}]"
+
+    def test_ge_scalar(self):
+        """x >= scalar returns list of constraints."""
+        x = VectorVariable("x", 5)
+        constraints = x >= 0
+        assert len(constraints) == 5
+        for c in constraints:
+            assert c.sense == ">="
+
+    def test_le_vector(self):
+        """x <= y creates element-wise constraints."""
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        constraints = x <= y
+        assert len(constraints) == 3
+        for i, c in enumerate(constraints):
+            assert c.sense == "<="
+            vars_in_constraint = c.get_variables()
+            assert len(vars_in_constraint) == 2
+            names = {v.name for v in vars_in_constraint}
+            assert names == {f"x[{i}]", f"y[{i}]"}
+
+    def test_ge_vector(self):
+        """x >= y creates element-wise constraints."""
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        constraints = x >= y
+        assert len(constraints) == 3
+        for c in constraints:
+            assert c.sense == ">="
+
+    def test_eq_scalar(self):
+        """x.eq(scalar) returns list of equality constraints."""
+        x = VectorVariable("x", 3)
+        constraints = x.eq(5)
+        assert len(constraints) == 3
+        for c in constraints:
+            assert c.sense == "=="
+
+    def test_eq_vector(self):
+        """x.eq(y) creates element-wise equality constraints."""
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        constraints = x.eq(y)
+        assert len(constraints) == 3
+        for i, c in enumerate(constraints):
+            assert c.sense == "=="
+            vars_in_constraint = c.get_variables()
+            assert len(vars_in_constraint) == 2
+
+    def test_constraint_satisfaction(self):
+        """Vectorized constraints evaluate correctly."""
+        x = VectorVariable("x", 3)
+        constraints = x >= 0
+        # All satisfied
+        point_satisfied = {"x[0]": 1, "x[1]": 0, "x[2]": 5}
+        for c in constraints:
+            assert c.is_satisfied(point_satisfied)
+        # One violated
+        point_violated = {"x[0]": 1, "x[1]": -1, "x[2]": 5}
+        assert constraints[0].is_satisfied(point_violated)
+        assert not constraints[1].is_satisfied(point_violated)
+        assert constraints[2].is_satisfied(point_violated)
+
+    def test_large_vector_constraints(self):
+        """100-element vector produces 100 constraints."""
+        x = VectorVariable("x", 100)
+        constraints = x >= 0
+        assert len(constraints) == 100
+
+    def test_vector_constraint_size_mismatch(self):
+        """Constraint between differently sized vectors raises ValueError."""
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 5)
+        with pytest.raises(ValueError, match="size mismatch"):
+            x <= y
+
+    def test_vector_expression_constraints(self):
+        """VectorExpression supports constraints too."""
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        z = x + y
+        constraints = z <= 10
+        assert len(constraints) == 3
+        for c in constraints:
+            assert c.sense == "<="
+            assert len(c.get_variables()) == 2
+
+    def test_vector_expression_ge(self):
+        """VectorExpression >= scalar works."""
+        x = VectorVariable("x", 3)
+        z = 2 * x
+        constraints = z >= 0
+        assert len(constraints) == 3
+        for c in constraints:
+            assert c.sense == ">="
+
+    def test_vector_expression_eq(self):
+        """VectorExpression.eq() works."""
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        z = x - y
+        constraints = z.eq(0)
+        assert len(constraints) == 3
+        for c in constraints:
+            assert c.sense == "=="
+
+
+class TestProblemWithVectorConstraints:
+    """Tests for Problem.subject_to with vector constraints."""
+
+    def test_subject_to_accepts_list(self):
+        """Problem.subject_to accepts list of constraints."""
+        from optyx import Problem
+
+        x = VectorVariable("x", 5)
+        prob = Problem()
+        prob.subject_to(x >= 0)
+        assert len(prob.constraints) == 5
+
+    def test_subject_to_multiple_vector_constraints(self):
+        """Can add multiple vectorized constraints."""
+        from optyx import Problem
+
+        x = VectorVariable("x", 3)
+        prob = Problem()
+        prob.subject_to(x >= 0)
+        prob.subject_to(x <= 10)
+        assert len(prob.constraints) == 6
+
+    def test_mixed_scalar_and_vector_constraints(self):
+        """Can mix scalar and vector constraints."""
+        from optyx import Problem
+        from optyx.core.expressions import Variable
+
+        x = VectorVariable("x", 3)
+        y = Variable("y")
+        prob = Problem()
+        prob.subject_to(x >= 0)  # 3 constraints
+        prob.subject_to(y <= 100)  # 1 constraint
+        assert len(prob.constraints) == 4
+
+    def test_chained_subject_to(self):
+        """subject_to returns self for chaining."""
+        from optyx import Problem
+
+        x = VectorVariable("x", 3)
+        prob = Problem()
+        result = prob.subject_to(x >= 0).subject_to(x <= 10)
+        assert result is prob
+        assert len(prob.constraints) == 6
+
+    def test_problem_variables_from_vector(self):
+        """Problem extracts variables from VectorVariable constraints."""
+        from optyx import Problem
+
+        x = VectorVariable("x", 3)
+        prob = Problem()
+        prob.minimize(x[0] + x[1] + x[2])
+        prob.subject_to(x >= 0)
+        # Should have all 3 variables
+        assert len(prob.variables) == 3
+        names = {v.name for v in prob.variables}
+        assert names == {"x[0]", "x[1]", "x[2]"}
