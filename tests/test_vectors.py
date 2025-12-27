@@ -1,5 +1,6 @@
 """Tests for VectorVariable."""
 
+import numpy as np
 import pytest
 
 from optyx.core.vectors import (
@@ -9,6 +10,7 @@ from optyx.core.vectors import (
     DotProduct,
     L2Norm,
     L1Norm,
+    LinearCombination,
     vector_sum,
     norm,
 )
@@ -769,3 +771,127 @@ class TestNormFunction:
         # ||[3, 4]|| = 5
         result = n.evaluate(values)
         assert result == 5.0
+
+
+class TestLinearCombination:
+    """Tests for LinearCombination expression."""
+
+    def test_linear_combination_basic(self):
+        """LinearCombination creates weighted sum."""
+        coeffs = np.array([1.0, 2.0, 3.0])
+        x = VectorVariable("x", 3)
+        lc = LinearCombination(coeffs, x)
+        assert isinstance(lc, LinearCombination)
+
+    def test_linear_combination_evaluate(self):
+        """LinearCombination evaluates correctly."""
+        coeffs = np.array([0.12, 0.08, 0.10])
+        w = VectorVariable("w", 3)
+        lc = LinearCombination(coeffs, w)
+        values = {"w[0]": 0.5, "w[1]": 0.3, "w[2]": 0.2}
+        result = lc.evaluate(values)
+        expected = 0.12 * 0.5 + 0.08 * 0.3 + 0.10 * 0.2
+        assert abs(result - expected) < 1e-10
+
+    def test_linear_combination_variables(self):
+        """LinearCombination tracks all variables."""
+        coeffs = np.array([1.0, 2.0, 3.0])
+        x = VectorVariable("x", 3)
+        lc = LinearCombination(coeffs, x)
+        vars_set = lc.get_variables()
+        assert len(vars_set) == 3
+
+    def test_linear_combination_size_mismatch(self):
+        """LinearCombination raises on size mismatch."""
+        coeffs = np.array([1.0, 2.0])
+        x = VectorVariable("x", 3)
+        with pytest.raises(ValueError, match="Coefficient length"):
+            LinearCombination(coeffs, x)
+
+    def test_linear_combination_repr(self):
+        """LinearCombination has readable repr."""
+        coeffs = np.array([1.0, 2.0, 3.0])
+        x = VectorVariable("x", 3)
+        lc = LinearCombination(coeffs, x)
+        assert "LinearCombination" in repr(lc)
+        assert "3 coeffs" in repr(lc)
+
+
+class TestNumpyIntegration:
+    """Tests for NumPy integration with VectorVariable."""
+
+    def test_matmul_operator(self):
+        """numpy_array @ vector creates LinearCombination."""
+        returns = np.array([0.12, 0.08, 0.10])
+        weights = VectorVariable("w", 3)
+        portfolio_return = returns @ weights
+        assert isinstance(portfolio_return, LinearCombination)
+
+    def test_matmul_evaluate(self):
+        """matmul expression evaluates correctly."""
+        coeffs = np.array([1.0, 2.0, 3.0])
+        x = VectorVariable("x", 3)
+        expr = coeffs @ x
+        values = {"x[0]": 1.0, "x[1]": 2.0, "x[2]": 3.0}
+        result = expr.evaluate(values)
+        assert result == 14.0  # 1*1 + 2*2 + 3*3
+
+    def test_to_numpy(self):
+        """to_numpy extracts solution as numpy array."""
+        x = VectorVariable("x", 3)
+        solution = {"x[0]": 1.0, "x[1]": 2.0, "x[2]": 3.0}
+        arr = x.to_numpy(solution)
+        assert isinstance(arr, np.ndarray)
+        np.testing.assert_array_equal(arr, [1.0, 2.0, 3.0])
+
+    def test_to_numpy_order(self):
+        """to_numpy preserves element order."""
+        x = VectorVariable("x", 5)
+        solution = {f"x[{i}]": float(i * 10) for i in range(5)}
+        arr = x.to_numpy(solution)
+        expected = np.array([0.0, 10.0, 20.0, 30.0, 40.0])
+        np.testing.assert_array_equal(arr, expected)
+
+    def test_from_numpy(self):
+        """from_numpy creates vector matching array size."""
+        data = np.array([1.0, 2.0, 3.0, 4.0])
+        x = VectorVariable.from_numpy("x", data, lb=0)
+        assert len(x) == 4
+        assert x.lb == 0
+
+    def test_from_numpy_with_bounds(self):
+        """from_numpy propagates bounds."""
+        data = np.array([1.0, 2.0, 3.0])
+        x = VectorVariable.from_numpy("x", data, lb=-1, ub=1)
+        assert x.lb == -1
+        assert x.ub == 1
+        assert len(x) == 3
+
+    def test_from_numpy_rejects_2d(self):
+        """from_numpy rejects 2D arrays."""
+        data = np.array([[1, 2], [3, 4]])
+        with pytest.raises(ValueError, match="1D array"):
+            VectorVariable.from_numpy("x", data)
+
+    def test_from_numpy_with_list(self):
+        """from_numpy accepts list (converts to array)."""
+        data = [1.0, 2.0, 3.0]
+        x = VectorVariable.from_numpy("x", np.array(data))
+        assert len(x) == 3
+
+    def test_portfolio_example(self):
+        """Full portfolio optimization example."""
+        # Asset returns
+        returns = np.array([0.12, 0.08, 0.10, 0.15])
+
+        # Create weights vector
+        weights = VectorVariable.from_numpy("w", returns, lb=0, ub=1)
+
+        # Portfolio return: returns @ weights
+        portfolio_return = returns @ weights
+
+        # Evaluate at equal weights
+        equal_weights = {f"w[{i}]": 0.25 for i in range(4)}
+        result = portfolio_return.evaluate(equal_weights)
+        expected = np.mean(returns)  # 0.1125
+        assert abs(result - expected) < 1e-10

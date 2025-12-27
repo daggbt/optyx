@@ -236,6 +236,68 @@ class L1Norm(Expression):
         return f"L1Norm({vec_name})"
 
 
+class LinearCombination(Expression):
+    """Linear combination of vector elements with constant coefficients.
+
+    Represents: c[0]*x[0] + c[1]*x[1] + ... + c[n-1]*x[n-1]
+
+    This enables efficient numpy integration: `coefficients @ vector`.
+
+    Args:
+        coefficients: NumPy array of constant coefficients.
+        vector: VectorVariable or VectorExpression to combine.
+
+    Example:
+        >>> import numpy as np
+        >>> returns = np.array([0.12, 0.08, 0.10])
+        >>> weights = VectorVariable("w", 3)
+        >>> portfolio_return = LinearCombination(returns, weights)
+        >>> portfolio_return.evaluate({"w[0]": 0.5, "w[1]": 0.3, "w[2]": 0.2})
+        0.084
+    """
+
+    __slots__ = ("coefficients", "vector")
+
+    def __init__(
+        self,
+        coefficients: np.ndarray,
+        vector: VectorVariable | VectorExpression,
+    ) -> None:
+        coefficients = np.asarray(coefficients)
+        vec_size = vector.size if hasattr(vector, "size") else len(vector)
+        if len(coefficients) != vec_size:
+            raise ValueError(
+                f"Coefficient length {len(coefficients)} != vector size {vec_size}"
+            )
+        self.coefficients = coefficients
+        self.vector = vector
+
+    def evaluate(
+        self, values: Mapping[str, ArrayLike | float]
+    ) -> NDArray[np.floating] | float:
+        """Evaluate the linear combination given variable values."""
+        vals = np.array([v.evaluate(values) for v in self._iter_vector()])
+        return float(np.dot(self.coefficients, vals))
+
+    def _iter_vector(self) -> Iterator[Expression]:
+        """Iterate over vector elements."""
+        if isinstance(self.vector, VectorVariable):
+            return iter(self.vector._variables)
+        return iter(self.vector._expressions)
+
+    def get_variables(self) -> set[Variable]:
+        """Return all variables this expression depends on."""
+        if isinstance(self.vector, VectorVariable):
+            return set(self.vector._variables)
+        return self.vector.get_variables()
+
+    def __repr__(self) -> str:
+        vec_name = (
+            self.vector.name if isinstance(self.vector, VectorVariable) else "expr"
+        )
+        return f"LinearCombination({len(self.coefficients)} coeffs, {vec_name})"
+
+
 class VectorExpression:
     """A vector of expressions (result of vector arithmetic).
 
@@ -404,6 +466,9 @@ class VectorVariable:
     """
 
     __slots__ = ("name", "size", "lb", "ub", "domain", "_variables")
+
+    # Tell NumPy to defer to Python's operators (enables numpy_array @ vector)
+    __array_ufunc__ = None
 
     # Declare types for slots (helps type checkers)
     name: str
@@ -623,6 +688,76 @@ class VectorVariable:
             32.0
         """
         return DotProduct(self, other)
+
+    def __rmatmul__(self, other: np.ndarray) -> LinearCombination:
+        """Enable numpy_array @ vector syntax for linear combinations.
+
+        Args:
+            other: NumPy array of coefficients.
+
+        Returns:
+            LinearCombination expression.
+
+        Example:
+            >>> import numpy as np
+            >>> returns = np.array([0.12, 0.08, 0.10])
+            >>> weights = VectorVariable("w", 3, lb=0, ub=1)
+            >>> portfolio_return = returns @ weights
+        """
+        return LinearCombination(np.asarray(other), self)
+
+    def to_numpy(self, solution: Mapping[str, float]) -> np.ndarray:
+        """Extract solution values as a NumPy array.
+
+        Args:
+            solution: Dictionary mapping variable names to values.
+
+        Returns:
+            NumPy array of solution values in order.
+
+        Example:
+            >>> x = VectorVariable("x", 3)
+            >>> solution = {"x[0]": 1.0, "x[1]": 2.0, "x[2]": 3.0}
+            >>> x.to_numpy(solution)
+            array([1., 2., 3.])
+        """
+        return np.array([solution[v.name] for v in self._variables])
+
+    @classmethod
+    def from_numpy(
+        cls,
+        name: str,
+        array: np.ndarray,
+        lb: float | None = None,
+        ub: float | None = None,
+        domain: DomainType = "continuous",
+    ) -> VectorVariable:
+        """Create a VectorVariable with size inferred from a NumPy array.
+
+        The array values are not stored - this is just a convenience
+        method to create a vector matching the array's shape.
+
+        Args:
+            name: Base name for the vector variables.
+            array: NumPy array to match size (1D array expected).
+            lb: Lower bound for all variables.
+            ub: Upper bound for all variables.
+            domain: Variable domain type.
+
+        Returns:
+            VectorVariable with size matching the array.
+
+        Example:
+            >>> import numpy as np
+            >>> data = np.array([1.0, 2.0, 3.0, 4.0])
+            >>> x = VectorVariable.from_numpy("x", data, lb=0)
+            >>> len(x)
+            4
+        """
+        array = np.asarray(array)
+        if array.ndim != 1:
+            raise ValueError(f"Expected 1D array, got {array.ndim}D")
+        return cls(name, len(array), lb=lb, ub=ub, domain=domain)
 
 
 def _vector_constraint(
