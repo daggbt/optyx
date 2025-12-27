@@ -97,16 +97,26 @@ class Problem:
         self._invalidate_caches()
         return self
 
-    def subject_to(self, constraint: Constraint) -> Problem:
-        """Add a constraint to the problem.
+    def subject_to(self, constraint: Constraint | list[Constraint]) -> Problem:
+        """Add a constraint or list of constraints to the problem.
 
         Args:
-            constraint: Constraint to add.
+            constraint: Constraint or list of constraints to add.
+                Lists are typically produced by vectorized constraints
+                like `x >= 0` on VectorVariable.
 
         Returns:
             Self for method chaining.
+
+        Example:
+            >>> x = VectorVariable("x", 100)
+            >>> prob.subject_to(x >= 0)  # Adds 100 constraints
         """
-        self._constraints.append(constraint)
+        if isinstance(constraint, list):
+            for c in constraint:
+                self._constraints.append(c)
+        else:
+            self._constraints.append(constraint)
         self._invalidate_caches()
         return self
 

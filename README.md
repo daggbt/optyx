@@ -2,9 +2,10 @@
 
 **Optimization that reads like Python.**
 
+[![PyPI](https://img.shields.io/pypi/v/optyx.svg)](https://pypi.org/project/optyx/)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://github.com/daggbt/optyx/actions/workflows/tests.yml/badge.svg)](https://github.com/daggbt/optyx/actions)
+[![CI](https://github.com/daggbt/optyx/actions/workflows/ci.yml/badge.svg)](https://github.com/daggbt/optyx/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-online-blue.svg)](https://daggbt.github.io/optyx/)
 
 📚 **[Documentation](https://daggbt.github.io/optyx/)** · 🚀 **[Quickstart](https://daggbt.github.io/optyx/getting-started/quickstart.html)** · 💡 **[Examples](https://daggbt.github.io/optyx/examples/portfolio.html)**
