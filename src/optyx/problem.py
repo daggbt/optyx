@@ -10,6 +10,7 @@ Provides a fluent API for building optimization problems:
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
@@ -24,6 +25,26 @@ SMALL_PROBLEM_THRESHOLD = 3
 
 # Threshold for "large" problems where memory-efficient methods are preferred
 LARGE_PROBLEM_THRESHOLD = 1000
+
+
+def _natural_sort_key(var: Variable) -> tuple:
+    """Generate a sort key for natural ordering of variable names.
+
+    Handles variable names like 'x[0]', 'x[10]', 'A[1,2]' so they
+    sort numerically rather than lexicographically.
+
+    Examples:
+        x[0], x[1], x[2], ..., x[10]  (not x[0], x[1], x[10], x[2])
+        A[0,0], A[0,1], A[0,2], A[1,0], A[1,1], ...
+
+    Returns:
+        Tuple for sorting: (base_name, index1, index2, ...)
+    """
+    name = var.name
+    # Split into text and number parts
+    parts = re.split(r"(\d+)", name)
+    # Convert number parts to integers for proper numeric sorting
+    return tuple(int(p) if p.isdigit() else p for p in parts)
 
 
 class Problem:
@@ -140,7 +161,14 @@ class Problem:
         """All decision variables in the problem.
 
         Automatically extracted from objective and constraints.
-        Sorted by name for consistent ordering.
+        Sorted using natural ordering for consistent, deterministic results.
+
+        Variable Ordering:
+            - Variables are sorted by name using natural ordering
+            - VectorVariable elements: x[0], x[1], ..., x[10] (numeric order)
+            - MatrixVariable elements: A[0,0], A[0,1], ..., A[1,0] (row-major)
+            - This ordering is used by the solver for flattening and is
+              guaranteed to be deterministic across runs.
         """
         if self._variables is not None:
             return self._variables
@@ -153,7 +181,7 @@ class Problem:
         for constraint in self._constraints:
             all_vars.update(constraint.get_variables())
 
-        self._variables = sorted(all_vars, key=lambda v: v.name)
+        self._variables = sorted(all_vars, key=_natural_sort_key)
         return self._variables
 
     @property
