@@ -2,19 +2,28 @@
 
 This module provides MatrixVariable for representing 2D matrices of decision variables,
 enabling natural syntax like `A = MatrixVariable("A", 3, 4)` with 2D indexing.
+
+It also provides matrix operations like matrix-vector multiplication, quadratic forms,
+trace, and diagonal extraction.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Iterator, overload
 
 import numpy as np
 
-from optyx.core.expressions import Variable
-from optyx.core.vectors import VectorVariable, DomainType
+from optyx.core.expressions import Expression, Variable, BinaryOp, Constant
+from optyx.core.vectors import (
+    VectorVariable,
+    VectorExpression,
+    DomainType,
+    LinearCombination,
+)
 
 if TYPE_CHECKING:
-    from numpy.typing import NDArray
+    from numpy.typing import NDArray, ArrayLike
 
 
 class MatrixVariable:
@@ -329,3 +338,404 @@ class MatrixVariable:
         domain_str = "" if self.domain == "continuous" else f", domain='{self.domain}'"
         sym_str = ", symmetric=True" if self.symmetric else ""
         return f"MatrixVariable('{self.name}', {self.rows}, {self.cols}{bounds}{domain_str}{sym_str})"
+
+
+# =============================================================================
+# Matrix-Vector Multiplication
+# =============================================================================
+
+
+class MatrixVectorProduct(VectorExpression):
+    """Matrix-vector product: A @ x where A is a constant matrix.
+
+    This creates a VectorExpression where each element is a linear combination
+    of the vector elements weighted by the corresponding matrix row.
+
+    Args:
+        matrix: 2D NumPy array (constant coefficients).
+        vector: VectorVariable or VectorExpression to multiply.
+
+    Example:
+        >>> import numpy as np
+        >>> A = np.array([[1, 2], [3, 4]])
+        >>> x = VectorVariable("x", 2)
+        >>> product = MatrixVectorProduct(A, x)
+        >>> product.evaluate({"x[0]": 1, "x[1]": 2})
+        [5.0, 11.0]  # [1*1+2*2, 3*1+4*2]
+    """
+
+    __slots__ = ("matrix", "vector", "_expressions", "size")
+
+    def __init__(
+        self,
+        matrix: np.ndarray,
+        vector: VectorVariable | VectorExpression,
+    ) -> None:
+        matrix = np.asarray(matrix)
+        if matrix.ndim != 2:
+            raise ValueError(f"Matrix must be 2D, got {matrix.ndim}D")
+
+        vec_size = vector.size if hasattr(vector, "size") else len(vector)
+        if matrix.shape[1] != vec_size:
+            raise ValueError(
+                f"Matrix columns ({matrix.shape[1]}) must match vector size ({vec_size})"
+            )
+
+        self.matrix = matrix
+        self.vector = vector
+        self.size = matrix.shape[0]
+
+        # Create a LinearCombination for each row
+        self._expressions: list[Expression] = [
+            LinearCombination(matrix[i, :], vector) for i in range(self.size)
+        ]
+
+    def evaluate(self, values: Mapping[str, ArrayLike | float]) -> list[float]:
+        """Evaluate the matrix-vector product."""
+        return [expr.evaluate(values) for expr in self._expressions]  # type: ignore[misc]
+
+    def get_variables(self) -> set[Variable]:
+        """Return all variables this expression depends on."""
+        if isinstance(self.vector, VectorVariable):
+            return set(self.vector._variables)
+        return self.vector.get_variables()
+
+    def __repr__(self) -> str:
+        vec_name = (
+            self.vector.name if isinstance(self.vector, VectorVariable) else "expr"
+        )
+        return f"MatrixVectorProduct({self.matrix.shape}, {vec_name})"
+
+
+def matmul(
+    matrix: np.ndarray, vector: VectorVariable | VectorExpression
+) -> MatrixVectorProduct:
+    """Matrix-vector multiplication: A @ x.
+
+    Args:
+        matrix: 2D NumPy array of constant coefficients.
+        vector: VectorVariable or VectorExpression.
+
+    Returns:
+        MatrixVectorProduct (a VectorExpression).
+
+    Example:
+        >>> import numpy as np
+        >>> A = np.array([[1, 2], [3, 4]])
+        >>> x = VectorVariable("x", 2)
+        >>> y = matmul(A, x)  # or just A @ x
+    """
+    return MatrixVectorProduct(matrix, vector)
+
+
+# =============================================================================
+# Quadratic Form
+# =============================================================================
+
+
+class QuadraticForm(Expression):
+    """Quadratic form: x' @ Q @ x where Q is a constant matrix.
+
+    This represents the scalar expression xᵀQx, commonly used for:
+    - Portfolio variance: w' @ Σ @ w
+    - Regularization terms: x' @ I @ x = ||x||²
+    - Quadratic objectives in optimization
+
+    Args:
+        vector: VectorVariable or VectorExpression (the x).
+        matrix: 2D NumPy array (the Q matrix, should be square).
+
+    Example:
+        >>> import numpy as np
+        >>> Q = np.array([[1, 0.5], [0.5, 2]])
+        >>> x = VectorVariable("x", 2)
+        >>> qf = QuadraticForm(x, Q)
+        >>> qf.evaluate({"x[0]": 1, "x[1]": 1})
+        4.0  # 1*1 + 2*0.5*1*1 + 2*1 = 1 + 1 + 2 = 4
+    """
+
+    __slots__ = ("vector", "matrix")
+
+    def __init__(
+        self,
+        vector: VectorVariable | VectorExpression,
+        matrix: np.ndarray,
+    ) -> None:
+        matrix = np.asarray(matrix)
+        if matrix.ndim != 2:
+            raise ValueError(f"Matrix must be 2D, got {matrix.ndim}D")
+        if matrix.shape[0] != matrix.shape[1]:
+            raise ValueError(
+                f"Matrix must be square, got {matrix.shape[0]}x{matrix.shape[1]}"
+            )
+
+        vec_size = vector.size if hasattr(vector, "size") else len(vector)
+        if matrix.shape[0] != vec_size:
+            raise ValueError(
+                f"Matrix size ({matrix.shape[0]}) must match vector size ({vec_size})"
+            )
+
+        self.vector = vector
+        self.matrix = matrix
+
+    def evaluate(self, values: Mapping[str, ArrayLike | float]) -> float:
+        """Evaluate the quadratic form xᵀQx."""
+        # Get vector values
+        if isinstance(self.vector, VectorVariable):
+            x = np.array([v.evaluate(values) for v in self.vector._variables])
+        else:
+            x = np.array([expr.evaluate(values) for expr in self.vector._expressions])
+
+        # Compute x' @ Q @ x
+        return float(x @ self.matrix @ x)
+
+    def get_variables(self) -> set[Variable]:
+        """Return all variables this expression depends on."""
+        if isinstance(self.vector, VectorVariable):
+            return set(self.vector._variables)
+        return self.vector.get_variables()
+
+    def __repr__(self) -> str:
+        vec_name = (
+            self.vector.name if isinstance(self.vector, VectorVariable) else "expr"
+        )
+        return f"QuadraticForm({vec_name}, {self.matrix.shape})"
+
+
+def quadratic_form(
+    vector: VectorVariable | VectorExpression, matrix: np.ndarray
+) -> QuadraticForm:
+    """Create a quadratic form expression: x' @ Q @ x.
+
+    Args:
+        vector: VectorVariable or VectorExpression.
+        matrix: 2D NumPy array (square matrix Q).
+
+    Returns:
+        QuadraticForm expression.
+
+    Example:
+        >>> import numpy as np
+        >>> from optyx import VectorVariable
+        >>> from optyx.core.matrices import quadratic_form
+        >>>
+        >>> # Portfolio variance
+        >>> cov_matrix = np.array([[0.04, 0.01], [0.01, 0.09]])
+        >>> weights = VectorVariable("w", 2, lb=0, ub=1)
+        >>> variance = quadratic_form(weights, cov_matrix)
+    """
+    return QuadraticForm(vector, matrix)
+
+
+# =============================================================================
+# Trace Function
+# =============================================================================
+
+
+def trace(matrix: MatrixVariable | np.ndarray) -> Expression:
+    """Compute the trace of a matrix (sum of diagonal elements).
+
+    Args:
+        matrix: MatrixVariable or NumPy array.
+
+    Returns:
+        Expression representing the sum of diagonal elements.
+
+    Raises:
+        ValueError: If matrix is not square.
+
+    Example:
+        >>> A = MatrixVariable("A", 3, 3)
+        >>> tr = trace(A)
+        >>> # tr = A[0,0] + A[1,1] + A[2,2]
+    """
+    if isinstance(matrix, np.ndarray):
+        # For constant matrix, return scalar
+        if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
+            raise ValueError("trace requires a square matrix")
+        return Constant(float(np.trace(matrix)))
+
+    if matrix.rows != matrix.cols:
+        raise ValueError(
+            f"trace requires a square matrix, got {matrix.rows}x{matrix.cols}"
+        )
+
+    # Sum diagonal elements
+    result: Expression = matrix[0, 0]
+    for i in range(1, matrix.rows):
+        result = BinaryOp(result, matrix[i, i], "+")
+    return result
+
+
+# =============================================================================
+# Diagonal Functions
+# =============================================================================
+
+
+def diag(
+    matrix_or_vector: MatrixVariable | VectorVariable | np.ndarray,
+) -> VectorVariable | VectorExpression | np.ndarray:
+    """Extract diagonal from a matrix, or create a diagonal matrix from a vector.
+
+    This function has dual behavior like numpy.diag:
+    - If input is a matrix: extract diagonal as a vector
+    - If input is a vector: this raises an error (use diag_matrix instead)
+
+    Args:
+        matrix_or_vector: MatrixVariable or NumPy array.
+
+    Returns:
+        - For MatrixVariable: VectorVariable containing diagonal elements
+        - For 2D NumPy array: 1D NumPy array of diagonal
+
+    Raises:
+        ValueError: If matrix is not square or if given a vector.
+
+    Example:
+        >>> A = MatrixVariable("A", 3, 3)
+        >>> d = diag(A)  # VectorVariable with A[0,0], A[1,1], A[2,2]
+    """
+    if isinstance(matrix_or_vector, np.ndarray):
+        return np.diag(matrix_or_vector)
+
+    if isinstance(matrix_or_vector, VectorVariable):
+        raise TypeError(
+            "diag() on VectorVariable is ambiguous. Use diag_matrix() to create "
+            "a diagonal matrix from a vector."
+        )
+
+    matrix = matrix_or_vector
+    if matrix.rows != matrix.cols:
+        raise ValueError(
+            f"diag requires a square matrix, got {matrix.rows}x{matrix.cols}"
+        )
+
+    # Extract diagonal variables
+    diag_vars = [matrix[i, i] for i in range(matrix.rows)]
+
+    return VectorVariable._from_variables(
+        name=f"diag({matrix.name})",
+        variables=diag_vars,
+        lb=matrix.lb,
+        ub=matrix.ub,
+        domain=matrix.domain,
+    )
+
+
+def diag_matrix(
+    vector: VectorVariable | np.ndarray,
+    lb: float | None = None,
+    ub: float | None = None,
+) -> MatrixVariable | np.ndarray:
+    """Create a diagonal matrix from a vector.
+
+    Args:
+        vector: VectorVariable or 1D NumPy array.
+        lb: Lower bound for off-diagonal elements (only for VectorVariable).
+        ub: Upper bound for off-diagonal elements (only for VectorVariable).
+
+    Returns:
+        - For VectorVariable: MatrixVariable with vector on diagonal, zeros elsewhere
+        - For 1D NumPy array: 2D NumPy array with diagonal
+
+    Note:
+        For VectorVariable, this creates a new MatrixVariable where the diagonal
+        elements are the same Variable objects as the input vector. Off-diagonal
+        elements are fixed at 0 (via bounds lb=0, ub=0).
+
+    Example:
+        >>> x = VectorVariable("x", 3)
+        >>> D = diag_matrix(x)  # 3x3 matrix with x on diagonal
+    """
+    if isinstance(vector, np.ndarray):
+        return np.diag(vector)
+
+    n = len(vector)
+
+    # Create a new matrix with the vector on the diagonal
+    # We need to create a special matrix where diagonal = vector, off-diagonal = 0
+    # For simplicity, we'll create a MatrixVariable from existing variables
+
+    # Build the variable grid
+    variables: list[list[Variable]] = []
+    for i in range(n):
+        row: list[Variable] = []
+        for j in range(n):
+            if i == j:
+                # Diagonal: use the vector's variable
+                row.append(vector._variables[i])
+            else:
+                # Off-diagonal: create a fixed-zero variable
+                row.append(
+                    Variable(
+                        f"_diag_{vector.name}[{i},{j}]",
+                        lb=0.0,
+                        ub=0.0,
+                        domain=vector.domain,
+                    )
+                )
+        variables.append(row)
+
+    return MatrixVariable._from_variables(
+        name=f"diag({vector.name})",
+        variables=variables,
+        lb=lb,
+        ub=ub,
+        domain=vector.domain,
+    )
+
+
+# =============================================================================
+# Frobenius Norm
+# =============================================================================
+
+
+class FrobeniusNorm(Expression):
+    """Frobenius norm of a matrix: ||A||_F = sqrt(sum of squared elements).
+
+    Args:
+        matrix: MatrixVariable to compute norm of.
+
+    Example:
+        >>> A = MatrixVariable("A", 2, 2)
+        >>> fn = FrobeniusNorm(A)
+        >>> fn.evaluate({"A[0,0]": 1, "A[0,1]": 2, "A[1,0]": 3, "A[1,1]": 4})
+        5.477...  # sqrt(1+4+9+16) = sqrt(30)
+    """
+
+    __slots__ = ("matrix",)
+
+    def __init__(self, matrix: MatrixVariable) -> None:
+        self.matrix = matrix
+
+    def evaluate(self, values: Mapping[str, ArrayLike | float]) -> float:
+        """Evaluate the Frobenius norm."""
+        sum_sq = 0.0
+        for i in range(self.matrix.rows):
+            for j in range(self.matrix.cols):
+                val = self.matrix[i, j].evaluate(values)
+                sum_sq += val * val
+        return float(np.sqrt(sum_sq))
+
+    def get_variables(self) -> set[Variable]:
+        """Return all variables this expression depends on."""
+        return set(self.matrix.get_variables())
+
+    def __repr__(self) -> str:
+        return f"FrobeniusNorm({self.matrix.name})"
+
+
+def frobenius_norm(matrix: MatrixVariable) -> FrobeniusNorm:
+    """Compute the Frobenius norm of a matrix.
+
+    Args:
+        matrix: MatrixVariable to compute norm of.
+
+    Returns:
+        FrobeniusNorm expression.
+
+    Example:
+        >>> A = MatrixVariable("A", 2, 2)
+        >>> norm = frobenius_norm(A)
+    """
+    return FrobeniusNorm(matrix)
