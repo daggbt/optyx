@@ -8,7 +8,18 @@ from optyx.core.expressions import (
     Constant,
 )
 from optyx.core.vectors import VectorVariable
-from optyx.core.matrices import MatrixVariable
+from optyx.core.matrices import (
+    MatrixVariable,
+    MatrixVectorProduct,
+    QuadraticForm,
+    FrobeniusNorm,
+    matmul,
+    quadratic_form,
+    trace,
+    diag,
+    diag_matrix,
+    frobenius_norm,
+)
 from optyx.core.functions import (
     sin,
     cos,
@@ -42,6 +53,16 @@ __all__ = [
     "Constant",
     "VectorVariable",
     "MatrixVariable",
+    # Matrix operations
+    "MatrixVectorProduct",
+    "QuadraticForm",
+    "FrobeniusNorm",
+    "matmul",
+    "quadratic_form",
+    "trace",
+    "diag",
+    "diag_matrix",
+    "frobenius_norm",
     # Functions
     "sin",
     "cos",
