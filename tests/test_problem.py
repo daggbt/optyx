@@ -4,6 +4,7 @@ import pytest
 
 from optyx import Variable
 from optyx.problem import Problem
+from optyx.core.errors import InvalidOperationError, ConstraintError
 
 
 class TestProblemCreation:
@@ -133,3 +134,106 @@ class TestProblemRepr:
         prob = Problem().minimize(x**2)
         repr_str = repr(prob)
         assert "minimize" in repr_str
+
+
+class TestProblemInputValidation:
+    """Tests for input validation in Problem methods."""
+
+    def test_minimize_rejects_string(self):
+        """minimize() rejects string input."""
+        prob = Problem()
+        with pytest.raises(InvalidOperationError) as exc_info:
+            prob.minimize("hello")
+
+        assert "minimize" in str(exc_info.value)
+        assert "str" in str(exc_info.value)
+
+    def test_minimize_rejects_list(self):
+        """minimize() rejects list input."""
+        prob = Problem()
+        with pytest.raises(InvalidOperationError):
+            prob.minimize([1, 2, 3])
+
+    def test_minimize_rejects_dict(self):
+        """minimize() rejects dict input."""
+        prob = Problem()
+        with pytest.raises(InvalidOperationError):
+            prob.minimize({"x": 1})
+
+    def test_maximize_rejects_string(self):
+        """maximize() rejects string input."""
+        prob = Problem()
+        with pytest.raises(InvalidOperationError):
+            prob.maximize("hello")
+
+    def test_minimize_accepts_numeric(self):
+        """minimize() accepts numeric constants."""
+        prob = Problem()
+        prob.minimize(5)  # Trivial but valid
+        assert prob.objective is not None
+
+    def test_minimize_accepts_float(self):
+        """minimize() accepts float constants."""
+        prob = Problem()
+        prob.minimize(3.14)
+        assert prob.objective is not None
+
+    def test_subject_to_rejects_string(self):
+        """subject_to() rejects string input."""
+        x = Variable("x")
+        prob = Problem().minimize(x**2)
+
+        with pytest.raises(ConstraintError) as exc_info:
+            prob.subject_to("x >= 0")
+
+        assert "Constraint" in str(exc_info.value)
+        assert "str" in str(exc_info.value)
+
+    def test_subject_to_rejects_number(self):
+        """subject_to() rejects numeric input."""
+        x = Variable("x")
+        prob = Problem().minimize(x**2)
+
+        with pytest.raises(ConstraintError):
+            prob.subject_to(42)
+
+    def test_subject_to_catches_missing_comparison(self):
+        """subject_to() gives helpful error for missing comparison."""
+        x = Variable("x")
+        prob = Problem().minimize(x**2)
+
+        with pytest.raises(ConstraintError) as exc_info:
+            prob.subject_to(x + 5)  # Missing >= or <=
+
+        error_msg = str(exc_info.value)
+        assert "Expression" in error_msg
+        assert "comparison" in error_msg.lower() or "Constraint" in error_msg
+
+    def test_subject_to_rejects_list_of_strings(self):
+        """subject_to() rejects list containing strings."""
+        x = Variable("x")
+        prob = Problem().minimize(x**2)
+
+        with pytest.raises(ConstraintError):
+            prob.subject_to(["x >= 0", "y <= 5"])
+
+    def test_subject_to_accepts_list_of_constraints(self):
+        """subject_to() accepts list of valid constraints."""
+        x = Variable("x")
+        prob = Problem().minimize(x**2)
+
+        # Valid list of constraints
+        constraints = [x >= 0, x <= 10]
+        prob.subject_to(constraints)
+        assert prob.n_constraints == 2
+
+    def test_error_message_includes_suggestion(self):
+        """Error messages include helpful suggestions."""
+        prob = Problem()
+
+        with pytest.raises(InvalidOperationError) as exc_info:
+            prob.minimize("bad input")
+
+        error_msg = str(exc_info.value)
+        # Should suggest using Variable or Expression
+        assert "Variable" in error_msg or "Expression" in error_msg
