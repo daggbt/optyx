@@ -1,6 +1,6 @@
 [project]
 name = "optyx"
-version = "1.1.1"
+version = "1.2.0"
 description = "Intuitive symbolic interface for constrained optimization problems"
 readme = "README.md"
 license = "MIT"
@@ -35,8 +35,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/daggbt/optyx"
+Homepage = "https://daggbt.github.io/optyx/"
+Documentation = "https://daggbt.github.io/optyx/"
 Repository = "https://github.com/daggbt/optyx"
+Changelog = "https://github.com/daggbt/optyx/blob/main/CHANGELOG.md"
 Issues = "https://github.com/daggbt/optyx/issues"
 
 [project.optional-dependencies]

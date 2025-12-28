@@ -7,6 +7,8 @@ from optyx.core.expressions import (
     Variable,
     Constant,
 )
+from optyx.core.vectors import VectorVariable
+from optyx.core.matrices import MatrixVariable
 from optyx.core.functions import (
     sin,
     cos,
@@ -38,6 +40,8 @@ __all__ = [
     "Expression",
     "Variable",
     "Constant",
+    "VectorVariable",
+    "MatrixVariable",
     # Functions
     "sin",
     "cos",
