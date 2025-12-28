@@ -13,6 +13,8 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Literal
 
+from optyx.core.errors import InvalidOperationError, ConstraintError
+
 if TYPE_CHECKING:
     from optyx.analysis import LPData
     from optyx.constraints import Constraint
@@ -94,12 +96,20 @@ class Problem:
         """Set the objective function to minimize.
 
         Args:
-            expr: Expression to minimize.
+            expr: Expression to minimize. Must be an optyx Expression,
+                Variable, or numeric constant (int/float).
 
         Returns:
             Self for method chaining.
+
+        Raises:
+            InvalidOperationError: If expr is not a valid expression type.
+
+        Example:
+            >>> prob.minimize(x**2 + y**2)
+            >>> prob.minimize(x + 2*y - 5)
         """
-        self._objective = expr
+        self._objective = self._validate_expression(expr, "minimize")
         self._sense = "minimize"
         self._invalidate_caches()
         return self
@@ -108,12 +118,19 @@ class Problem:
         """Set the objective function to maximize.
 
         Args:
-            expr: Expression to maximize.
+            expr: Expression to maximize. Must be an optyx Expression,
+                Variable, or numeric constant (int/float).
 
         Returns:
             Self for method chaining.
+
+        Raises:
+            InvalidOperationError: If expr is not a valid expression type.
+
+        Example:
+            >>> prob.maximize(revenue - cost)
         """
-        self._objective = expr
+        self._objective = self._validate_expression(expr, "maximize")
         self._sense = "maximize"
         self._invalidate_caches()
         return self
@@ -129,17 +146,91 @@ class Problem:
         Returns:
             Self for method chaining.
 
+        Raises:
+            ConstraintError: If constraint is not a valid Constraint type.
+
         Example:
             >>> x = VectorVariable("x", 100)
             >>> prob.subject_to(x >= 0)  # Adds 100 constraints
         """
         if isinstance(constraint, list):
             for c in constraint:
-                self._constraints.append(c)
+                self._constraints.append(self._validate_constraint(c))
         else:
-            self._constraints.append(constraint)
+            self._constraints.append(self._validate_constraint(constraint))
         self._invalidate_caches()
         return self
+
+    def _validate_expression(self, expr: Expression, context: str) -> Expression:
+        """Validate that expr is a valid Expression type.
+
+        Args:
+            expr: The expression to validate.
+            context: Context for error message (e.g., "minimize").
+
+        Returns:
+            The expression if valid.
+
+        Raises:
+            InvalidOperationError: If expr is not a valid expression.
+        """
+        # Import here to avoid circular imports
+        from optyx.core.expressions import Expression as ExprBase
+
+        # Allow numeric constants (they can be used as trivial objectives)
+        if isinstance(expr, (int, float)):
+            from optyx.core.expressions import Constant
+
+            return Constant(expr)
+
+        # Check for Expression subclass
+        if isinstance(expr, ExprBase):
+            return expr
+
+        # Invalid type
+        raise InvalidOperationError(
+            operation=context,
+            operand_types=type(expr),
+            reason=f"Expected an Expression or numeric value, got {type(expr).__name__}",
+            suggestion=f"Use Variable, Expression, or numeric constant. "
+            f"Example: prob.{context}(x**2 + y)",
+        )
+
+    def _validate_constraint(self, constraint: Constraint) -> Constraint:
+        """Validate that constraint is a valid Constraint type.
+
+        Args:
+            constraint: The constraint to validate.
+
+        Returns:
+            The constraint if valid.
+
+        Raises:
+            ConstraintError: If constraint is not valid.
+        """
+        # Import here to avoid circular imports
+        from optyx.constraints import Constraint as ConstraintType
+
+        if isinstance(constraint, ConstraintType):
+            return constraint
+
+        # Common mistake: passing expression instead of constraint
+        from optyx.core.expressions import Expression as ExprBase
+
+        if isinstance(constraint, ExprBase):
+            raise ConstraintError(
+                message="Got an Expression instead of a Constraint. "
+                "Did you forget a comparison operator?",
+                constraint_expr=str(constraint),
+            )
+
+        # String or other invalid type
+        raise ConstraintError(
+            message=f"Expected a Constraint, got {type(constraint).__name__}",
+            constraint_expr=str(constraint)
+            if not isinstance(constraint, str)
+            else f"'{constraint}'",
+        )
 
     @property
     def objective(self) -> Expression | None:
