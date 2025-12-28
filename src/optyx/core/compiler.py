@@ -107,10 +107,17 @@ def _build_evaluator(
     pre-computing array indices and creating closures.
     """
     from optyx.core.expressions import BinaryOp, Constant, UnaryOp, Variable
+    from optyx.core.parameters import Parameter
 
     if isinstance(expr, Constant):
         value = expr.value
         return lambda x: value
+
+    elif isinstance(expr, Parameter):
+        # Parameters evaluate to their current value at call time
+        # We capture the parameter object, not its value, for mutability
+        param = expr
+        return lambda x, p=param: p.value
 
     elif isinstance(expr, Variable):
         idx = var_indices[expr.name]
