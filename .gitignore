@@ -51,4 +51,6 @@ Thumbs.db
 .github/ISSUE_TEMPLATE/
 .github/PULL_REQUEST_TEMPLATE.md
 
+# Comparison scripts (local analysis only)
 compare_optyx_scipy.py
+benchmarks/comparison/bench_vector_vs_loop.py
