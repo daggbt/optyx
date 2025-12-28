@@ -38,9 +38,14 @@ def _gradient_cached(expr: Expression, wrt: Variable) -> Expression:
     """Cached gradient computation."""
     from optyx.core.expressions import BinaryOp, Constant, UnaryOp, Variable as Var
     from optyx.core.functions import cos, sin, log, cosh, sinh
+    from optyx.core.parameters import Parameter
 
     # Constant: d/dx(c) = 0
     if isinstance(expr, Constant):
+        return Constant(0.0)
+
+    # Parameter: d/dx(p) = 0 (parameters are constants w.r.t. variables)
+    if isinstance(expr, Parameter):
         return Constant(0.0)
 
     # Variable: d/dx(x) = 1, d/dx(y) = 0
