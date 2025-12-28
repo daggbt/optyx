@@ -253,3 +253,212 @@ class VectorParameter:
 
     def __repr__(self) -> str:
         return f"VectorParameter('{self.name}', {self.size})"
+
+
+class MatrixParameter:
+    """A matrix of parameters for array-valued constants.
+
+    MatrixParameter stores a 2D array of constant values that can be
+    updated between solves without rebuilding the problem structure.
+    This is useful for:
+    - Covariance matrices in portfolio optimization
+    - Constraint coefficient matrices that change over time
+    - Distance/cost matrices in routing problems
+
+    Unlike VectorParameter (which creates individual Parameter objects),
+    MatrixParameter stores values directly for efficiency with large matrices.
+
+    Args:
+        name: Name identifier for this parameter matrix.
+        values: Initial 2D array of values.
+        symmetric: If True, enforce and exploit symmetry. Only the upper
+            triangle is stored, and updates must maintain symmetry.
+
+    Example:
+        >>> import numpy as np
+        >>> from optyx import VectorVariable, MatrixParameter
+        >>>
+        >>> # Portfolio with updatable covariance
+        >>> cov = np.array([[0.04, 0.01], [0.01, 0.09]])
+        >>> Sigma = MatrixParameter("Sigma", cov, symmetric=True)
+        >>> weights = VectorVariable("w", 2, lb=0, ub=1)
+        >>>
+        >>> # Access elements
+        >>> Sigma[0, 1]  # 0.01
+        >>> Sigma.values  # Full 2D array
+        >>>
+        >>> # Update for re-solve
+        >>> new_cov = np.array([[0.05, 0.02], [0.02, 0.10]])
+        >>> Sigma.set(new_cov)
+    """
+
+    __slots__ = ("name", "_values", "_symmetric", "_shape")
+
+    def __init__(
+        self,
+        name: str,
+        values: ArrayLike,
+        symmetric: bool = False,
+    ) -> None:
+        """Create a matrix parameter.
+
+        Args:
+            name: Name identifier for this parameter matrix.
+            values: Initial 2D array of values.
+            symmetric: If True, enforce symmetry (default: False).
+
+        Raises:
+            ValueError: If values is not 2D or symmetric=True but matrix
+                is not square or not symmetric.
+        """
+        self.name = name
+        arr = np.asarray(values, dtype=np.float64)
+
+        if arr.ndim != 2:
+            raise ValueError(
+                f"MatrixParameter requires 2D array, got shape {arr.shape}"
+            )
+
+        self._shape = arr.shape
+        self._symmetric = symmetric
+
+        if symmetric:
+            if arr.shape[0] != arr.shape[1]:
+                raise ValueError(
+                    f"Symmetric matrix must be square, got shape {arr.shape}"
+                )
+            # Check symmetry (with tolerance for floating point)
+            if not np.allclose(arr, arr.T, rtol=1e-10, atol=1e-14):
+                raise ValueError("Matrix is not symmetric")
+            # Store full matrix (could optimize to upper triangle later)
+            self._values = arr.copy()
+        else:
+            self._values = arr.copy()
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        """Get the shape of the matrix."""
+        return self._shape
+
+    @property
+    def rows(self) -> int:
+        """Get the number of rows."""
+        return self._shape[0]
+
+    @property
+    def cols(self) -> int:
+        """Get the number of columns."""
+        return self._shape[1]
+
+    @property
+    def symmetric(self) -> bool:
+        """Check if this matrix is constrained to be symmetric."""
+        return self._symmetric
+
+    @property
+    def values(self) -> NDArray[np.floating]:
+        """Get the current matrix values."""
+        return self._values
+
+    def __getitem__(self, key: tuple[int, int]) -> float:
+        """Get a single element by (row, col) index.
+
+        Args:
+            key: Tuple of (row, col) indices.
+
+        Returns:
+            The value at that position.
+
+        Example:
+            >>> Sigma[0, 1]  # Element at row 0, column 1
+        """
+        if not isinstance(key, tuple) or len(key) != 2:
+            raise TypeError(
+                f"MatrixParameter requires 2D indexing (row, col), got {key}"
+            )
+        row, col = key
+        return float(self._values[row, col])
+
+    def set(self, values: ArrayLike) -> None:
+        """Update the matrix values.
+
+        Args:
+            values: New 2D array (must match original shape).
+
+        Raises:
+            ValueError: If shape doesn't match or symmetric constraint violated.
+
+        Example:
+            >>> Sigma.set(new_covariance_matrix)
+        """
+        arr = np.asarray(values, dtype=np.float64)
+
+        if arr.shape != self._shape:
+            raise ValueError(f"Shape mismatch: expected {self._shape}, got {arr.shape}")
+
+        if self._symmetric:
+            if not np.allclose(arr, arr.T, rtol=1e-10, atol=1e-14):
+                raise ValueError("New matrix is not symmetric")
+
+        self._values = arr.copy()
+
+    def row(self, i: int) -> NDArray[np.floating]:
+        """Get a row as a 1D array.
+
+        Args:
+            i: Row index.
+
+        Returns:
+            1D array of row values.
+        """
+        return self._values[i, :].copy()
+
+    def col(self, j: int) -> NDArray[np.floating]:
+        """Get a column as a 1D array.
+
+        Args:
+            j: Column index.
+
+        Returns:
+            1D array of column values.
+        """
+        return self._values[:, j].copy()
+
+    def to_numpy(self) -> NDArray[np.floating]:
+        """Get the matrix values as a numpy array.
+
+        Returns:
+            Copy of the internal 2D array.
+        """
+        return self._values.copy()
+
+    def __matmul__(self, other: ArrayLike) -> NDArray[np.floating]:
+        """Matrix multiplication with a vector or matrix.
+
+        Args:
+            other: Vector (1D) or matrix (2D) to multiply.
+
+        Returns:
+            Result of matrix multiplication.
+
+        Example:
+            >>> result = A @ x_values  # Matrix-vector product
+        """
+        other_arr = np.asarray(other)
+        return self._values @ other_arr
+
+    def __rmatmul__(self, other: ArrayLike) -> NDArray[np.floating]:
+        """Right matrix multiplication.
+
+        Args:
+            other: Vector or matrix on the left.
+
+        Returns:
+            Result of other @ self.
+        """
+        other_arr = np.asarray(other)
+        return other_arr @ self._values
+
+    def __repr__(self) -> str:
+        sym_str = ", symmetric=True" if self._symmetric else ""
+        return f"MatrixParameter('{self.name}', shape={self._shape}{sym_str})"
