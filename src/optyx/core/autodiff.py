@@ -230,6 +230,68 @@ def _gradient_cached(expr: Expression, wrt: Variable) -> Expression:
         else:
             raise ValueError(f"Unknown unary operator: {expr.op}")
 
+    # Vector expression types
+    from optyx.core.vectors import DotProduct, LinearCombination, VectorSum
+
+    if isinstance(expr, LinearCombination):
+        # d/dx(c @ v) = sum of c[i] * d(v[i])/dx for each element
+        # For VectorVariable, d(x[i])/dx[j] = 1 if i==j else 0
+        # So gradient is just the coefficient for that variable
+        from optyx.core.vectors import VectorVariable
+
+        coeffs = expr.coefficients
+        vec = expr.vector
+
+        result: Expression = Constant(0.0)
+        if isinstance(vec, VectorVariable):
+            for i, var in enumerate(vec._variables):
+                if var.name == wrt.name:
+                    result = _simplify_add(result, Constant(float(coeffs[i])))
+        else:
+            # VectorExpression - differentiate each element
+            for i, elem in enumerate(vec._expressions):
+                d_elem = _gradient_cached(elem, wrt)
+                result = _simplify_add(
+                    result, _simplify_mul(Constant(float(coeffs[i])), d_elem)
+                )
+        return result
+
+    if isinstance(expr, VectorSum):
+        # d/dx(sum(v)) = sum of d(v[i])/dx
+        # For VectorVariable, d(x[i])/dx[j] = 1 if i==j else 0
+        from optyx.core.vectors import VectorVariable
+
+        vec = expr.vector
+        for var in vec._variables:
+            if var.name == wrt.name:
+                return Constant(1.0)
+        return Constant(0.0)
+
+    if isinstance(expr, DotProduct):
+        # d/dx(u · v) = sum of d(u[i]*v[i])/dx = sum of (u[i]*dv[i] + v[i]*du[i])
+        from optyx.core.vectors import VectorVariable
+
+        left = expr.left
+        right = expr.right
+
+        result = Constant(0.0)
+        left_elems = (
+            left._variables if isinstance(left, VectorVariable) else left._expressions
+        )
+        right_elems = (
+            right._variables
+            if isinstance(right, VectorVariable)
+            else right._expressions
+        )
+
+        for l_elem, r_elem in zip(left_elems, right_elems):
+            # Product rule: d(l*r) = l*dr + r*dl
+            dl = _gradient_cached(l_elem, wrt)
+            dr = _gradient_cached(r_elem, wrt)
+            term = _simplify_add(_simplify_mul(l_elem, dr), _simplify_mul(r_elem, dl))
+            result = _simplify_add(result, term)
+        return result
+
     raise TypeError(f"Unknown expression type: {type(expr)}")
 
 

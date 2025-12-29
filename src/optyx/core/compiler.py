@@ -7,7 +7,7 @@ Python overhead during repeated evaluations (e.g., in optimization loops).
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
 
@@ -50,7 +50,7 @@ if TYPE_CHECKING:
 def compile_expression(
     expr: Expression,
     variables: list[Variable],
-) -> Callable[[NDArray[np.floating]], NDArray[np.floating] | float]:
+) -> Callable[[NDArray[np.floating]], NDArray[np.floating] | np.floating | float]:
     """Compile an expression tree into a fast callable.
 
     The returned function takes a 1D numpy array of variable values
@@ -85,7 +85,7 @@ def _compile_cached(
     expr: Expression,
     var_names: tuple[str, ...],
     var_indices_items: tuple[tuple[str, int], ...],
-) -> Callable[[NDArray[np.floating]], NDArray[np.floating] | float]:
+) -> Callable[[NDArray[np.floating]], NDArray[np.floating] | np.floating | float]:
     """Cached compilation of expressions.
 
     Uses LRU cache to avoid recompiling the same expression.
@@ -100,7 +100,7 @@ def _compile_cached(
 def _build_evaluator(
     expr: Expression,
     var_indices: dict[str, int],
-) -> Callable[[NDArray[np.floating]], NDArray[np.floating] | float]:
+) -> Callable[[NDArray[np.floating]], NDArray[np.floating] | np.floating | float]:
     """Recursively build an evaluator function for an expression.
 
     This approach avoids dictionary lookups during evaluation by
@@ -108,6 +108,12 @@ def _build_evaluator(
     """
     from optyx.core.expressions import BinaryOp, Constant, UnaryOp, Variable
     from optyx.core.parameters import Parameter
+    from optyx.core.vectors import (
+        DotProduct,
+        LinearCombination,
+        VectorSum,
+        VectorVariable,
+    )
 
     if isinstance(expr, Constant):
         value = expr.value
@@ -122,6 +128,32 @@ def _build_evaluator(
     elif isinstance(expr, Variable):
         idx = var_indices[expr.name]
         return lambda x, i=idx: x[i]
+
+    elif isinstance(expr, LinearCombination):
+        # c @ x = c[0]*x[0] + c[1]*x[1] + ... - efficient numpy implementation
+        coeffs = np.asarray(expr.coefficients)
+        if isinstance(expr.vector, VectorVariable):
+            indices = np.array([var_indices[v.name] for v in expr.vector._variables])
+            return lambda x, c=coeffs, idx=indices: np.dot(c, x[idx])
+        else:
+            # VectorExpression - build evaluators for each element
+            elem_fns = [
+                _build_evaluator(e, var_indices) for e in expr.vector._expressions
+            ]
+            return lambda x, c=coeffs, fns=elem_fns: np.dot(
+                c, np.array([f(x) for f in fns])
+            )
+
+    elif isinstance(expr, VectorSum):
+        # sum(x) = x[0] + x[1] + ... - efficient numpy implementation
+        indices = np.array([var_indices[v.name] for v in expr.vector._variables])
+        return lambda x, idx=indices: np.sum(x[idx])
+
+    elif isinstance(expr, DotProduct):
+        # x · y = x[0]*y[0] + x[1]*y[1] + ...
+        left_fn = _build_vector_evaluator(expr.left, var_indices)
+        right_fn = _build_vector_evaluator(expr.right, var_indices)
+        return lambda x, lf=left_fn, rf=right_fn: np.dot(lf(x), rf(x))
 
     elif isinstance(expr, BinaryOp):
         left_fn = _build_evaluator(expr.left, var_indices)
@@ -150,10 +182,30 @@ def _build_evaluator(
         raise TypeError(f"Unknown expression type: {type(expr)}")
 
 
+def _build_vector_evaluator(
+    vec: Any,
+    var_indices: dict[str, int],
+) -> Callable[[NDArray[np.floating]], NDArray[np.floating]]:
+    """Build an evaluator for a vector (returns array of values)."""
+    from optyx.core.vectors import VectorExpression, VectorVariable
+
+    if isinstance(vec, VectorVariable):
+        indices = np.array([var_indices[v.name] for v in vec._variables])
+        return lambda x, idx=indices: x[idx]
+    elif isinstance(vec, VectorExpression):
+        elem_fns = [_build_evaluator(e, var_indices) for e in vec._expressions]
+        return lambda x, fns=elem_fns: np.array([f(x) for f in fns])
+    else:
+        raise TypeError(f"Unknown vector type: {type(vec)}")
+
+
 def compile_to_dict_function(
     expr: Expression,
     variables: list[Variable],
-) -> Callable[[dict[str, float | NDArray[np.floating]]], NDArray[np.floating] | float]:
+) -> Callable[
+    [dict[str, float | NDArray[np.floating]]],
+    NDArray[np.floating] | np.floating | float,
+]:
     """Compile an expression to a function that takes a dict of values.
 
     This is a convenience wrapper that accepts the same dict format
@@ -171,7 +223,7 @@ def compile_to_dict_function(
 
     def dict_fn(
         values: dict[str, float | NDArray[np.floating]],
-    ) -> NDArray[np.floating] | float:
+    ) -> NDArray[np.floating] | np.floating | float:
         arr = np.array([values[name] for name in var_names])
         return array_fn(arr)
 
