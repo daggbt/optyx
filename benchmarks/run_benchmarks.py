@@ -1,22 +1,28 @@
 #!/usr/bin/env python
 """Run all benchmarks and generate performance plots.
 
+This benchmark suite measures END-TO-END performance, including:
+- Variable/Problem creation time
+- Constraint setup time
+- Cold solve (first solve, includes compilation)
+- Warm solve (cached, subsequent solves)
+
+This provides a FAIR comparison against SciPy, which has no build phase.
+
 Usage:
     uv run python benchmarks/run_benchmarks.py
 
 Generates plots in benchmarks/results/:
-    - lp_scaling_comparison.png: LP scaling Optyx vs SciPy
-    - nlp_quadratic_scaling.png: NLP scaling Optyx vs SciPy
-    - lp_cache_benefit.png: Cache benefit analysis
-    - multi_problem_scaling.png: Scaling by problem type
-    - scipy_lp_scaling.png: Detailed LP comparison
-    - scipy_nlp_scaling.png: Detailed NLP comparison
+    - lp_scaling_comparison.png: LP scaling with cold/warm breakdown
+    - nlp_scaling_comparison.png: NLP scaling with cold/warm breakdown
     - overhead_breakdown.png: Overhead by problem type
 """
 
 from __future__ import annotations
 
 import sys
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # Add benchmarks to path
@@ -25,416 +31,759 @@ sys.path.insert(0, str(Path(__file__).parent))
 import numpy as np
 from scipy.optimize import linprog, minimize
 
-from optyx import Variable, Problem
-from utils import (
-    time_function,
-    ScalingData,
-    RESULTS_DIR,
-    plot_scaling_comparison,
-    plot_cache_benefit,
-    plot_overhead_breakdown,
-    plot_multi_scaling,
-)
+from optyx import Variable, VectorVariable, Problem
+from utils import RESULTS_DIR
+
+import matplotlib.pyplot as plt
 
 
-def run_lp_vs_scipy_scaling():
-    """Generate LP scaling comparison plot."""
-    print("\n" + "=" * 60)
-    print("LP SCALING: Optyx vs SciPy")
-    print("=" * 60)
+@dataclass
+class BenchmarkResult:
+    """Result of a single benchmark run."""
 
-    sizes = [10, 25, 50, 100, 200, 500]
-    data = ScalingData(label="LP")
+    n: int
+    build_ms: float  # Time to create variables, problem, constraints
+    cold_solve_ms: float  # First solve (includes compilation)
+    warm_solve_ms: float  # Average of subsequent solves
+    scipy_ms: float  # SciPy baseline
 
-    for n in sizes:
-        m = n // 2
-        np.random.seed(42)
+    @property
+    def cold_total_ms(self) -> float:
+        """Total time for cold solve (build + first solve)."""
+        return self.build_ms + self.cold_solve_ms
 
-        c = np.random.rand(n)
-        A = np.random.rand(m, n)
-        b = np.sum(A, axis=1) * 0.5
+    @property
+    def warm_total_ms(self) -> float:
+        """Total time for warm solve (build + cached solve)."""
+        return self.build_ms + self.warm_solve_ms
 
-        # Optyx (vectorized)
-        x = np.array([Variable(f"x{i}", lb=0, ub=1) for i in range(n)])
-        prob = Problem(name=f"lp_bench_{n}")
-        prob.maximize(c @ x)
-        for i in range(m):
-            prob.subject_to(A[i] @ x <= b[i])
+    @property
+    def cold_overhead(self) -> float:
+        """Cold overhead vs SciPy."""
+        return self.cold_total_ms / self.scipy_ms if self.scipy_ms > 0 else float("inf")
 
-        prob.solve()  # Warm cache
-        optyx_timing = time_function(lambda: prob.solve(), n_warmup=2, n_runs=20)
-
-        # SciPy
-        bounds = [(0, 1)] * n
-        scipy_timing = time_function(
-            lambda: linprog(-c, A_ub=A, b_ub=b, bounds=bounds, method="highs"),
-            n_warmup=2,
-            n_runs=20,
-        )
-
-        data.add_point(
-            n,
-            optyx_timing.mean_ms,
-            optyx_timing.std_ms,
-            scipy_timing.mean_ms,
-            scipy_timing.std_ms,
-        )
-
-        ratio = optyx_timing.mean_ms / scipy_timing.mean_ms
-        print(
-            f"  n={n:4d}: Optyx={optyx_timing.mean_ms:7.3f}ms, "
-            f"SciPy={scipy_timing.mean_ms:7.3f}ms, ratio={ratio:.2f}x"
-        )
-
-    plot_scaling_comparison(
-        data,
-        title="LP Scaling: Optyx vs SciPy (Vectorized)",
-        save_path=RESULTS_DIR / "lp_scaling_comparison.png",
-    )
-
-    return data
+    @property
+    def warm_overhead(self) -> float:
+        """Warm overhead vs SciPy."""
+        return self.warm_total_ms / self.scipy_ms if self.scipy_ms > 0 else float("inf")
 
 
-def run_nlp_vs_scipy_scaling():
-    """Generate NLP scaling comparison plot."""
-    print("\n" + "=" * 60)
-    print("NLP SCALING: Optyx vs SciPy")
-    print("=" * 60)
+@dataclass
+class ScalingResults:
+    """Results for a scaling benchmark series."""
 
-    sizes = [10, 25, 50, 100]
-    data = ScalingData(label="Quadratic NLP")
+    label: str
+    results: list[BenchmarkResult] = field(default_factory=list)
 
-    for n in sizes:
-        x0 = np.zeros(n)
+    def add(self, result: BenchmarkResult) -> None:
+        self.results.append(result)
 
-        # Optyx (vectorized)
-        x = np.array([Variable(f"x{i}") for i in range(n)])
-        prob = Problem(name=f"nlp_bench_{n}")
-        prob.minimize(np.sum(x**2) - np.sum(x))
+    @property
+    def sizes(self) -> list[int]:
+        return [r.n for r in self.results]
 
-        optyx_timing = time_function(
-            lambda p=prob, x0=x0: p.solve(x0=x0), n_warmup=2, n_runs=10
-        )
+    @property
+    def cold_totals(self) -> list[float]:
+        return [r.cold_total_ms for r in self.results]
 
-        # SciPy
-        def scipy_obj(v):
-            return np.sum(v**2) - np.sum(v)
+    @property
+    def warm_totals(self) -> list[float]:
+        return [r.warm_total_ms for r in self.results]
 
-        def scipy_grad(v):
-            return 2 * v - 1
-
-        scipy_timing = time_function(
-            lambda: minimize(scipy_obj, x0, jac=scipy_grad, method="BFGS"),
-            n_warmup=2,
-            n_runs=10,
-        )
-
-        data.add_point(
-            n,
-            optyx_timing.mean_ms,
-            optyx_timing.std_ms,
-            scipy_timing.mean_ms,
-            scipy_timing.std_ms,
-        )
-
-        ratio = optyx_timing.mean_ms / scipy_timing.mean_ms
-        print(
-            f"  n={n:4d}: Optyx={optyx_timing.mean_ms:7.3f}ms, "
-            f"SciPy={scipy_timing.mean_ms:7.3f}ms, ratio={ratio:.2f}x"
-        )
-
-    plot_scaling_comparison(
-        data,
-        title="Quadratic NLP Scaling: Optyx vs SciPy",
-        save_path=RESULTS_DIR / "nlp_quadratic_scaling.png",
-    )
-
-    return data
+    @property
+    def scipy_times(self) -> list[float]:
+        return [r.scipy_ms for r in self.results]
 
 
-def run_cache_benefit_analysis():
-    """Generate cache benefit plot."""
-    print("\n" + "=" * 60)
-    print("CACHE BENEFIT ANALYSIS")
-    print("=" * 60)
-
-    sizes = [10, 25, 50, 100, 200]
-    cold_times = []
-    warm_times = []
-
-    import time
-
-    for n in sizes:
-        m = n // 2
-        np.random.seed(42)
-
-        c = np.random.rand(n)
-        A = np.random.rand(m, n)
-        b = np.sum(A, axis=1) * 0.5
-
-        x = np.array([Variable(f"x{i}", lb=0, ub=1) for i in range(n)])
-        prob = Problem(name=f"cache_bench_{n}")
-        prob.maximize(c @ x)
-        for i in range(m):
-            prob.subject_to(A[i] @ x <= b[i])
-
-        # Cold solve
+def time_scipy_lp(
+    c: np.ndarray, A: np.ndarray, b: np.ndarray, n_runs: int = 5
+) -> float:
+    """Time SciPy LP solve (average of n_runs)."""
+    bounds = [(0, 1)] * len(c)
+    times = []
+    for _ in range(n_runs):
         start = time.perf_counter()
-        prob.solve()
-        cold_ms = (time.perf_counter() - start) * 1000
-        cold_times.append(cold_ms)
-
-        # Warm solves
-        warm_timing = time_function(lambda: prob.solve(), n_warmup=0, n_runs=10)
-        warm_times.append(warm_timing.mean_ms)
-
-        speedup = cold_ms / warm_timing.mean_ms
-        print(
-            f"  n={n:4d}: Cold={cold_ms:.3f}ms, Warm={warm_timing.mean_ms:.3f}ms, "
-            f"Speedup={speedup:.2f}x"
-        )
-
-    plot_cache_benefit(
-        sizes,
-        cold_times,
-        warm_times,
-        title="LP Cache Benefit Analysis",
-        save_path=RESULTS_DIR / "lp_cache_benefit.png",
-    )
+        linprog(-c, A_ub=A, b_ub=b, bounds=bounds, method="highs")
+        times.append((time.perf_counter() - start) * 1000)
+    return np.mean(times)
 
 
-def run_overhead_breakdown():
-    """Generate overhead breakdown by problem type."""
-    print("\n" + "=" * 60)
-    print("OVERHEAD BREAKDOWN BY PROBLEM TYPE")
-    print("=" * 60)
+def time_scipy_nlp(n: int, n_runs: int = 5) -> float:
+    """Time SciPy unconstrained NLP solve (average of n_runs)."""
 
-    categories = []
-    overheads = []
+    def obj(v):
+        return np.sum(v**2) - np.sum(v)
 
-    # Small LP
-    c = np.array([20.0, 30.0])
-    A = np.array([[4.0, 6.0], [2.0, 3.0]])
-    b = np.array([120.0, 60.0])
-    x = np.array([Variable("lp_x", lb=0), Variable("lp_y", lb=0)])
-    prob = Problem(name="overhead_small_lp")
-    prob.maximize(c @ x)
-    prob.subject_to(A[0] @ x <= b[0])
-    prob.subject_to(A[1] @ x <= b[1])
+    def grad(v):
+        return 2 * v - 1
 
-    prob.solve()
-    optyx_t = time_function(lambda: prob.solve(), n_warmup=2, n_runs=50)
-    scipy_t = time_function(
-        lambda: linprog(
-            -c, A_ub=A, b_ub=b, bounds=[(0, None), (0, None)], method="highs"
-        ),
-        n_warmup=2,
-        n_runs=50,
-    )
-    categories.append("Small LP (n=2)")
-    overheads.append(optyx_t.mean_ms / scipy_t.mean_ms)
-    print(f"  Small LP: {overheads[-1]:.2f}x")
+    x0 = np.zeros(n)
+    times = []
+    for _ in range(n_runs):
+        start = time.perf_counter()
+        minimize(obj, x0, jac=grad, method="BFGS")
+        times.append((time.perf_counter() - start) * 1000)
+    return np.mean(times)
 
-    # Medium LP
-    n, m = 50, 25
-    np.random.seed(42)
-    c = np.random.rand(n)
-    A_mat = np.random.rand(m, n)
-    b_vec = np.sum(A_mat, axis=1) * 0.5
-    x = np.array([Variable(f"mlp_x{i}", lb=0, ub=1) for i in range(n)])
-    prob = Problem(name="overhead_med_lp")
-    prob.maximize(c @ x)
-    for i in range(m):
-        prob.subject_to(A_mat[i] @ x <= b_vec[i])
 
-    prob.solve()
-    optyx_t = time_function(lambda: prob.solve(), n_warmup=2, n_runs=30)
-    bounds = [(0, 1)] * n
-    scipy_t = time_function(
-        lambda: linprog(-c, A_ub=A_mat, b_ub=b_vec, bounds=bounds, method="highs"),
-        n_warmup=2,
-        n_runs=30,
-    )
-    categories.append("Medium LP (n=50)")
-    overheads.append(optyx_t.mean_ms / scipy_t.mean_ms)
-    print(f"  Medium LP: {overheads[-1]:.2f}x")
+def time_scipy_constrained_nlp(n: int, n_runs: int = 5) -> float:
+    """Time SciPy constrained NLP solve (average of n_runs)."""
 
-    # Large LP
-    n, m = 200, 100
-    np.random.seed(42)
-    c = np.random.rand(n)
-    A_mat = np.random.rand(m, n)
-    b_vec = np.sum(A_mat, axis=1) * 0.5
-    x = np.array([Variable(f"llp_x{i}", lb=0, ub=1) for i in range(n)])
-    prob = Problem(name="overhead_large_lp")
-    prob.maximize(c @ x)
-    for i in range(m):
-        prob.subject_to(A_mat[i] @ x <= b_vec[i])
-
-    prob.solve()
-    optyx_t = time_function(lambda: prob.solve(), n_warmup=2, n_runs=20)
-    bounds = [(0, 1)] * n
-    scipy_t = time_function(
-        lambda: linprog(-c, A_ub=A_mat, b_ub=b_vec, bounds=bounds, method="highs"),
-        n_warmup=2,
-        n_runs=20,
-    )
-    categories.append("Large LP (n=200)")
-    overheads.append(optyx_t.mean_ms / scipy_t.mean_ms)
-    print(f"  Large LP: {overheads[-1]:.2f}x")
-
-    # Rosenbrock
-    rx = Variable("ros_x")
-    ry = Variable("ros_y")
-    prob = Problem(name="overhead_rosenbrock")
-    prob.minimize((1 - rx) ** 2 + 100 * (ry - rx**2) ** 2)
-    x0 = np.array([-1.0, -1.0])
-
-    optyx_t = time_function(lambda: prob.solve(x0=x0), n_warmup=2, n_runs=30)
-
-    def ros_obj(v):
-        return (1 - v[0]) ** 2 + 100 * (v[1] - v[0] ** 2) ** 2
-
-    def ros_grad(v):
-        return np.array(
-            [
-                -2 * (1 - v[0]) - 400 * v[0] * (v[1] - v[0] ** 2),
-                200 * (v[1] - v[0] ** 2),
-            ]
-        )
-
-    scipy_t = time_function(
-        lambda: minimize(ros_obj, x0, jac=ros_grad, method="BFGS"),
-        n_warmup=2,
-        n_runs=30,
-    )
-    categories.append("Rosenbrock NLP")
-    overheads.append(optyx_t.mean_ms / scipy_t.mean_ms)
-    print(f"  Rosenbrock: {overheads[-1]:.2f}x")
-
-    # Constrained QP
-    qx = np.array([Variable("cqp_x"), Variable("cqp_y")])
-    prob = Problem(name="overhead_cqp")
-    prob.minimize(np.sum(qx**2))
-    prob.subject_to(np.sum(qx) >= 1)
-
-    optyx_t = time_function(lambda: prob.solve(x0=np.zeros(2)), n_warmup=2, n_runs=30)
-
-    def qp_obj(v):
+    def obj(v):
         return np.sum(v**2)
 
-    def qp_grad(v):
+    def grad(v):
         return 2 * v
 
     constraints = {
         "type": "ineq",
         "fun": lambda v: np.sum(v) - 1,
-        "jac": lambda v: np.ones(2),
+        "jac": lambda v: np.ones(n),
     }
-    scipy_t = time_function(
-        lambda: minimize(
-            qp_obj, np.zeros(2), jac=qp_grad, method="SLSQP", constraints=constraints
-        ),
-        n_warmup=2,
-        n_runs=30,
+
+    x0 = np.full(n, 0.1)
+    times = []
+    for _ in range(n_runs):
+        start = time.perf_counter()
+        minimize(obj, x0, jac=grad, method="SLSQP", constraints=constraints)
+        times.append((time.perf_counter() - start) * 1000)
+    return np.mean(times)
+
+
+def benchmark_lp_loop(
+    n: int, c: np.ndarray, A: np.ndarray, b: np.ndarray
+) -> BenchmarkResult:
+    """Benchmark LP with loop-based variables (full end-to-end)."""
+    m = len(b)
+
+    # Time build phase
+    start = time.perf_counter()
+    x = np.array([Variable(f"x{i}", lb=0, ub=1) for i in range(n)])
+    prob = Problem(name=f"lp_loop_{n}")
+    prob.maximize(c @ x)
+    for i in range(m):
+        prob.subject_to(A[i] @ x <= b[i])
+    build_ms = (time.perf_counter() - start) * 1000
+
+    # Time cold solve
+    start = time.perf_counter()
+    prob.solve()
+    cold_solve_ms = (time.perf_counter() - start) * 1000
+
+    # Time warm solves (3 runs)
+    warm_times = []
+    for _ in range(3):
+        start = time.perf_counter()
+        prob.solve()
+        warm_times.append((time.perf_counter() - start) * 1000)
+    warm_solve_ms = np.mean(warm_times)
+
+    # SciPy baseline
+    scipy_ms = time_scipy_lp(c, A, b)
+
+    return BenchmarkResult(n, build_ms, cold_solve_ms, warm_solve_ms, scipy_ms)
+
+
+def benchmark_lp_vector(
+    n: int, c: np.ndarray, A: np.ndarray, b: np.ndarray
+) -> BenchmarkResult:
+    """Benchmark LP with VectorVariable (full end-to-end)."""
+    m = len(b)
+
+    # Time build phase
+    start = time.perf_counter()
+    x = VectorVariable("x", n, lb=0, ub=1)
+    prob = Problem(name=f"lp_vec_{n}")
+    prob.maximize(c @ x)
+    for i in range(m):
+        prob.subject_to(A[i] @ x <= b[i])
+    build_ms = (time.perf_counter() - start) * 1000
+
+    # Time cold solve
+    start = time.perf_counter()
+    prob.solve()
+    cold_solve_ms = (time.perf_counter() - start) * 1000
+
+    # Time warm solves (3 runs)
+    warm_times = []
+    for _ in range(3):
+        start = time.perf_counter()
+        prob.solve()
+        warm_times.append((time.perf_counter() - start) * 1000)
+    warm_solve_ms = np.mean(warm_times)
+
+    # SciPy baseline
+    scipy_ms = time_scipy_lp(c, A, b)
+
+    return BenchmarkResult(n, build_ms, cold_solve_ms, warm_solve_ms, scipy_ms)
+
+
+def benchmark_nlp_loop(n: int) -> BenchmarkResult:
+    """Benchmark unconstrained NLP with loop-based variables."""
+    x0 = np.zeros(n)
+
+    # Time build phase
+    start = time.perf_counter()
+    x = np.array([Variable(f"x{i}") for i in range(n)])
+    prob = Problem(name=f"nlp_loop_{n}")
+    prob.minimize(np.sum(x**2) - np.sum(x))
+    build_ms = (time.perf_counter() - start) * 1000
+
+    # Time cold solve
+    start = time.perf_counter()
+    prob.solve(x0=x0)
+    cold_solve_ms = (time.perf_counter() - start) * 1000
+
+    # Time warm solves (3 runs)
+    warm_times = []
+    for _ in range(3):
+        start = time.perf_counter()
+        prob.solve(x0=x0)
+        warm_times.append((time.perf_counter() - start) * 1000)
+    warm_solve_ms = np.mean(warm_times)
+
+    # SciPy baseline
+    scipy_ms = time_scipy_nlp(n)
+
+    return BenchmarkResult(n, build_ms, cold_solve_ms, warm_solve_ms, scipy_ms)
+
+
+def benchmark_nlp_vector(n: int) -> BenchmarkResult:
+    """Benchmark unconstrained NLP with VectorVariable (vectorized ops)."""
+    x0 = np.zeros(n)
+
+    # Time build phase
+    start = time.perf_counter()
+    x = VectorVariable("x", n)
+    prob = Problem(name=f"nlp_vec_{n}")
+    # Vectorized: x.dot(x) - x.sum() creates O(1) depth tree
+    prob.minimize(x.dot(x) - x.sum())
+    build_ms = (time.perf_counter() - start) * 1000
+
+    # Time cold solve
+    start = time.perf_counter()
+    prob.solve(x0=x0)
+    cold_solve_ms = (time.perf_counter() - start) * 1000
+
+    # Time warm solves (3 runs)
+    warm_times = []
+    for _ in range(3):
+        start = time.perf_counter()
+        prob.solve(x0=x0)
+        warm_times.append((time.perf_counter() - start) * 1000)
+    warm_solve_ms = np.mean(warm_times)
+
+    # SciPy baseline
+    scipy_ms = time_scipy_nlp(n)
+
+    return BenchmarkResult(n, build_ms, cold_solve_ms, warm_solve_ms, scipy_ms)
+
+
+def benchmark_cqp_loop(n: int) -> BenchmarkResult:
+    """Benchmark constrained QP with loop-based variables."""
+    x0 = np.full(n, 0.1)
+
+    # Time build phase
+    start = time.perf_counter()
+    x = np.array([Variable(f"x{i}", lb=0) for i in range(n)])
+    prob = Problem(name=f"cqp_loop_{n}")
+    prob.minimize(np.sum(x**2))
+    prob.subject_to(np.sum(x) >= 1)
+    build_ms = (time.perf_counter() - start) * 1000
+
+    # Time cold solve
+    start = time.perf_counter()
+    prob.solve(x0=x0)
+    cold_solve_ms = (time.perf_counter() - start) * 1000
+
+    # Time warm solves (3 runs)
+    warm_times = []
+    for _ in range(3):
+        start = time.perf_counter()
+        prob.solve(x0=x0)
+        warm_times.append((time.perf_counter() - start) * 1000)
+    warm_solve_ms = np.mean(warm_times)
+
+    # SciPy baseline
+    scipy_ms = time_scipy_constrained_nlp(n)
+
+    return BenchmarkResult(n, build_ms, cold_solve_ms, warm_solve_ms, scipy_ms)
+
+
+def benchmark_cqp_vector(n: int) -> BenchmarkResult:
+    """Benchmark constrained QP with VectorVariable (vectorized ops)."""
+    x0 = np.full(n, 0.1)
+
+    # Time build phase
+    start = time.perf_counter()
+    x = VectorVariable("x", n, lb=0)
+    prob = Problem(name=f"cqp_vec_{n}")
+    # Vectorized: x.dot(x) and x.sum() create O(1) depth trees
+    prob.minimize(x.dot(x))
+    prob.subject_to(x.sum() >= 1)
+    build_ms = (time.perf_counter() - start) * 1000
+
+    # Time cold solve
+    start = time.perf_counter()
+    prob.solve(x0=x0)
+    cold_solve_ms = (time.perf_counter() - start) * 1000
+
+    # Time warm solves (3 runs)
+    warm_times = []
+    for _ in range(3):
+        start = time.perf_counter()
+        prob.solve(x0=x0)
+        warm_times.append((time.perf_counter() - start) * 1000)
+    warm_solve_ms = np.mean(warm_times)
+
+    # SciPy baseline
+    scipy_ms = time_scipy_constrained_nlp(n)
+
+    return BenchmarkResult(n, build_ms, cold_solve_ms, warm_solve_ms, scipy_ms)
+
+
+def print_result(label: str, r: BenchmarkResult) -> None:
+    """Print a benchmark result with full breakdown."""
+    print(
+        f"  n={r.n:5d}: Build={r.build_ms:8.1f}ms, "
+        f"Cold={r.cold_solve_ms:8.1f}ms, Warm={r.warm_solve_ms:7.1f}ms | "
+        f"SciPy={r.scipy_ms:7.1f}ms | "
+        f"Cold overhead={r.cold_overhead:5.1f}x, Warm overhead={r.warm_overhead:5.1f}x"
     )
-    categories.append("Constrained QP")
-    overheads.append(optyx_t.mean_ms / scipy_t.mean_ms)
-    print(f"  Constrained QP: {overheads[-1]:.2f}x")
-
-    plot_overhead_breakdown(
-        categories,
-        overheads,
-        title="Optyx Overhead vs SciPy by Problem Type",
-        save_path=RESULTS_DIR / "overhead_breakdown.png",
-    )
 
 
-def run_multi_problem_scaling():
-    """Generate combined scaling plot for all problem types."""
-    print("\n" + "=" * 60)
-    print("MULTI-PROBLEM SCALING COMPARISON")
-    print("=" * 60)
+def run_lp_scaling():
+    """Run LP scaling benchmarks."""
+    print("\n" + "=" * 80)
+    print("LP SCALING BENCHMARK (End-to-End)")
+    print("=" * 80)
+    print("\nMeasures: Build (vars + problem + constraints) + Solve")
+    print("Compared against: SciPy linprog (no build phase)")
 
-    sizes = [10, 25, 50, 100]
+    # Loop-based: limited to n=100 due to exponential cold solve time
+    loop_sizes = [10, 25, 50, 100]
+    # VectorVariable: cap at n=2000 for reasonable runtime
+    vec_sizes = [10, 25, 50, 100, 200, 500, 1000, 2000]
 
-    # LP data
-    lp_data = ScalingData(label="LP (cached)")
-    for n in sizes:
+    loop_results = ScalingResults(label="LP (Loop)")
+    vec_results = ScalingResults(label="LP (VectorVariable)")
+
+    print("\n--- Loop-based Variable (n ≤ 100, slow cold solve) ---")
+    for n in loop_sizes:
         m = n // 2
         np.random.seed(42)
         c = np.random.rand(n)
         A = np.random.rand(m, n)
         b = np.sum(A, axis=1) * 0.5
 
-        x = np.array([Variable(f"mslp_x{i}", lb=0, ub=1) for i in range(n)])
-        prob = Problem(name=f"ms_lp_{n}")
-        prob.maximize(c @ x)
-        for i in range(m):
-            prob.subject_to(A[i] @ x <= b[i])
+        r = benchmark_lp_loop(n, c, A, b)
+        loop_results.add(r)
+        print_result("Loop", r)
 
-        prob.solve()  # Warm
-        timing = time_function(lambda: prob.solve(), n_warmup=0, n_runs=10)
-        lp_data.add_point(n, timing.mean_ms, timing.std_ms)
+    print("\n--- VectorVariable (n ≤ 2,000) ---")
+    for n in vec_sizes:
+        m = n // 2
+        np.random.seed(42)
+        c = np.random.rand(n)
+        A = np.random.rand(m, n)
+        b = np.sum(A, axis=1) * 0.5
 
-    print("  LP scaling collected")
+        r = benchmark_lp_vector(n, c, A, b)
+        vec_results.add(r)
+        print_result("Vec", r)
 
-    # Quadratic NLP data
-    quad_data = ScalingData(label="Quadratic NLP")
-    for n in sizes:
-        x = np.array([Variable(f"msq_x{i}") for i in range(n)])
-        prob = Problem(name=f"ms_quad_{n}")
-        prob.minimize(np.sum(x**2) - np.sum(x))
-
-        x0 = np.zeros(n)
-        timing = time_function(lambda: prob.solve(x0=x0), n_warmup=2, n_runs=5)
-        quad_data.add_point(n, timing.mean_ms, timing.std_ms)
-
-    print("  Quadratic NLP scaling collected")
-
-    # Constrained QP data
-    cqp_data = ScalingData(label="Constrained QP")
-    for n in sizes:
-        x = np.array([Variable(f"mscqp_x{i}", lb=0) for i in range(n)])
-        prob = Problem(name=f"ms_cqp_{n}")
-        prob.minimize(np.sum(x**2))
-        prob.subject_to(np.sum(x) >= 1)
-
-        x0 = np.full(n, 0.1)
-        timing = time_function(lambda: prob.solve(x0=x0), n_warmup=2, n_runs=5)
-        cqp_data.add_point(n, timing.mean_ms, timing.std_ms)
-
-    print("  Constrained QP scaling collected")
-
-    plot_multi_scaling(
-        [lp_data, quad_data, cqp_data],
-        title="Optyx Scaling by Problem Type",
-        save_path=RESULTS_DIR / "multi_problem_scaling.png",
+    # Plot
+    plot_scaling_comparison(
+        loop_results,
+        vec_results,
+        title="LP Scaling: End-to-End Time vs SciPy",
+        save_path=RESULTS_DIR / "lp_scaling_comparison.png",
     )
+
+    return loop_results, vec_results
+
+
+def run_nlp_scaling():
+    """Run NLP scaling benchmarks."""
+    print("\n" + "=" * 80)
+    print("UNCONSTRAINED NLP SCALING BENCHMARK (End-to-End)")
+    print("=" * 80)
+    print("\nObjective: min Σx²ᵢ - Σxᵢ (optimal at x* = 0.5)")
+    print("Measures: Build + Solve (includes gradient compilation)")
+
+    # Loop-based: limited to n=100 due to exponential cold solve time
+    loop_sizes = [10, 25, 50, 100]
+    # VectorVariable with vectorized ops: cap at n=2000 for reasonable runtime
+    vec_sizes = [10, 25, 50, 100, 200, 500, 1000, 2000]
+
+    loop_results = ScalingResults(label="NLP (Loop)")
+    vec_results = ScalingResults(label="NLP (VectorVariable)")
+
+    print("\n--- Loop-based Variable (n ≤ 100, slow cold solve) ---")
+    for n in loop_sizes:
+        r = benchmark_nlp_loop(n)
+        loop_results.add(r)
+        print_result("Loop", r)
+
+    print("\n--- VectorVariable with x.dot(x) - x.sum() (n ≤ 2,000) ---")
+    for n in vec_sizes:
+        r = benchmark_nlp_vector(n)
+        vec_results.add(r)
+        print_result("Vec", r)
+
+    # Plot
+    plot_scaling_comparison(
+        loop_results,
+        vec_results,
+        title="Unconstrained NLP: End-to-End Time vs SciPy",
+        save_path=RESULTS_DIR / "nlp_scaling_comparison.png",
+    )
+
+    return loop_results, vec_results
+
+
+def run_cqp_scaling():
+    """Run constrained QP scaling benchmarks."""
+    print("\n" + "=" * 80)
+    print("CONSTRAINED QP SCALING BENCHMARK (End-to-End)")
+    print("=" * 80)
+    print("\nObjective: min Σx²ᵢ s.t. Σxᵢ ≥ 1, xᵢ ≥ 0")
+    print("Measures: Build + Solve (includes gradient/Jacobian compilation)")
+
+    # Loop-based: limited to n=100 due to exponential cold solve time
+    loop_sizes = [10, 25, 50, 100]
+    # VectorVariable: cap at n=2000 for reasonable runtime
+    vec_sizes = [10, 25, 50, 100, 200, 500, 1000, 2000]
+
+    loop_results = ScalingResults(label="CQP (Loop)")
+    vec_results = ScalingResults(label="CQP (VectorVariable)")
+
+    print("\n--- Loop-based Variable (n ≤ 100, slow cold solve) ---")
+    for n in loop_sizes:
+        r = benchmark_cqp_loop(n)
+        loop_results.add(r)
+        print_result("Loop", r)
+
+    print("\n--- VectorVariable with x.dot(x), x.sum() (n ≤ 2,000) ---")
+    for n in vec_sizes:
+        r = benchmark_cqp_vector(n)
+        vec_results.add(r)
+        print_result("Vec", r)
+
+    # Plot
+    plot_scaling_comparison(
+        loop_results,
+        vec_results,
+        title="Constrained QP: End-to-End Time vs SciPy",
+        save_path=RESULTS_DIR / "cqp_scaling_comparison.png",
+    )
+
+    return loop_results, vec_results
+
+
+def plot_scaling_comparison(
+    loop_results: ScalingResults,
+    vec_results: ScalingResults,
+    title: str,
+    save_path: Path,
+) -> None:
+    """Plot scaling comparison with cold/warm breakdown."""
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    # Left: Absolute times (log scale)
+    ax1 = axes[0]
+
+    # Loop cold/warm
+    if loop_results.results:
+        ax1.plot(
+            loop_results.sizes,
+            loop_results.cold_totals,
+            "o-",
+            color="tab:red",
+            label="Loop (cold)",
+            linewidth=2,
+            markersize=6,
+        )
+        ax1.plot(
+            loop_results.sizes,
+            loop_results.warm_totals,
+            "s--",
+            color="tab:red",
+            label="Loop (warm)",
+            linewidth=1.5,
+            markersize=5,
+            alpha=0.7,
+        )
+
+    # Vector cold/warm
+    if vec_results.results:
+        ax1.plot(
+            vec_results.sizes,
+            vec_results.cold_totals,
+            "o-",
+            color="tab:blue",
+            label="VectorVar (cold)",
+            linewidth=2,
+            markersize=6,
+        )
+        ax1.plot(
+            vec_results.sizes,
+            vec_results.warm_totals,
+            "s--",
+            color="tab:blue",
+            label="VectorVar (warm)",
+            linewidth=1.5,
+            markersize=5,
+            alpha=0.7,
+        )
+
+    # SciPy baseline (use vec_results since it has more points)
+    baseline = vec_results if vec_results.results else loop_results
+    ax1.plot(
+        baseline.sizes,
+        baseline.scipy_times,
+        "^-",
+        color="tab:green",
+        label="SciPy",
+        linewidth=2,
+        markersize=6,
+    )
+
+    ax1.set_xlabel("Problem Size (n)", fontsize=11)
+    ax1.set_ylabel("Time (ms)", fontsize=11)
+    ax1.set_title("Absolute Time (log scale)", fontsize=12)
+    ax1.set_xscale("log")
+    ax1.set_yscale("log")
+    ax1.legend(loc="upper left", fontsize=9)
+    ax1.grid(True, alpha=0.3)
+
+    # Right: Overhead ratio vs SciPy
+    ax2 = axes[1]
+
+    if loop_results.results:
+        cold_overhead = [r.cold_overhead for r in loop_results.results]
+        warm_overhead = [r.warm_overhead for r in loop_results.results]
+        ax2.plot(
+            loop_results.sizes,
+            cold_overhead,
+            "o-",
+            color="tab:red",
+            label="Loop (cold)",
+            linewidth=2,
+            markersize=6,
+        )
+        ax2.plot(
+            loop_results.sizes,
+            warm_overhead,
+            "s--",
+            color="tab:red",
+            label="Loop (warm)",
+            linewidth=1.5,
+            markersize=5,
+            alpha=0.7,
+        )
+
+    if vec_results.results:
+        cold_overhead = [r.cold_overhead for r in vec_results.results]
+        warm_overhead = [r.warm_overhead for r in vec_results.results]
+        ax2.plot(
+            vec_results.sizes,
+            cold_overhead,
+            "o-",
+            color="tab:blue",
+            label="VectorVar (cold)",
+            linewidth=2,
+            markersize=6,
+        )
+        ax2.plot(
+            vec_results.sizes,
+            warm_overhead,
+            "s--",
+            color="tab:blue",
+            label="VectorVar (warm)",
+            linewidth=1.5,
+            markersize=5,
+            alpha=0.7,
+        )
+
+    ax2.axhline(
+        y=1.0, color="tab:green", linestyle="-", linewidth=2, label="SciPy (1.0x)"
+    )
+    ax2.axhline(y=2.0, color="gray", linestyle=":", alpha=0.5, label="2x overhead")
+    ax2.axhline(y=10.0, color="gray", linestyle=":", alpha=0.3, label="10x overhead")
+
+    ax2.set_xlabel("Problem Size (n)", fontsize=11)
+    ax2.set_ylabel("Overhead vs SciPy (×)", fontsize=11)
+    ax2.set_title("Overhead Ratio (log scale, lower is better)", fontsize=12)
+    ax2.set_xscale("log")
+    ax2.set_yscale("log")
+    ax2.legend(loc="upper right", fontsize=9)
+    ax2.grid(True, alpha=0.3, which="both")
+
+    plt.suptitle(title, fontsize=14, fontweight="bold")
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    print(f"\nSaved: {save_path}")
+    plt.close()
+
+
+def run_overhead_summary():
+    """Generate overhead summary for common problem types."""
+    print("\n" + "=" * 80)
+    print("OVERHEAD SUMMARY BY PROBLEM TYPE")
+    print("=" * 80)
+
+    categories = []
+    cold_overheads = []
+    warm_overheads = []
+
+    # Small LP (n=50)
+    n, m = 50, 25
+    np.random.seed(42)
+    c = np.random.rand(n)
+    A = np.random.rand(m, n)
+    b = np.sum(A, axis=1) * 0.5
+
+    r = benchmark_lp_vector(n, c, A, b)
+    categories.append(f"LP\nn={n}")
+    cold_overheads.append(r.cold_overhead)
+    warm_overheads.append(r.warm_overhead)
+    print(f"LP (n={n}): Cold={r.cold_overhead:.1f}x, Warm={r.warm_overhead:.1f}x")
+
+    # Medium LP (n=500)
+    n, m = 500, 250
+    c = np.random.rand(n)
+    A = np.random.rand(m, n)
+    b = np.sum(A, axis=1) * 0.5
+
+    r = benchmark_lp_vector(n, c, A, b)
+    categories.append(f"LP\nn={n}")
+    cold_overheads.append(r.cold_overhead)
+    warm_overheads.append(r.warm_overhead)
+    print(f"LP (n={n}): Cold={r.cold_overhead:.1f}x, Warm={r.warm_overhead:.1f}x")
+
+    # Small NLP (n=50)
+    r = benchmark_nlp_vector(50)
+    categories.append("NLP\nn=50")
+    cold_overheads.append(r.cold_overhead)
+    warm_overheads.append(r.warm_overhead)
+    print(f"NLP (n=50): Cold={r.cold_overhead:.1f}x, Warm={r.warm_overhead:.1f}x")
+
+    # Medium NLP (n=500)
+    r = benchmark_nlp_vector(500)
+    categories.append("NLP\nn=500")
+    cold_overheads.append(r.cold_overhead)
+    warm_overheads.append(r.warm_overhead)
+    print(f"NLP (n=500): Cold={r.cold_overhead:.1f}x, Warm={r.warm_overhead:.1f}x")
+
+    # Small CQP (n=50)
+    r = benchmark_cqp_vector(50)
+    categories.append("CQP\nn=50")
+    cold_overheads.append(r.cold_overhead)
+    warm_overheads.append(r.warm_overhead)
+    print(f"CQP (n=50): Cold={r.cold_overhead:.1f}x, Warm={r.warm_overhead:.1f}x")
+
+    # Medium CQP (n=500)
+    r = benchmark_cqp_vector(500)
+    categories.append("CQP\nn=500")
+    cold_overheads.append(r.cold_overhead)
+    warm_overheads.append(r.warm_overhead)
+    print(f"CQP (n=500): Cold={r.cold_overhead:.1f}x, Warm={r.warm_overhead:.1f}x")
+
+    # Plot
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    x = np.arange(len(categories))
+    width = 0.35
+
+    bars1 = ax.bar(
+        x - width / 2,
+        cold_overheads,
+        width,
+        label="Cold (first solve)",
+        color="tab:red",
+        alpha=0.8,
+    )
+    bars2 = ax.bar(
+        x + width / 2,
+        warm_overheads,
+        width,
+        label="Warm (cached)",
+        color="tab:green",
+        alpha=0.8,
+    )
+
+    ax.axhline(
+        y=1.0, color="black", linestyle="--", linewidth=1, label="SciPy baseline"
+    )
+    ax.axhline(y=2.0, color="gray", linestyle=":", alpha=0.5)
+
+    ax.set_ylabel("Overhead vs SciPy (×)", fontsize=11)
+    ax.set_title(
+        "Optyx End-to-End Overhead by Problem Type\n(VectorVariable, lower is better)",
+        fontsize=12,
+        fontweight="bold",
+    )
+    ax.set_xticks(x)
+    ax.set_xticklabels(categories, fontsize=10)
+    ax.legend(loc="upper right")
+    ax.grid(True, alpha=0.3, axis="y")
+
+    # Add value labels on bars
+    for bar, val in zip(bars1, cold_overheads):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.1,
+            f"{val:.1f}x",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+        )
+    for bar, val in zip(bars2, warm_overheads):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.1,
+            f"{val:.1f}x",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+        )
+
+    plt.tight_layout()
+    save_path = RESULTS_DIR / "overhead_breakdown.png"
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    print(f"\nSaved: {save_path}")
+    plt.close()
 
 
 def main():
-    """Run all benchmarks and generate plots."""
-    print("=" * 60)
-    print("OPTYX BENCHMARK SUITE")
-    print("=" * 60)
-    print(f"Results will be saved to: {RESULTS_DIR}")
+    """Run all benchmarks."""
+    print("=" * 80)
+    print("OPTYX BENCHMARK SUITE - END-TO-END COMPARISON")
+    print("=" * 80)
+    print("\nThis benchmark measures TOTAL time including:")
+    print("  • Variable creation")
+    print("  • Problem setup")
+    print("  • Constraint construction")
+    print("  • Cold solve (first solve, includes compilation)")
+    print("  • Warm solve (cached subsequent solves)")
+    print("\nCompared against SciPy (which has no build phase).")
+    print(f"\nResults will be saved to: {RESULTS_DIR}")
 
-    # Ensure results directory exists
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Run all benchmarks
-    run_lp_vs_scipy_scaling()
-    run_nlp_vs_scipy_scaling()
-    run_cache_benefit_analysis()
-    run_overhead_breakdown()
-    run_multi_problem_scaling()
+    # Run scaling benchmarks
+    run_lp_scaling()
+    run_nlp_scaling()
+    run_cqp_scaling()
 
-    print("\n" + "=" * 60)
+    # Run overhead summary
+    run_overhead_summary()
+
+    print("\n" + "=" * 80)
     print("BENCHMARK COMPLETE")
-    print("=" * 60)
-    print(f"Plots saved to: {RESULTS_DIR}")
-    print("Files generated:")
+    print("=" * 80)
+    print(f"\nPlots saved to: {RESULTS_DIR}")
     for f in sorted(RESULTS_DIR.glob("*.png")):
         print(f"  - {f.name}")
 
