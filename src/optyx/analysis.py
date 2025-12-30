@@ -8,6 +8,7 @@ Performance optimizations:
 - Early termination: stops traversal immediately when non-polynomial detected
 - Degree-bounded traversal: is_linear/is_quadratic stop when threshold exceeded
 - Memoization: caches results for repeated sub-expressions (common in constraints)
+- Iterative traversal: for deep expression trees (> 400 depth) to avoid recursion limit
 """
 
 from __future__ import annotations
@@ -21,6 +22,9 @@ import numpy as np
 from numpy.typing import NDArray
 
 from optyx.core.expressions import Expression, Constant, Variable, BinaryOp, UnaryOp
+
+# Recursion threshold - use iterative algorithm for trees deeper than this
+_RECURSION_THRESHOLD = 400
 
 if TYPE_CHECKING:
     from optyx.constraints import Constraint
@@ -36,8 +40,166 @@ def compute_degree(expr: Expression) -> Optional[int]:
           division by variable, non-integer powers)
 
     Uses memoization for repeated sub-expressions.
+    For deep expression trees (> 400 depth), uses iterative algorithm.
     """
+    # Check tree depth and use iterative for deep trees
+    depth = _estimate_tree_depth(expr)
+    if depth >= _RECURSION_THRESHOLD:
+        return _compute_degree_iterative(expr)
     return _compute_degree_cached(id(expr), expr)
+
+
+def _estimate_tree_depth(expr: Expression) -> int:
+    """Estimate the depth of an expression tree.
+
+    Uses a fast heuristic that follows the left spine of the tree,
+    which catches the common case of left-associative chains like
+    (((a + b) + c) + d) + e.
+    """
+    depth = 0
+    current = expr
+    while True:
+        if isinstance(current, (Constant, Variable)):
+            break
+        elif isinstance(current, BinaryOp):
+            depth += 1
+            # Follow left spine (left-associative chains)
+            current = current.left
+        elif isinstance(current, UnaryOp):
+            depth += 1
+            current = current.operand
+        else:
+            # Vector expressions or other - check their children
+            from optyx.core.vectors import LinearCombination, VectorSum, DotProduct
+
+            if isinstance(current, (LinearCombination, VectorSum)):
+                break  # These don't recurse deeply
+            elif isinstance(current, DotProduct):
+                depth += 1
+                current = current.left
+            else:
+                break
+    return depth
+
+
+def _compute_degree_iterative(expr: Expression) -> Optional[int]:
+    """Compute degree iteratively using explicit stack.
+
+    Handles deep expression trees that would cause RecursionError.
+    """
+    from optyx.core.vectors import DotProduct, LinearCombination, VectorSum
+
+    # Stack: (expression, phase, left_result, right_result)
+    # phase 0: first visit, phase 1: left done, phase 2: both done
+    stack: list[tuple[Expression, int, Optional[int], Optional[int]]] = [
+        (expr, 0, None, None)
+    ]
+    result_stack: list[Optional[int]] = []
+
+    while stack:
+        node, phase, left_deg, right_deg = stack.pop()
+
+        # Leaf nodes - return immediately
+        if isinstance(node, Constant):
+            result_stack.append(0)
+            continue
+        if isinstance(node, Variable):
+            result_stack.append(1)
+            continue
+
+        # Vector expressions - these have known degrees
+        if isinstance(node, LinearCombination):
+            result_stack.append(1)
+            continue
+        if isinstance(node, VectorSum):
+            result_stack.append(1)
+            continue
+        if isinstance(node, DotProduct):
+            result_stack.append(2)
+            continue
+
+        # Unary operations
+        if isinstance(node, UnaryOp):
+            if node.op == "neg":
+                if phase == 0:
+                    stack.append((node, 1, None, None))
+                    stack.append((node.operand, 0, None, None))
+                else:
+                    result_stack.append(result_stack.pop())
+            else:
+                result_stack.append(None)
+            continue
+
+        # Binary operations
+        if isinstance(node, BinaryOp):
+            op = node.op
+
+            if phase == 0:
+                # First visit - process children
+                stack.append((node, 1, None, None))
+                stack.append((node.left, 0, None, None))
+            elif phase == 1:
+                # Left done
+                left_result = result_stack.pop()
+
+                # Early termination for power/division
+                if op == "**":
+                    if not isinstance(node.right, Constant):
+                        result_stack.append(None)
+                        continue
+                    exp_val = node.right.value
+                    if not isinstance(exp_val, numbers.Number):
+                        result_stack.append(None)
+                        continue
+                    exp_float = float(exp_val)
+                    if not exp_float.is_integer() or exp_float < 0:
+                        result_stack.append(None)
+                        continue
+                    if left_result is None:
+                        result_stack.append(None)
+                    else:
+                        result_stack.append(left_result * int(exp_float))
+                    continue
+
+                if op == "/":
+                    if not isinstance(node.right, Constant):
+                        result_stack.append(None)
+                    else:
+                        result_stack.append(left_result)
+                    continue
+
+                # Early termination on None for other ops
+                if left_result is None:
+                    result_stack.append(None)
+                    continue
+
+                # Need to process right child
+                stack.append((node, 2, left_result, None))
+                stack.append((node.right, 0, None, None))
+            else:
+                # Phase 2: both children done
+                right_result = result_stack.pop()
+
+                if right_result is None:
+                    result_stack.append(None)
+                    continue
+
+                if op in ("+", "-"):
+                    result_stack.append(max(left_deg, right_result))
+                elif op == "*":
+                    # x*y where both have degree > 0 is non-polynomial for our LP detection
+                    if left_deg > 0 and right_result > 0:
+                        result_stack.append(None)
+                    else:
+                        result_stack.append(left_deg + right_result)
+                else:
+                    result_stack.append(None)
+            continue
+
+        # Unknown node type
+        result_stack.append(None)
+
+    return result_stack[-1] if result_stack else None
 
 
 @lru_cache(maxsize=1024)

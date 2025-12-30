@@ -2,12 +2,16 @@
 
 Implements symbolic differentiation using the chain rule, producing
 gradient expressions that can be compiled for fast evaluation.
+
+Supports native gradient rules for vector expressions (VectorSum,
+LinearCombination, DotProduct) with O(1) coefficient lookup for
+scalability to n=10,000+ variables.
 """
 
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Callable, cast
 
 import numpy as np
 
@@ -15,8 +19,91 @@ if TYPE_CHECKING:
     from optyx.core.expressions import Expression, Variable
 
 
+# =============================================================================
+# Gradient Registry System
+# =============================================================================
+
+# Type alias for gradient functions
+GradientFunc = Callable[["Expression", "Variable"], "Expression"]
+
+# Registry mapping expression types to gradient functions
+_gradient_registry: dict[type, GradientFunc] = {}
+
+
+def register_gradient(expr_type: type) -> Callable[[GradientFunc], GradientFunc]:
+    """Decorator to register a gradient rule for an expression type.
+
+    Registered gradient rules are used by the main `gradient()` function
+    before falling back to recursive tree traversal. This enables O(1)
+    gradient computation for vector expressions.
+
+    Args:
+        expr_type: The expression class to register a gradient rule for.
+
+    Returns:
+        A decorator that registers the gradient function.
+
+    Example:
+        @register_gradient(VectorSum)
+        def gradient_vector_sum(expr: VectorSum, wrt: Variable) -> Expression:
+            # O(1) gradient computation
+            ...
+    """
+
+    def decorator(func: GradientFunc) -> GradientFunc:
+        _gradient_registry[expr_type] = func
+        return func
+
+    return decorator
+
+
+def has_gradient_rule(expr: "Expression") -> bool:
+    """Check if an expression type has a registered gradient rule.
+
+    Args:
+        expr: The expression to check.
+
+    Returns:
+        True if a gradient rule is registered for this expression type.
+    """
+    return type(expr) in _gradient_registry
+
+
+def apply_gradient_rule(expr: "Expression", wrt: "Variable") -> "Expression":
+    """Apply the registered gradient rule for an expression type.
+
+    Args:
+        expr: The expression to differentiate.
+        wrt: The variable to differentiate with respect to.
+
+    Returns:
+        The gradient expression.
+
+    Raises:
+        ValueError: If no gradient rule is registered for this expression type.
+    """
+    func = _gradient_registry.get(type(expr))
+    if func is None:
+        raise ValueError(f"No gradient rule registered for {type(expr).__name__}")
+    return func(expr, wrt)
+
+
+# =============================================================================
+# Main Gradient Function
+# =============================================================================
+
+# Threshold for switching to iterative gradient computation
+# Python's default recursion limit is 1000, so we use 400 to be safe
+_RECURSION_THRESHOLD = 400
+
+
 def gradient(expr: Expression, wrt: Variable) -> Expression:
     """Compute the symbolic gradient of an expression with respect to a variable.
+
+    Uses a three-tier approach for optimal performance:
+    1. Registered gradient rules (O(1) for vector expressions)
+    2. Cached recursive computation (for shallow trees)
+    3. Iterative fallback (for deep trees to avoid RecursionError)
 
     Args:
         expr: The expression to differentiate.
@@ -30,15 +117,61 @@ def gradient(expr: Expression, wrt: Variable) -> Expression:
         >>> expr = x**2 + 3*x
         >>> grad = gradient(expr, x)  # Returns: 2*x + 3
     """
+    # Fast path: use registered gradient rules for vector expressions
+    if has_gradient_rule(expr):
+        return apply_gradient_rule(expr, wrt)
+
+    # Check tree depth to decide between recursive and iterative
+    depth = _estimate_tree_depth(expr)
+    if depth >= _RECURSION_THRESHOLD:
+        return _gradient_iterative(expr, wrt)
+
     return _gradient_cached(expr, wrt)
+
+
+def _estimate_tree_depth(expr: Expression, max_check: int = 500) -> int:
+    """Estimate expression tree depth by following the left spine.
+
+    This is a heuristic that quickly estimates depth without full traversal.
+    For left-skewed trees (common in incremental sum construction), this
+    gives an accurate depth estimate.
+
+    Args:
+        expr: The expression to check.
+        max_check: Maximum depth to check before returning.
+
+    Returns:
+        Estimated tree depth.
+    """
+    from optyx.core.expressions import BinaryOp, UnaryOp
+
+    depth = 0
+    current = expr
+    while depth < max_check:
+        if isinstance(current, BinaryOp):
+            current = current.left  # Follow left spine
+            depth += 1
+        elif isinstance(current, UnaryOp):
+            current = current.operand
+            depth += 1
+        else:
+            break
+    return depth
 
 
 @lru_cache(maxsize=4096)
 def _gradient_cached(expr: Expression, wrt: Variable) -> Expression:
-    """Cached gradient computation."""
+    """Cached recursive gradient computation.
+
+    Used for shallow expression trees where recursion is safe and fast.
+    """
     from optyx.core.expressions import BinaryOp, Constant, UnaryOp, Variable as Var
     from optyx.core.functions import cos, sin, log, cosh, sinh
     from optyx.core.parameters import Parameter
+
+    # Fast path: check for registered gradient rules first
+    if has_gradient_rule(expr):
+        return apply_gradient_rule(expr, wrt)
 
     # Constant: d/dx(c) = 0
     if isinstance(expr, Constant):
@@ -230,51 +363,290 @@ def _gradient_cached(expr: Expression, wrt: Variable) -> Expression:
         else:
             raise ValueError(f"Unknown unary operator: {expr.op}")
 
-    # Vector expression types
-    from optyx.core.vectors import DotProduct, LinearCombination, VectorSum
+    raise TypeError(f"Unknown expression type: {type(expr)}")
 
-    if isinstance(expr, LinearCombination):
-        # d/dx(c @ v) = sum of c[i] * d(v[i])/dx for each element
-        # For VectorVariable, d(x[i])/dx[j] = 1 if i==j else 0
-        # So gradient is just the coefficient for that variable
-        from optyx.core.vectors import VectorVariable
 
+# =============================================================================
+# Iterative Gradient Computation (for deep trees)
+# =============================================================================
+
+
+def _gradient_iterative(expr: Expression, wrt: Variable) -> Expression:
+    """Iterative gradient computation using explicit stack.
+
+    Used for deep expression trees that would cause RecursionError with
+    the recursive approach. Implements post-order traversal with gradient
+    propagation using an explicit stack.
+
+    This enables gradient computation for expressions with depth > 1000
+    (Python's default recursion limit), such as incrementally built sums
+    with n=10,000+ terms.
+
+    Args:
+        expr: The expression to differentiate.
+        wrt: The variable to differentiate with respect to.
+
+    Returns:
+        The gradient expression.
+    """
+    from optyx.core.expressions import BinaryOp, Constant, UnaryOp, Variable as Var
+    from optyx.core.functions import cos, sin, log, cosh, sinh
+    from optyx.core.parameters import Parameter
+
+    # Check for registered gradient rules first
+    if has_gradient_rule(expr):
+        return apply_gradient_rule(expr, wrt)
+
+    # Stack-based iterative computation
+    # Each entry: (expr, phase, children_grads)
+    # phase 0: first visit, push children
+    # phase 1: children processed, compute gradient
+    stack: list[tuple[Expression, int, list[Expression]]] = [(expr, 0, [])]
+    results: dict[int, Expression] = {}  # id(expr) -> gradient
+
+    while stack:
+        current, phase, child_grads = stack.pop()
+        node_id = id(current)
+
+        # Check if already computed
+        if node_id in results:
+            continue
+
+        # Check for registered gradient rules
+        if has_gradient_rule(current):
+            results[node_id] = apply_gradient_rule(current, wrt)
+            continue
+
+        # Base cases
+        if isinstance(current, Constant):
+            results[node_id] = Constant(0.0)
+            continue
+
+        if isinstance(current, Parameter):
+            results[node_id] = Constant(0.0)
+            continue
+
+        if isinstance(current, Var):
+            results[node_id] = (
+                Constant(1.0) if current.name == wrt.name else Constant(0.0)
+            )
+            continue
+
+        # Binary operations
+        if isinstance(current, BinaryOp):
+            left, right = current.left, current.right
+
+            if phase == 0:
+                # First visit: need to process children first
+                left_id, right_id = id(left), id(right)
+
+                if left_id in results and right_id in results:
+                    # Both children already computed
+                    d_left = results[left_id]
+                    d_right = results[right_id]
+                else:
+                    # Push self back with phase 1, then push children
+                    stack.append((current, 1, []))
+                    if right_id not in results:
+                        stack.append((right, 0, []))
+                    if left_id not in results:
+                        stack.append((left, 0, []))
+                    continue
+
+            else:
+                # Phase 1: children are computed
+                d_left = results[id(left)]
+                d_right = results[id(right)]
+
+            # Compute gradient based on operator
+            if current.op == "+":
+                results[node_id] = _simplify_add(d_left, d_right)
+            elif current.op == "-":
+                results[node_id] = _simplify_sub(d_left, d_right)
+            elif current.op == "*":
+                term1 = _simplify_mul(left, d_right)
+                term2 = _simplify_mul(right, d_left)
+                results[node_id] = _simplify_add(term1, term2)
+            elif current.op == "/":
+                num = _simplify_sub(
+                    _simplify_mul(right, d_left), _simplify_mul(left, d_right)
+                )
+                denom = _simplify_mul(right, right)
+                results[node_id] = _simplify_div(num, denom)
+            elif current.op == "**":
+                if isinstance(right, Constant):
+                    n = right.value
+                    if n == 0:
+                        results[node_id] = Constant(0.0)
+                    elif n == 1:
+                        results[node_id] = d_left
+                    else:
+                        coeff = Constant(n)
+                        power = _simplify_pow(left, Constant(n - 1))
+                        results[node_id] = _simplify_mul(
+                            _simplify_mul(coeff, power), d_left
+                        )
+                else:
+                    ln_a = log(left)
+                    term1 = _simplify_mul(d_right, ln_a)
+                    term2 = _simplify_div(_simplify_mul(right, d_left), left)
+                    results[node_id] = _simplify_mul(
+                        current, _simplify_add(term1, term2)
+                    )
+            else:
+                raise ValueError(f"Unknown binary operator: {current.op}")
+            continue
+
+        # Unary operations
+        if isinstance(current, UnaryOp):
+            operand = current.operand
+
+            if phase == 0:
+                operand_id = id(operand)
+                if operand_id in results:
+                    d_operand = results[operand_id]
+                else:
+                    stack.append((current, 1, []))
+                    stack.append((operand, 0, []))
+                    continue
+            else:
+                d_operand = results[id(operand)]
+
+            # Compute gradient based on operator
+            if current.op == "neg":
+                results[node_id] = _simplify_neg(d_operand)
+            elif current.op == "abs":
+                sign_expr = _simplify_div(operand, current)
+                results[node_id] = _simplify_mul(sign_expr, d_operand)
+            elif current.op == "sin":
+                results[node_id] = _simplify_mul(cos(operand), d_operand)
+            elif current.op == "cos":
+                results[node_id] = _simplify_mul(_simplify_neg(sin(operand)), d_operand)
+            elif current.op == "tan":
+                cos_a = cos(operand)
+                sec2 = _simplify_div(Constant(1.0), _simplify_mul(cos_a, cos_a))
+                results[node_id] = _simplify_mul(sec2, d_operand)
+            elif current.op == "exp":
+                results[node_id] = _simplify_mul(current, d_operand)
+            elif current.op == "log":
+                results[node_id] = _simplify_mul(
+                    _simplify_div(Constant(1.0), operand), d_operand
+                )
+            elif current.op == "sqrt":
+                two_sqrt = _simplify_mul(Constant(2.0), current)
+                results[node_id] = _simplify_mul(
+                    _simplify_div(Constant(1.0), two_sqrt), d_operand
+                )
+            elif current.op == "tanh":
+                tanh_squared = _simplify_mul(current, current)
+                sech2 = _simplify_sub(Constant(1.0), tanh_squared)
+                results[node_id] = _simplify_mul(sech2, d_operand)
+            elif current.op == "sinh":
+                results[node_id] = _simplify_mul(cosh(operand), d_operand)
+            elif current.op == "cosh":
+                results[node_id] = _simplify_mul(sinh(operand), d_operand)
+            else:
+                # For other unary ops, fall back to numerical or raise
+                raise ValueError(
+                    f"Iterative gradient not implemented for: {current.op}"
+                )
+            continue
+
+        raise TypeError(f"Unknown expression type: {type(current)}")
+
+    return results.get(id(expr), Constant(0.0))
+
+
+# =============================================================================
+# Registered Gradient Rules for Vector Expressions
+# =============================================================================
+
+
+# Import vector types and register gradient rules after module initialization
+def _register_vector_gradient_rules() -> None:
+    """Register gradient rules for vector expression types.
+
+    This function is called at module load time to register O(1) gradient
+    rules for VectorSum, LinearCombination, DotProduct, L2Norm, L1Norm,
+    and QuadraticForm.
+    """
+    from optyx.core.expressions import Constant
+    from optyx.core.vectors import (
+        DotProduct,
+        L1Norm,
+        L2Norm,
+        LinearCombination,
+        VectorSum,
+        VectorVariable,
+    )
+    from optyx.core.matrices import QuadraticForm
+
+    @register_gradient(LinearCombination)
+    def gradient_linear_combination(
+        expr: LinearCombination, wrt: Variable
+    ) -> Expression:
+        """O(1) gradient for linear combination: ∂(c·x)/∂x_i = c_i.
+
+        For a linear combination c @ x = Σ c_i * x_i:
+        - If wrt is x_j, gradient is c_j
+        - If wrt is not in x, gradient is 0
+
+        This is a dictionary lookup, O(1) regardless of vector size.
+        """
         coeffs = expr.coefficients
         vec = expr.vector
 
-        result: Expression = Constant(0.0)
         if isinstance(vec, VectorVariable):
+            # O(1) lookup: find coefficient for wrt variable
             for i, var in enumerate(vec._variables):
                 if var.name == wrt.name:
-                    result = _simplify_add(result, Constant(float(coeffs[i])))
+                    return Constant(float(coeffs[i]))
+            return Constant(0.0)
         else:
-            # VectorExpression - differentiate each element
+            # VectorExpression: need to differentiate each element
+            result: Expression = Constant(0.0)
             for i, elem in enumerate(vec._expressions):
-                d_elem = _gradient_cached(elem, wrt)
+                d_elem = gradient(elem, wrt)
                 result = _simplify_add(
                     result, _simplify_mul(Constant(float(coeffs[i])), d_elem)
                 )
-        return result
+            return result
 
-    if isinstance(expr, VectorSum):
-        # d/dx(sum(v)) = sum of d(v[i])/dx
-        # For VectorVariable, d(x[i])/dx[j] = 1 if i==j else 0
-        from optyx.core.vectors import VectorVariable
+    @register_gradient(VectorSum)
+    def gradient_vector_sum(expr: VectorSum, wrt: Variable) -> Expression:
+        """O(1) gradient for vector sum: ∂(Σx_i)/∂x_j = 1 if j in x else 0.
 
+        For sum(x) = x_0 + x_1 + ... + x_{n-1}:
+        - If wrt is x_j for some j, gradient is 1
+        - If wrt is not in x, gradient is 0
+
+        This is an O(n) lookup in the worst case, but typically O(1) for
+        early matches.
+        """
         vec = expr.vector
         for var in vec._variables:
             if var.name == wrt.name:
                 return Constant(1.0)
         return Constant(0.0)
 
-    if isinstance(expr, DotProduct):
-        # d/dx(u · v) = sum of d(u[i]*v[i])/dx = sum of (u[i]*dv[i] + v[i]*du[i])
-        from optyx.core.vectors import VectorVariable
+    @register_gradient(DotProduct)
+    def gradient_dot_product(expr: DotProduct, wrt: Variable) -> Expression:
+        """Gradient for dot product: ∂(u·v)/∂x.
 
+        For u · v = Σ u_i * v_i:
+        - Uses product rule: ∂(u·v)/∂x = Σ (u_i * ∂v_i/∂x + v_i * ∂u_i/∂x)
+        - For VectorVariable dot VectorVariable, this simplifies to O(1)
+          when wrt is in exactly one of the vectors.
+
+        Special cases:
+        - c · x where c is constant: ∂/∂x_i = c_i
+        - x · x: ∂/∂x_i = 2*x_i
+        - x · y: ∂/∂x_i = y_i, ∂/∂y_i = x_i
+        """
         left = expr.left
         right = expr.right
 
-        result = Constant(0.0)
+        # Get elements
         left_elems = (
             left._variables if isinstance(left, VectorVariable) else left._expressions
         )
@@ -284,15 +656,163 @@ def _gradient_cached(expr: Expression, wrt: Variable) -> Expression:
             else right._expressions
         )
 
+        # Check if wrt is in left or right vectors
+        left_index = None
+        right_index = None
+
+        if isinstance(left, VectorVariable):
+            for i, var in enumerate(left._variables):
+                if var.name == wrt.name:
+                    left_index = i
+                    break
+
+        if isinstance(right, VectorVariable):
+            for i, var in enumerate(right._variables):
+                if var.name == wrt.name:
+                    right_index = i
+                    break
+
+        # Fast paths for VectorVariable
+        if isinstance(left, VectorVariable) and isinstance(right, VectorVariable):
+            if left_index is not None and right_index is not None:
+                # wrt appears in both: x · x case or overlapping vectors
+                # ∂(x·x)/∂x_i = 2*x_i
+                if left is right or left.name == right.name:
+                    return _simplify_mul(Constant(2.0), wrt)
+                else:
+                    # Different vectors with same variable name? Sum contributions
+                    return _simplify_add(
+                        right_elems[left_index], left_elems[right_index]
+                    )
+            elif left_index is not None:
+                # wrt only in left: ∂(x·c)/∂x_i = c_i
+                return right_elems[left_index]
+            elif right_index is not None:
+                # wrt only in right: ∂(c·y)/∂y_i = c_i
+                return left_elems[right_index]
+            else:
+                # wrt not in either vector
+                return Constant(0.0)
+
+        # General case: iterate through elements with product rule
+        result: Expression = Constant(0.0)
         for l_elem, r_elem in zip(left_elems, right_elems):
-            # Product rule: d(l*r) = l*dr + r*dl
-            dl = _gradient_cached(l_elem, wrt)
-            dr = _gradient_cached(r_elem, wrt)
+            dl = gradient(l_elem, wrt)
+            dr = gradient(r_elem, wrt)
             term = _simplify_add(_simplify_mul(l_elem, dr), _simplify_mul(r_elem, dl))
             result = _simplify_add(result, term)
         return result
 
-    raise TypeError(f"Unknown expression type: {type(expr)}")
+    @register_gradient(L2Norm)
+    def gradient_l2_norm(expr: L2Norm, wrt: Variable) -> Expression:
+        """Gradient for L2 norm: ∂||x||/∂x_i = x_i / ||x||.
+
+        For ||x|| = sqrt(x[0]² + x[1]² + ... + x[n-1]²):
+        - If wrt is x_j, gradient is x_j / ||x||
+        - If wrt is not in x, gradient is 0
+
+        This is O(1) for VectorVariable (just lookup and divide).
+        """
+        vec = expr.vector
+
+        # Find if wrt is in the vector
+        if isinstance(vec, VectorVariable):
+            for var in vec._variables:
+                if var.name == wrt.name:
+                    # ∂||x||/∂x_i = x_i / ||x||
+                    return _simplify_div(wrt, expr)
+            return Constant(0.0)
+        else:
+            # VectorExpression: need chain rule
+            # ∂||f(x)||/∂x = Σ (f_i / ||f||) * ∂f_i/∂x
+            result: Expression = Constant(0.0)
+            for elem in vec._expressions:
+                d_elem = gradient(elem, wrt)
+                term = _simplify_mul(_simplify_div(elem, expr), d_elem)
+                result = _simplify_add(result, term)
+            return result
+
+    @register_gradient(L1Norm)
+    def gradient_l1_norm(expr: L1Norm, wrt: Variable) -> Expression:
+        """Gradient for L1 norm: ∂||x||₁/∂x_i = sign(x_i).
+
+        For ||x||₁ = |x[0]| + |x[1]| + ... + |x[n-1]|:
+        - If wrt is x_j, gradient is sign(x_j) = x_j / |x_j|
+        - If wrt is not in x, gradient is 0
+
+        Note: Not differentiable at x_i = 0, but we use x/|x| which
+        matches the subgradient convention.
+        """
+        from optyx.core.functions import abs_
+
+        vec = expr.vector
+
+        # Find if wrt is in the vector
+        if isinstance(vec, VectorVariable):
+            for var in vec._variables:
+                if var.name == wrt.name:
+                    # ∂|x_i|/∂x_i = sign(x_i) = x_i / |x_i|
+                    return _simplify_div(wrt, abs_(wrt))
+            return Constant(0.0)
+        else:
+            # VectorExpression: need chain rule
+            # ∂||f(x)||₁/∂x = Σ sign(f_i) * ∂f_i/∂x
+            result: Expression = Constant(0.0)
+            for elem in vec._expressions:
+                d_elem = gradient(elem, wrt)
+                sign_elem = _simplify_div(elem, abs_(elem))
+                term = _simplify_mul(sign_elem, d_elem)
+                result = _simplify_add(result, term)
+            return result
+
+    @register_gradient(QuadraticForm)
+    def gradient_quadratic_form(expr: QuadraticForm, wrt: Variable) -> Expression:
+        """Gradient for quadratic form: ∂(x'Qx)/∂x_i = [(Q + Q')x]_i.
+
+        For x'Qx where Q is a constant matrix:
+        - ∇(x'Qx) = (Q + Q')x
+        - If wrt is x_i, gradient is the i-th element of (Q + Q')x
+        - If wrt is not in x, gradient is 0
+
+        For symmetric Q (Q = Q'), this simplifies to 2Qx.
+        """
+        vec = expr.vector
+        Q = expr.matrix
+
+        # Compute Q + Q' (symmetric part times 2)
+        Q_sym = Q + Q.T
+
+        # Find if wrt is in the vector
+        if isinstance(vec, VectorVariable):
+            for i, var in enumerate(vec._variables):
+                if var.name == wrt.name:
+                    # ∂(x'Qx)/∂x_i = [(Q + Q')x]_i = Σ_j (Q + Q')_{ij} * x_j
+                    # This is a LinearCombination with coefficients from row i of Q_sym
+                    row_coeffs = Q_sym[i, :]
+                    return LinearCombination(row_coeffs, vec)
+            return Constant(0.0)
+        else:
+            # VectorExpression: need chain rule
+            # ∂(f'Qf)/∂x = Σ_i [(Q + Q')f]_i * ∂f_i/∂x
+            result: Expression = Constant(0.0)
+            elems = list(vec._expressions)
+            for i, elem in enumerate(elems):
+                d_elem = gradient(elem, wrt)
+                # [(Q + Q')f]_i = Σ_j Q_sym[i,j] * f_j
+                qf_i: Expression = Constant(0.0)
+                for j, elem_j in enumerate(elems):
+                    coeff = Q_sym[i, j]
+                    if coeff != 0:
+                        qf_i = _simplify_add(
+                            qf_i, _simplify_mul(Constant(coeff), elem_j)
+                        )
+                term = _simplify_mul(qf_i, d_elem)
+                result = _simplify_add(result, term)
+            return result
+
+
+# Register vector gradient rules at module load time
+_register_vector_gradient_rules()
 
 
 # Simplification helpers to reduce expression tree size

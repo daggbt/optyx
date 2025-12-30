@@ -689,6 +689,20 @@ class VectorVariable:
         """
         return DotProduct(self, other)
 
+    def sum(self) -> VectorSum:
+        """Compute sum of all elements in the vector.
+
+        Returns:
+            VectorSum expression (scalar).
+
+        Example:
+            >>> x = VectorVariable("x", 3)
+            >>> s = x.sum()
+            >>> s.evaluate({"x[0]": 1, "x[1]": 2, "x[2]": 3})
+            6.0
+        """
+        return VectorSum(self)
+
     def __rmatmul__(self, other: np.ndarray) -> LinearCombination:
         """Enable numpy_array @ vector syntax for linear combinations.
 

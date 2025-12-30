@@ -264,10 +264,12 @@ class Problem:
         if self._variables is not None:
             return self._variables
 
+        from optyx.core.expressions import get_all_variables
+
         all_vars: set[Variable] = set()
 
         if self._objective is not None:
-            all_vars.update(self._objective.get_variables())
+            all_vars.update(get_all_variables(self._objective))
 
         for constraint in self._constraints:
             all_vars.update(constraint.get_variables())
