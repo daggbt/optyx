@@ -1,0 +1,391 @@
+---
+title: "Vector Variables Tutorial"
+description: "Scalable optimization with VectorVariable for problems with many decision variables"
+date: last-modified
+---
+
+## Introduction
+
+When your optimization problem has tens, hundreds, or thousands of decision variables, defining them one by one becomes tedious and error-prone. **VectorVariable** lets you create and manipulate collections of variables with clean, NumPy-like syntax.
+
+By the end of this tutorial, you'll understand how to:
+
+- Create vectors of decision variables
+- Index, slice, and iterate over vector elements
+- Use vector operations (sum, dot product, norms)
+- Build constraints efficiently with vector syntax
+
+---
+
+## The Problem: Manual Variable Management
+
+Consider a portfolio with 10 assets. Without VectorVariable:
+
+```{python}
+from optyx import Variable
+
+# The old way: painful loops
+weights = [Variable(f"w_{i}", lb=0, ub=1) for i in range(10)]
+
+# Sum constraint requires a loop
+total = sum(weights)
+
+# Accessing elements requires indices
+first_weight = weights[0]
+```
+
+This works, but it's verbose and doesn't scale. With 1000 assets, you'd have 1000 lines of boilerplate.
+
+---
+
+## Creating Vector Variables
+
+```{python}
+from optyx import VectorVariable
+
+# The new way: one line
+w = VectorVariable("w", size=10, lb=0, ub=1)
+
+print(f"Created: {w.name} with {len(w)} elements")
+print(f"Bounds: [{w.lb}, {w.ub}]")
+print(f"Domain: {w.domain}")
+```
+
+All 10 variables are created with consistent names (`w[0]`, `w[1]`, ..., `w[9]`) and bounds.
+
+::: {.callout-tip}
+## Variable Naming
+Elements are automatically named `{name}[i]`. This makes solution output readable:
+`solution['w[0]']`, `solution['w[1]']`, etc.
+:::
+
+---
+
+## Indexing and Slicing
+
+VectorVariable supports Python's standard indexing:
+
+```{python}
+# Single element (returns a Variable)
+first = w[0]
+last = w[-1]
+
+print(f"First element: {first.name}")
+print(f"Last element: {last.name}")
+```
+
+Slicing returns a new VectorVariable:
+
+```{python}
+# Slice (returns a VectorVariable)
+first_three = w[:3]
+middle = w[3:7]
+
+print(f"First three: {len(first_three)} elements")
+print(f"Middle slice: {len(middle)} elements")
+```
+
+---
+
+## Vector Sum
+
+The most common operation is summing all elements:
+
+```{python}
+# Sum of all weights
+total_weight = w.sum()
+
+print(f"Sum expression: {total_weight}")
+print(f"Variables in sum: {len(total_weight.get_variables())}")
+```
+
+Use this for budget constraints, normalization, or any "sum to 1" requirement:
+
+```{python}
+from optyx import Problem
+import numpy as np
+
+# Random expected returns
+np.random.seed(42)
+returns = np.random.uniform(0.05, 0.15, size=10)
+
+# Portfolio that sums to 1
+problem = (
+    Problem("portfolio")
+    .maximize(returns @ w)  # Dot product with returns
+    .subject_to(w.sum().eq(1))  # Weights sum to 1
+)
+
+solution = problem.solve()
+print(f"Status: {solution.status}")
+print(f"Total weight: {sum(solution[f'w[{i}]'] for i in range(10)):.4f}")
+```
+
+---
+
+## Dot Product
+
+The `@` operator computes dot products between vectors and NumPy arrays:
+
+```{python}
+# Expected returns vector
+returns = np.array([0.08, 0.10, 0.12, 0.09, 0.11, 0.07, 0.13, 0.06, 0.14, 0.10])
+
+# Portfolio expected return
+expected_return = returns @ w
+
+print(f"Dot product type: {type(expected_return).__name__}")
+```
+
+This also works with another VectorVariable using `@` or the `.dot()` method:
+
+```{python}
+# Two vectors
+x = VectorVariable("x", 3)
+y = VectorVariable("y", 3)
+
+# Dot product: x[0]*y[0] + x[1]*y[1] + x[2]*y[2]
+dot = x @ y  # or x.dot(y)
+
+print(f"Dot product: {dot}")
+```
+
+---
+
+## Norms
+
+Optyx provides `norm()` function for L1 and L2 norms:
+
+```{python}
+from optyx.core.vectors import norm
+
+x = VectorVariable("x", 5)
+
+# L2 norm: sqrt(x[0]² + x[1]² + ... + x[4]²)
+l2 = norm(x)  # or norm(x, ord=2)
+
+# L1 norm: |x[0]| + |x[1]| + ... + |x[4]|
+l1 = norm(x, ord=1)
+
+print(f"L2 norm: {l2}")
+print(f"L1 norm: {l1}")
+```
+
+::: {.callout-note}
+## Efficient Gradients
+Optyx computes gradients for norms analytically—no loops over elements.
+This makes optimization with vector norms as fast as hand-coded gradients.
+:::
+
+---
+
+## Element-wise Operations
+
+Arithmetic operations broadcast over vector elements:
+
+```{python}
+x = VectorVariable("x", 4)
+
+# Scalar operations apply to all elements
+scaled = 2 * x      # [2*x[0], 2*x[1], 2*x[2], 2*x[3]]
+shifted = x + 1     # [x[0]+1, x[1]+1, x[2]+1, x[3]+1]
+
+print(f"Scaled: {len(scaled)} element expressions")
+print(f"Shifted: {len(shifted)} element expressions")
+```
+
+Operations between vectors of the same size:
+
+```{python}
+y = VectorVariable("y", 4)
+
+# Element-wise operations
+added = x + y       # [x[0]+y[0], x[1]+y[1], ...]
+multiplied = x * y  # [x[0]*y[0], x[1]*y[1], ...]
+
+print(f"Addition result: {type(added).__name__}")
+```
+
+---
+
+## Vector Constraints
+
+Create constraints on all elements at once:
+
+```{python}
+x = VectorVariable("x", 5, lb=0)
+
+# All elements less than or equal to 1
+upper_bounds = x <= 1  # Returns list of 5 constraints
+
+print(f"Number of constraints: {len(upper_bounds)}")
+```
+
+With NumPy arrays for element-wise bounds:
+
+```{python}
+limits = np.array([10, 20, 15, 25, 30])
+
+# x[i] <= limits[i] for all i
+capacity_constraints = x <= limits
+
+print(f"Constraint types: {[c.sense for c in capacity_constraints]}")
+```
+
+---
+
+## Complete Example: Resource Allocation
+
+A company allocates budget across 20 projects. Each project has an expected return and risk.
+
+```{python}
+from optyx import VectorVariable, Problem
+import numpy as np
+
+np.random.seed(123)
+n_projects = 20
+
+# Project data
+expected_returns = np.random.uniform(0.05, 0.20, n_projects)
+risks = np.random.uniform(0.1, 0.5, n_projects)
+max_allocation = np.random.uniform(0.1, 0.3, n_projects)
+
+# Decision: fraction of budget for each project
+allocation = VectorVariable("alloc", n_projects, lb=0)
+
+# Objective: maximize return minus risk penalty
+total_return = expected_returns @ allocation
+total_risk = risks @ allocation
+objective = total_return - 0.5 * total_risk
+
+# Constraints
+budget_constraint = allocation.sum().eq(1)
+max_constraints = allocation <= max_allocation
+
+# Solve
+problem = Problem("resource_allocation").maximize(objective)
+problem = problem.subject_to(budget_constraint)
+for c in max_constraints:
+    problem = problem.subject_to(c)
+
+solution = problem.solve()
+
+print("=" * 50)
+print("RESOURCE ALLOCATION SOLUTION")
+print("=" * 50)
+print(f"Status: {solution.status}")
+print(f"Objective: {solution.objective_value:.4f}")
+print()
+
+# Top 5 allocations
+allocations = [(i, solution[f'alloc[{i}]']) for i in range(n_projects)]
+allocations.sort(key=lambda x: x[1], reverse=True)
+
+print("Top 5 Allocations:")
+for i, alloc in allocations[:5]:
+    print(f"  Project {i:2d}: {alloc:.1%} (return={expected_returns[i]:.1%}, risk={risks[i]:.1%})")
+```
+
+---
+
+## Iteration
+
+You can iterate over vector elements like a Python list:
+
+```{python}
+x = VectorVariable("x", 3)
+
+for i, var in enumerate(x):
+    print(f"  Element {i}: {var.name}")
+```
+
+This is useful for custom constraint generation:
+
+```{python}
+# Monotonicity constraints: x[i] <= x[i+1]
+monotone_constraints = []
+for i in range(len(x) - 1):
+    monotone_constraints.append(x[i] <= x[i+1])
+
+print(f"Created {len(monotone_constraints)} monotonicity constraints")
+```
+
+---
+
+## Integer and Binary Vectors
+
+VectorVariable supports integer and binary domains:
+
+```{python}
+# Binary decision vector (0 or 1)
+select = VectorVariable("select", 10, domain="binary")
+
+# Integer quantities
+quantities = VectorVariable("qty", 5, lb=0, ub=100, domain="integer")
+
+print(f"Binary domain: {select.domain}")
+print(f"Integer domain: {quantities.domain}")
+```
+
+::: {.callout-warning}
+## Solver Selection
+Integer and binary problems require mixed-integer solvers. Optyx uses HiGHS
+for these problems automatically.
+:::
+
+---
+
+## Performance Tips
+
+1. **Use vector operations** instead of Python loops:
+   ```python
+   # Good: vectorized
+   total = returns @ weights
+   
+   # Slow: Python loop
+   total = sum(weights[i] * returns[i] for i in range(n))
+   ```
+
+2. **Pre-allocate constraints** when possible:
+   ```python
+   # Good: single slice
+   constraints = x[:5] <= limits[:5]
+   
+   # Slower: multiple indexing
+   constraints = [x[i] <= limits[i] for i in range(5)]
+   ```
+
+3. **Use native norms** for regularization:
+   ```python
+   from optyx.core.vectors import norm
+   
+   # Good: native L2 norm with analytic gradient
+   penalty = norm(x)
+   
+   # Slower: builds sum expression
+   penalty = sum(x[i]**2 for i in range(n))**0.5
+   ```
+
+---
+
+## Summary
+
+| Feature | Syntax | Description |
+|---------|--------|-------------|
+| Create | `VectorVariable("x", n)` | n-element vector |
+| Index | `x[i]`, `x[-1]` | Single Variable |
+| Slice | `x[2:5]` | Sub-VectorVariable |
+| Sum | `x.sum()` | Sum of all elements |
+| Dot | `x @ y` or `arr @ x` | Dot product |
+| L2 Norm | `norm(x)` or `x.norm()` | √(Σxᵢ²) |
+| L1 Norm | `norm(x, ord=1)` | Σ\|xᵢ\| |
+| Length | `len(x)` | Number of elements |
+| Iterate | `for v in x` | Loop over elements |
+
+---
+
+## Next Steps
+
+- [Matrix Variables](matrices.qmd) — Work with 2D arrays of variables
+- [Advanced Portfolio Optimization](../examples/portfolio-advanced.qmd) — Full covariance model with QuadraticForm
+- [API Reference](../api/reference/index.qmd) — Complete VectorVariable documentation

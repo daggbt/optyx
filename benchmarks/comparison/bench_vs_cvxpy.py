@@ -24,7 +24,7 @@ try:
 except ImportError:
     CVXPY_AVAILABLE = False
 
-from optyx import Variable, Problem
+from optyx import Variable, Problem, VectorVariable, QuadraticForm
 
 
 pytestmark = pytest.mark.skipif(not CVXPY_AVAILABLE, reason="cvxpy not installed")
@@ -73,7 +73,7 @@ class TestLPComparison:
         print(f"\nSmall LP - Optyx vs CVXPY:\n{result}")
 
     def test_medium_lp(self):
-        """Medium LP: 20 variables, 15 constraints (vectorized)."""
+        """Medium LP: 20 variables, 15 constraints (VectorVariable)."""
         n, m = 20, 15
         np.random.seed(42)
 
@@ -81,8 +81,8 @@ class TestLPComparison:
         A = np.random.rand(m, n)
         b = np.sum(A, axis=1) * 0.5
 
-        # Optyx (vectorized with numpy @ operator)
-        x = np.array([Variable(f"x{i}", lb=0, ub=1) for i in range(n)])
+        # Optyx with VectorVariable
+        x = VectorVariable("x", n, lb=0, ub=1)
         prob = Problem(name="medium_lp")
         prob.maximize(c @ x)  # Vectorized objective
         for i in range(m):
@@ -111,7 +111,7 @@ class TestLPComparison:
             return cvxpy_prob.value
 
         result = compare_timing(optyx_run, cvxpy_run, n_warmup=3, n_runs=20)
-        print(f"\nMedium LP - Optyx vs CVXPY:\n{result}")
+        print(f"\nMedium LP (n=20) - Optyx VectorVariable vs CVXPY:\n{result}")
 
 
 class TestQPComparison:
@@ -155,12 +155,10 @@ class TestQPComparison:
         print(f"\nSimple QP - Optyx vs CVXPY:\n{result}")
 
     def test_portfolio_qp(self):
-        """Portfolio optimization QP (quadratic form).
+        """Portfolio optimization QP with QuadraticForm.
 
-        NOTE: Optyx expression trees create O(n²) terms for quadratic forms,
-        while CVXPY uses specialized matrix operations. For dense QP problems,
-        CVXPY is significantly faster. Optyx shines for NLP where autodiff
-        provides value over CVXPY's convex-only restriction.
+        Uses Optyx's QuadraticForm for efficient w.T @ cov @ w computation
+        with analytic gradients, compared against CVXPY's quad_form.
         """
         n = 10  # assets
         np.random.seed(42)
@@ -169,14 +167,15 @@ class TestQPComparison:
         cov = np.eye(n) * 0.04 + np.random.rand(n, n) * 0.01
         cov = (cov + cov.T) / 2  # Symmetrize
 
-        # Optyx - vectorized quadratic form using @ operator
-        w = np.array([Variable(f"w{i}", lb=0, ub=1) for i in range(n)])
+        # Optyx with VectorVariable and QuadraticForm
+        w = VectorVariable("w", n, lb=0, ub=1)
         prob = Problem(name="portfolio")
-        expected_return = returns @ w  # Vectorized expected return
-        variance = w @ cov @ w  # Vectorized quadratic form: w^T @ cov @ w
+        expected_return = returns @ w  # LinearCombination
+        variance = QuadraticForm(w, cov)  # Efficient w.T @ cov @ w
         prob.maximize(expected_return - 0.5 * variance)
-        prob.subject_to(np.sum(w).constraint_eq(1))
+        prob.subject_to(w.sum().eq(1))
 
+        # Auto method selection (now defaults to SLSQP for constrained problems)
         optyx_sol = prob.solve()
 
         # CVXPY
@@ -192,7 +191,7 @@ class TestQPComparison:
         assert optyx_sol.is_optimal
         assert cvxpy_prob.status == cp.OPTIMAL
 
-        # Compare timing
+        # Compare timing (warm solves)
         def optyx_run():
             return prob.solve()
 
@@ -201,7 +200,55 @@ class TestQPComparison:
             return cvxpy_prob.value
 
         result = compare_timing(optyx_run, cvxpy_run, n_warmup=3, n_runs=10)
-        print(f"\nPortfolio QP - Optyx vs CVXPY:\n{result}")
+        print(
+            f"\nPortfolio QP (n=10) - Optyx QuadraticForm vs CVXPY quad_form:\n{result}"
+        )
+
+    def test_large_portfolio_qp(self):
+        """Larger portfolio optimization (n=50) to show scaling."""
+        n = 50  # assets
+        np.random.seed(42)
+
+        returns = np.random.rand(n) * 0.1 + 0.05
+        cov = np.eye(n) * 0.04 + np.random.rand(n, n) * 0.01
+        cov = (cov + cov.T) / 2  # Symmetrize
+
+        # Optyx with VectorVariable and QuadraticForm
+        w = VectorVariable("w", n, lb=0, ub=1)
+        prob = Problem(name="portfolio_large")
+        expected_return = returns @ w
+        variance = QuadraticForm(w, cov)
+        prob.maximize(expected_return - 0.5 * variance)
+        prob.subject_to(w.sum().eq(1))
+
+        # Auto method selection (now defaults to SLSQP for constrained problems)
+        optyx_sol = prob.solve()
+
+        # CVXPY
+        w_cv = cp.Variable(n, nonneg=True)
+        ret = returns @ w_cv
+        var = cp.quad_form(w_cv, cov)
+        objective = cp.Maximize(ret - 0.5 * var)
+        constraints = [cp.sum(w_cv) == 1, w_cv <= 1]
+        cvxpy_prob = cp.Problem(objective, constraints)
+        cvxpy_prob.solve()
+
+        # Compare solutions
+        assert optyx_sol.is_optimal
+        assert cvxpy_prob.status == cp.OPTIMAL
+
+        # Compare timing (warm solves)
+        def optyx_run():
+            return prob.solve()
+
+        def cvxpy_run():
+            cvxpy_prob.solve()
+            return cvxpy_prob.value
+
+        result = compare_timing(optyx_run, cvxpy_run, n_warmup=3, n_runs=10)
+        print(
+            f"\nPortfolio QP (n=50) - Optyx QuadraticForm vs CVXPY quad_form:\n{result}"
+        )
 
 
 if __name__ == "__main__":
@@ -220,3 +267,4 @@ if __name__ == "__main__":
     test_qp = TestQPComparison()
     test_qp.test_simple_qp()
     test_qp.test_portfolio_qp()
+    test_qp.test_large_portfolio_qp()

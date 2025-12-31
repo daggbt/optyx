@@ -345,33 +345,44 @@ class Problem:
         Decision tree:
         1. Linear problem → "linprog" (handled separately in solve())
         2. Unconstrained:
-           - n ≤ 3 → "Nelder-Mead" (no gradient overhead)
-           - n > 1000 → "L-BFGS-B" (memory efficient)
-           - else → "BFGS" (fast with gradients)
+           - n > 1000 → "L-BFGS-B" (memory efficient for large problems)
+           - else → "L-BFGS-B" (fast, handles bounds, good default)
         3. Only simple bounds → "L-BFGS-B"
-        4. Has equality constraints → "trust-constr"
-        5. Inequality only → "SLSQP"
-        """
-        n = len(self.variables)
+        4. Non-linear + constraints → "trust-constr" (robust for non-convex)
+        5. Linear/quadratic + constraints → "SLSQP" (faster, with fallback)
 
-        # Unconstrained
+        Note: If SLSQP produces a solution that violates constraints, the
+        solver will automatically retry with trust-constr (see solve_scipy).
+        """
+        from optyx.analysis import compute_degree
+
+        # Unconstrained - use L-BFGS-B (fast, memory-efficient, handles bounds)
         if not self._constraints:
-            if n <= SMALL_PROBLEM_THRESHOLD:
-                return "Nelder-Mead"
-            elif n > LARGE_PROBLEM_THRESHOLD:
-                return "L-BFGS-B"
-            else:
-                return "BFGS"
+            return "L-BFGS-B"
 
         # Only variable bounds (no general constraints)
         if self._only_simple_bounds():
             return "L-BFGS-B"
 
-        # Has equality constraints → use trust-constr (most robust)
-        if self._has_equality_constraints():
-            return "trust-constr"
+        # Check if objective is non-linear (degree > 2 or contains transcendental functions)
+        obj = self.objective
+        if obj is not None:
+            degree = compute_degree(obj)
+            # degree is None for transcendental functions (exp, log, etc.)
+            # degree > 2 means higher-order polynomial
+            # Both cases indicate non-linear that needs robust solver
+            if degree is None or degree > 2:
+                # Use trust-constr for non-linear objectives - more robust for non-convex
+                return "trust-constr"
 
-        # Inequality-only constraints → use SLSQP (fast)
+        # Check if any constraint is non-linear (degree > 2 or transcendental)
+        for c in self._constraints:
+            c_degree = compute_degree(c.expr)
+            if c_degree is None or c_degree > 2:
+                # Non-linear constraint requires robust solver
+                return "trust-constr"
+
+        # General constraints with linear/quadratic objective → SLSQP (with fallback)
         return "SLSQP"
 
     def solve(
@@ -386,12 +397,9 @@ class Problem:
             method: Solver method. Options:
                 - "auto" (default): Automatically select the best method:
                     - Linear problems → linprog (HiGHS)
-                    - Unconstrained, n ≤ 3 → Nelder-Mead
-                    - Unconstrained, n > 1000 → L-BFGS-B
-                    - Unconstrained, else → BFGS
+                    - Unconstrained → L-BFGS-B
                     - Bounds only → L-BFGS-B
-                    - Equality constraints → trust-constr
-                    - Inequality only → SLSQP
+                    - General constraints → SLSQP
                 - "linprog": Force LP solver (scipy.optimize.linprog)
                 - "SLSQP": Sequential Least Squares Programming
                 - "trust-constr": Trust-region constrained optimization

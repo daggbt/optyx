@@ -1,0 +1,45 @@
+# core.vectors.L2Norm { #optyx.core.vectors.L2Norm }
+
+```python
+core.vectors.L2Norm(vector)
+```
+
+L2 (Euclidean) norm of a vector: ||x|| = sqrt(x[0]^2 + x[1]^2 + ... + x[n-1]^2).
+
+This is a scalar expression representing the Euclidean length.
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                                                                               | Description                        | Default    |
+|--------|--------------------------------------------------------------------------------------------------------------------|------------------------------------|------------|
+| vector | [VectorVariable](`optyx.core.vectors.VectorVariable`) \| [VectorExpression](`optyx.core.vectors.VectorExpression`) | The vector to compute the norm of. | _required_ |
+
+## Example {.doc-section .doc-section-example}
+
+>>> x = VectorVariable("x", 2)
+>>> n = L2Norm(x)
+>>> n.evaluate({"x[0]": 3, "x[1]": 4})
+5.0
+
+## Methods
+
+| Name | Description |
+| --- | --- |
+| [evaluate](#optyx.core.vectors.L2Norm.evaluate) | Evaluate the L2 norm given variable values. |
+| [get_variables](#optyx.core.vectors.L2Norm.get_variables) | Return all variables this expression depends on. |
+
+### evaluate { #optyx.core.vectors.L2Norm.evaluate }
+
+```python
+core.vectors.L2Norm.evaluate(values)
+```
+
+Evaluate the L2 norm given variable values.
+
+### get_variables { #optyx.core.vectors.L2Norm.get_variables }
+
+```python
+core.vectors.L2Norm.get_variables()
+```
+
+Return all variables this expression depends on.

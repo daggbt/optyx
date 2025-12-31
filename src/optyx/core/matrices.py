@@ -21,6 +21,7 @@ from optyx.core.vectors import (
     DomainType,
     LinearCombination,
 )
+from optyx.core.errors import DimensionMismatchError
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray, ArrayLike
@@ -119,6 +120,11 @@ class MatrixVariable:
     def shape(self) -> tuple[int, int]:
         """Return the shape of the matrix as (rows, cols)."""
         return (self.rows, self.cols)
+
+    @property
+    def size(self) -> int:
+        """Return the total number of elements."""
+        return self.rows * self.cols
 
     @property
     def T(self) -> MatrixVariable:
@@ -291,6 +297,91 @@ class MatrixVariable:
         """Return the number of rows."""
         return self.rows
 
+    def rows_iter(self) -> Iterator[VectorVariable]:
+        """Iterate over rows of the matrix.
+
+        Returns:
+            Iterator of VectorVariable, one for each row.
+
+        Example:
+            >>> A = MatrixVariable("A", 3, 4)
+            >>> for i, row in enumerate(A.rows_iter()):
+            ...     print(f"Row {i}: {len(row)} elements")
+        """
+        for i in range(self.rows):
+            yield self[i, :]
+
+    def cols_iter(self) -> Iterator[VectorVariable]:
+        """Iterate over columns of the matrix.
+
+        Returns:
+            Iterator of VectorVariable, one for each column.
+
+        Example:
+            >>> A = MatrixVariable("A", 3, 4)
+            >>> for j, col in enumerate(A.cols_iter()):
+            ...     print(f"Col {j}: {len(col)} elements")
+        """
+        for j in range(self.cols):
+            yield self[:, j]
+
+    def diagonal(self) -> VectorVariable:
+        """Extract the main diagonal of a square matrix.
+
+        Returns:
+            VectorVariable containing the diagonal elements.
+
+        Raises:
+            ValueError: If the matrix is not square.
+
+        Example:
+            >>> A = MatrixVariable("A", 3, 3)
+            >>> d = A.diagonal()
+            >>> len(d)  # 3
+            >>> d[0].name  # 'A[0,0]'
+        """
+        if self.rows != self.cols:
+            raise ValueError(
+                f"diagonal() requires a square matrix, got {self.rows}x{self.cols}"
+            )
+
+        diag_vars = [self._variables[i][i] for i in range(self.rows)]
+
+        return VectorVariable._from_variables(
+            name=f"diag({self.name})",
+            variables=diag_vars,
+            lb=self.lb,
+            ub=self.ub,
+            domain=self.domain,
+        )
+
+    def trace(self) -> Expression:
+        """Compute the trace (sum of diagonal elements) of a square matrix.
+
+        Returns:
+            Expression representing the sum of diagonal elements.
+
+        Raises:
+            ValueError: If the matrix is not square.
+
+        Example:
+            >>> A = MatrixVariable("A", 3, 3)
+            >>> tr = A.trace()
+            >>> # tr = A[0,0] + A[1,1] + A[2,2]
+        """
+        from optyx.core.expressions import BinaryOp
+
+        if self.rows != self.cols:
+            raise ValueError(
+                f"trace() requires a square matrix, got {self.rows}x{self.cols}"
+            )
+
+        # Sum diagonal elements
+        result: Expression = self._variables[0][0]
+        for i in range(1, self.rows):
+            result = BinaryOp(result, self._variables[i][i], "+")
+        return result
+
     def get_variables(self) -> list[Variable]:
         """Return all variables in this matrix (row-major order).
 
@@ -377,8 +468,11 @@ class MatrixVectorProduct(VectorExpression):
 
         vec_size = vector.size if hasattr(vector, "size") else len(vector)
         if matrix.shape[1] != vec_size:
-            raise ValueError(
-                f"Matrix columns ({matrix.shape[1]}) must match vector size ({vec_size})"
+            raise DimensionMismatchError(
+                operation="matrix-vector product",
+                left_shape=matrix.shape,
+                right_shape=vec_size,
+                suggestion="Matrix columns must match vector size.",
             )
 
         self.matrix = matrix
@@ -471,8 +565,11 @@ class QuadraticForm(Expression):
 
         vec_size = vector.size if hasattr(vector, "size") else len(vector)
         if matrix.shape[0] != vec_size:
-            raise ValueError(
-                f"Matrix size ({matrix.shape[0]}) must match vector size ({vec_size})"
+            raise DimensionMismatchError(
+                operation="quadratic form",
+                left_shape=matrix.shape,
+                right_shape=vec_size,
+                suggestion="Matrix dimensions must match vector size.",
             )
 
         self.vector = vector

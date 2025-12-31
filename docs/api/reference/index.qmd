@@ -10,6 +10,31 @@ Fundamental building blocks for optimization models
 | [core.expressions.Constant](core.expressions.Constant.qmd#optyx.core.expressions.Constant) | A constant numerical value in an expression. |
 | [core.expressions.Expression](core.expressions.Expression.qmd#optyx.core.expressions.Expression) | Abstract base class for all symbolic expressions. |
 
+## Vector & Matrix Variables
+
+High-dimensional decision variables for scalable optimization
+
+| | |
+| --- | --- |
+| [core.vectors.VectorVariable](core.vectors.VectorVariable.qmd#optyx.core.vectors.VectorVariable) | A vector of optimization variables. |
+| [core.vectors.VectorExpression](core.vectors.VectorExpression.qmd#optyx.core.vectors.VectorExpression) | A vector of expressions (result of vector arithmetic). |
+| [core.vectors.DotProduct](core.vectors.DotProduct.qmd#optyx.core.vectors.DotProduct) | Dot product of two vectors: x · y = x[0]*y[0] + x[1]*y[1] + ... + x[n-1]*y[n-1]. |
+| [core.vectors.L2Norm](core.vectors.L2Norm.qmd#optyx.core.vectors.L2Norm) | L2 (Euclidean) norm of a vector: \|\|x\|\| = sqrt(x[0]^2 + x[1]^2 + ... + x[n-1]^2). |
+| [core.vectors.L1Norm](core.vectors.L1Norm.qmd#optyx.core.vectors.L1Norm) | L1 (Manhattan) norm of a vector: \|\|x\|\|_1 = \|x[0]\| + \|x[1]\| + ... + \|x[n-1]\|. |
+| [core.vectors.LinearCombination](core.vectors.LinearCombination.qmd#optyx.core.vectors.LinearCombination) | Linear combination of vector elements with constant coefficients. |
+| [core.matrices.MatrixVariable](core.matrices.MatrixVariable.qmd#optyx.core.matrices.MatrixVariable) | A 2D matrix of optimization variables. |
+| [core.matrices.QuadraticForm](core.matrices.QuadraticForm.qmd#optyx.core.matrices.QuadraticForm) | Quadratic form: x' @ Q @ x where Q is a constant matrix. |
+| [core.matrices.MatrixVectorProduct](core.matrices.MatrixVectorProduct.qmd#optyx.core.matrices.MatrixVectorProduct) | Matrix-vector product: A @ x where A is a constant matrix. |
+
+## Parameters
+
+Updatable constants for fast re-solves
+
+| | |
+| --- | --- |
+| [core.parameters.Parameter](core.parameters.Parameter.qmd#optyx.core.parameters.Parameter) | An updatable constant for optimization problems. |
+| [core.parameters.VectorParameter](core.parameters.VectorParameter.qmd#optyx.core.parameters.VectorParameter) | A vector of parameters for array-valued constants. |
+
 ## Constraints
 
 Equality and inequality constraints

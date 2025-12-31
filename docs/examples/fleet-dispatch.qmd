@@ -93,32 +93,29 @@ $$
 ## Implementation
 
 ```{python}
+from optyx import VectorVariable
+
+# Productivity (t/h per truck)
+productivity = truck_payload * 60 / cycle_times
+
 # Decision variables: trucks per shovel (continuous relaxation)
-x = [Variable(f"trucks_{i}", lb=0, ub=n_trucks) for i in range(n_shovels)]
+# We set lb=1 to ensure minimum trucks per active shovel
+x = VectorVariable("trucks", n_shovels, lb=1, ub=n_trucks)
 
-# Throughput from each shovel
-throughputs = [
-    x[i] * truck_payload * 60 / cycle_times[i] 
-    for i in range(n_shovels)
-]
-total_throughput = sum(throughputs)
-
-# Constraints
-fleet_constraint = sum(x) <= n_trucks
-crusher_constraint = total_throughput <= crusher_capacity
-shovel_constraints = [throughputs[i] <= shovel_dig_rates[i] for i in range(n_shovels)]
+# Total throughput: dot product of productivity and trucks
+total_throughput = productivity @ x
 
 # Build problem
 prob = Problem("fleet_dispatch").maximize(total_throughput)
-prob.subject_to(fleet_constraint)
-prob.subject_to(crusher_constraint)
-for c in shovel_constraints:
-    prob.subject_to(c)
 
-# Add minimum trucks per active shovel
-min_trucks = 1
+# Constraints
+prob.subject_to(x.sum() <= n_trucks)
+prob.subject_to(total_throughput <= crusher_capacity)
+
+# Shovel capacity constraints
+# Each shovel's throughput must not exceed its dig rate
 for i in range(n_shovels):
-    prob.subject_to(x[i] >= min_trucks)
+    prob.subject_to(x[i] * productivity[i] <= shovel_dig_rates[i])
 ```
 
 ---
@@ -141,10 +138,13 @@ print("Optimal Truck Assignments:")
 print(f"{'Shovel':<15} {'Trucks':>8} {'Throughput':>12} {'Utilization':>12}")
 print("-" * 50)
 
+# Get solution values as numpy array
+x_opt = x.to_numpy(solution.values)
 total_trucks = 0
+
 for i in range(n_shovels):
-    trucks = solution[f"trucks_{i}"]
-    throughput = trucks * truck_payload * 60 / cycle_times[i]
+    trucks = x_opt[i]
+    throughput = trucks * productivity[i]
     utilization = throughput / shovel_dig_rates[i] * 100
     total_trucks += trucks
     print(f"{shovel_names[i]:<15} {trucks:>8.1f} {throughput:>10.0f} t/h {utilization:>10.0f}%")
@@ -239,8 +239,11 @@ Where is the constraint binding?
 print("\nBottleneck Analysis:")
 print("-" * 40)
 
+# Get all truck assignments
+truck_assignments = solution[x]
+
 # Check fleet utilization
-fleet_used = sum(solution[f"trucks_{i}"] for i in range(n_shovels))
+fleet_used = truck_assignments.sum()
 print(f"Fleet utilization: {fleet_used:.1f}/{n_trucks} trucks ({fleet_used/n_trucks*100:.0f}%)")
 
 # Check crusher utilization
@@ -250,7 +253,7 @@ print(f"Crusher utilization: {solution.objective_value:,.0f}/{crusher_capacity} 
 # Check individual shovels
 print("\nShovel utilizations:")
 for i in range(n_shovels):
-    trucks = solution[f"trucks_{i}"]
+    trucks = truck_assignments[i]
     throughput = trucks * truck_payload * 60 / cycle_times[i]
     if throughput >= shovel_dig_rates[i] * 0.99:
         status = "← BOTTLENECK"

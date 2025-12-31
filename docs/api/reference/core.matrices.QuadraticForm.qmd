@@ -1,0 +1,51 @@
+# core.matrices.QuadraticForm { #optyx.core.matrices.QuadraticForm }
+
+```python
+core.matrices.QuadraticForm(vector, matrix)
+```
+
+Quadratic form: x' @ Q @ x where Q is a constant matrix.
+
+This represents the scalar expression xᵀQx, commonly used for:
+- Portfolio variance: w' @ Σ @ w
+- Regularization terms: x' @ I @ x = ||x||²
+- Quadratic objectives in optimization
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                                                                               | Description                                      | Default    |
+|--------|--------------------------------------------------------------------------------------------------------------------|--------------------------------------------------|------------|
+| vector | [VectorVariable](`optyx.core.vectors.VectorVariable`) \| [VectorExpression](`optyx.core.vectors.VectorExpression`) | VectorVariable or VectorExpression (the x).      | _required_ |
+| matrix | [np](`numpy`).[ndarray](`numpy.ndarray`)                                                                           | 2D NumPy array (the Q matrix, should be square). | _required_ |
+
+## Example {.doc-section .doc-section-example}
+
+>>> import numpy as np
+>>> Q = np.array([[1, 0.5], [0.5, 2]])
+>>> x = VectorVariable("x", 2)
+>>> qf = QuadraticForm(x, Q)
+>>> qf.evaluate({"x[0]": 1, "x[1]": 1})
+4.0  # 1*1 + 2*0.5*1*1 + 2*1 = 1 + 1 + 2 = 4
+
+## Methods
+
+| Name | Description |
+| --- | --- |
+| [evaluate](#optyx.core.matrices.QuadraticForm.evaluate) | Evaluate the quadratic form xᵀQx. |
+| [get_variables](#optyx.core.matrices.QuadraticForm.get_variables) | Return all variables this expression depends on. |
+
+### evaluate { #optyx.core.matrices.QuadraticForm.evaluate }
+
+```python
+core.matrices.QuadraticForm.evaluate(values)
+```
+
+Evaluate the quadratic form xᵀQx.
+
+### get_variables { #optyx.core.matrices.QuadraticForm.get_variables }
+
+```python
+core.matrices.QuadraticForm.get_variables()
+```
+
+Return all variables this expression depends on.

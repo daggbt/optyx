@@ -606,11 +606,9 @@ def plot_scaling_comparison(
             alpha=0.7,
         )
 
-    ax2.axhline(
-        y=1.0, color="tab:green", linestyle="-", linewidth=2, label="SciPy (1.0x)"
-    )
-    ax2.axhline(y=2.0, color="gray", linestyle=":", alpha=0.5, label="2x overhead")
-    ax2.axhline(y=10.0, color="gray", linestyle=":", alpha=0.3, label="10x overhead")
+    ax2.axhline(y=1.0, color="green", linestyle="--", linewidth=2, label="SciPy (1.0x)")
+    ax2.axhline(y=2.0, color="black", linestyle=":", alpha=0.5, label="2x overhead")
+    # ax2.axhline(y=10.0, color="gray", linestyle=":", alpha=0.3, label="10x overhead")
 
     ax2.set_xlabel("Problem Size (n)", fontsize=11)
     ax2.set_ylabel("Overhead vs SciPy (×)", fontsize=11)
@@ -719,6 +717,7 @@ def run_overhead_summary():
     ax.axhline(y=2.0, color="gray", linestyle=":", alpha=0.5)
 
     ax.set_ylabel("Overhead vs SciPy (×)", fontsize=11)
+    ax.set_yscale("log")
     ax.set_title(
         "Optyx End-to-End Overhead by Problem Type\n(VectorVariable, lower is better)",
         fontsize=12,
@@ -726,7 +725,7 @@ def run_overhead_summary():
     )
     ax.set_xticks(x)
     ax.set_xticklabels(categories, fontsize=10)
-    ax.legend(loc="upper right")
+    ax.legend(loc="upper left")
     ax.grid(True, alpha=0.3, axis="y")
 
     # Add value labels on bars

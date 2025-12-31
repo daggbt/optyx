@@ -448,9 +448,8 @@ def _get_variables_iterative(expr: Expression) -> set[Variable]:
             variables.update(node.get_variables())
             continue
         if isinstance(node, DotProduct):
-            # Push children for processing
-            stack.append(node.left)
-            stack.append(node.right)
+            # DotProduct has get_variables(), use it directly
+            variables.update(node.get_variables())
             continue
         if isinstance(node, (L2Norm, L1Norm)):
             variables.update(node.get_variables())

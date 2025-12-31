@@ -236,10 +236,15 @@ for i, v in enumerate(vars):
     print(f"  x_{i} = {sol[v.name]:.2f}")
 ```
 
+::: {.callout-tip}
+For larger problems, use `VectorVariable` for better performance and cleaner code.
+:::
+
 ---
 
 ## Next Steps
 
+- [Vector Variables](../api/vectors.qmd) — Scaling up to larger problems
 - [Constraints Tutorial](constraints.qmd) — Complex constraint patterns
 - [Autodiff Tutorial](autodiff.qmd) — Understanding gradients
 - [Portfolio Example](../examples/portfolio.qmd) — Real-world application

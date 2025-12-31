@@ -1,0 +1,101 @@
+---
+title: "Matrix Variables"
+description: "Working with 2D arrays of decision variables"
+date: last-modified
+---
+
+## Overview
+
+`MatrixVariable` represents a 2D grid of decision variables. It is essential for problems involving transition matrices, transport grids, or correlation matrices.
+
+```python
+from optyx import MatrixVariable
+
+# Create a 3x3 matrix of variables
+A = MatrixVariable("A", 3, 3)
+```
+
+## Creating Matrices
+
+### Basic Creation
+
+```python
+# 3x4 matrix
+X = MatrixVariable("X", 3, 4)
+
+# Non-negative matrix
+P = MatrixVariable("P", 3, 3, lb=0)
+
+# Symmetric matrix (A[i,j] == A[j,i])
+S = MatrixVariable("S", 3, 3, symmetric=True)
+```
+
+## Indexing
+
+`MatrixVariable` supports 2D indexing:
+
+```python
+A = MatrixVariable("A", 3, 3)
+
+# Single element (returns Variable)
+a_00 = A[0, 0]
+
+# Row (returns VectorVariable)
+row_0 = A[0, :]
+
+# Column (returns VectorVariable)
+col_1 = A[:, 1]
+```
+
+## Matrix Operations
+
+### Matrix-Vector Multiplication
+
+You can multiply a constant matrix by a vector variable, or a matrix variable by a constant vector.
+
+```python
+import numpy as np
+from optyx import VectorVariable
+
+A_const = np.eye(3)
+x = VectorVariable("x", 3)
+
+# Matrix-Vector product (A @ x)
+y = A_const @ x  # Returns a VectorExpression
+```
+
+### Quadratic Forms
+
+Efficiently represent $x^T Q x$ where $Q$ is a constant matrix:
+
+```python
+from optyx import QuadraticForm
+
+Q = np.array([[2, 0.5], [0.5, 2]])
+x = VectorVariable("x", 2)
+
+# Create quadratic form
+obj = QuadraticForm(x, Q)
+```
+
+## Example: Transition Matrix
+
+Finding a transition matrix $P$ that maps state $x$ to state $y$:
+
+```python
+# States
+x_state = np.array([1.0, 0.0])
+y_state = np.array([0.5, 0.5])
+
+# Variable: 2x2 Transition Matrix
+P = MatrixVariable("P", 2, 2, lb=0, ub=1)
+
+# Constraints
+# 1. Rows must sum to 1 (stochastic matrix)
+prob.subject_to([sum(P[i, :]) == 1 for i in range(2)])
+
+# 2. Must map x to y: x @ P == y
+# Note: x is 1x2, P is 2x2 -> result is 1x2
+mapped = x_state @ P
+prob.subject_to(mapped.eq(y_state))
+```

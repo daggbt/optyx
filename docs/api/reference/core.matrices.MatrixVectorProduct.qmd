@@ -1,0 +1,49 @@
+# core.matrices.MatrixVectorProduct { #optyx.core.matrices.MatrixVectorProduct }
+
+```python
+core.matrices.MatrixVectorProduct(matrix, vector)
+```
+
+Matrix-vector product: A @ x where A is a constant matrix.
+
+This creates a VectorExpression where each element is a linear combination
+of the vector elements weighted by the corresponding matrix row.
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                                                                               | Description                                     | Default    |
+|--------|--------------------------------------------------------------------------------------------------------------------|-------------------------------------------------|------------|
+| matrix | [np](`numpy`).[ndarray](`numpy.ndarray`)                                                                           | 2D NumPy array (constant coefficients).         | _required_ |
+| vector | [VectorVariable](`optyx.core.vectors.VectorVariable`) \| [VectorExpression](`optyx.core.vectors.VectorExpression`) | VectorVariable or VectorExpression to multiply. | _required_ |
+
+## Example {.doc-section .doc-section-example}
+
+>>> import numpy as np
+>>> A = np.array([[1, 2], [3, 4]])
+>>> x = VectorVariable("x", 2)
+>>> product = MatrixVectorProduct(A, x)
+>>> product.evaluate({"x[0]": 1, "x[1]": 2})
+[5.0, 11.0]  # [1*1+2*2, 3*1+4*2]
+
+## Methods
+
+| Name | Description |
+| --- | --- |
+| [evaluate](#optyx.core.matrices.MatrixVectorProduct.evaluate) | Evaluate the matrix-vector product. |
+| [get_variables](#optyx.core.matrices.MatrixVectorProduct.get_variables) | Return all variables this expression depends on. |
+
+### evaluate { #optyx.core.matrices.MatrixVectorProduct.evaluate }
+
+```python
+core.matrices.MatrixVectorProduct.evaluate(values)
+```
+
+Evaluate the matrix-vector product.
+
+### get_variables { #optyx.core.matrices.MatrixVectorProduct.get_variables }
+
+```python
+core.matrices.MatrixVectorProduct.get_variables()
+```
+
+Return all variables this expression depends on.

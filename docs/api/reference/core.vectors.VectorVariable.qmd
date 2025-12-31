@@ -1,0 +1,215 @@
+# core.vectors.VectorVariable { #optyx.core.vectors.VectorVariable }
+
+```python
+core.vectors.VectorVariable(name, size, lb=None, ub=None, domain='continuous')
+```
+
+A vector of optimization variables.
+
+VectorVariable creates and manages a collection of scalar Variable instances,
+providing natural indexing, slicing, and iteration.
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                          | Description                                                                 | Default        |
+|--------|-----------------------------------------------|-----------------------------------------------------------------------------|----------------|
+| name   | [str](`str`)                                  | Base name for the vector. Elements are named "{name}[0]", "{name}[1]", etc. | _required_     |
+| size   | [int](`int`)                                  | Number of elements in the vector.                                           | _required_     |
+| lb     | [float](`float`) \| None                      | Lower bound applied to all elements (None for unbounded).                   | `None`         |
+| ub     | [float](`float`) \| None                      | Upper bound applied to all elements (None for unbounded).                   | `None`         |
+| domain | [DomainType](`optyx.core.vectors.DomainType`) | Variable type for all elements - 'continuous', 'integer', or 'binary'.      | `'continuous'` |
+
+## Example {.doc-section .doc-section-example}
+
+>>> x = VectorVariable("x", 5, lb=0)
+>>> x[0]  # Variable named "x[0]" with lb=0
+>>> x[1:3]  # VectorVariable with elements x[1], x[2]
+>>> len(x)  # 5
+>>> for v in x: print(v.name)  # x[0], x[1], ..., x[4]
+
+## Methods
+
+| Name | Description |
+| --- | --- |
+| [dot](#optyx.core.vectors.VectorVariable.dot) | Compute dot product with another vector. |
+| [eq](#optyx.core.vectors.VectorVariable.eq) | Element-wise == constraint. |
+| [from_numpy](#optyx.core.vectors.VectorVariable.from_numpy) | Create a VectorVariable with size inferred from a NumPy array. |
+| [get_variables](#optyx.core.vectors.VectorVariable.get_variables) | Return all variables in this vector. |
+| [norm](#optyx.core.vectors.VectorVariable.norm) | Compute the norm of this vector. |
+| [sum](#optyx.core.vectors.VectorVariable.sum) | Compute sum of all elements in the vector. |
+| [to_numpy](#optyx.core.vectors.VectorVariable.to_numpy) | Extract solution values as a NumPy array. |
+
+### dot { #optyx.core.vectors.VectorVariable.dot }
+
+```python
+core.vectors.VectorVariable.dot(other)
+```
+
+Compute dot product with another vector.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                                                                               | Description                         | Default    |
+|--------|--------------------------------------------------------------------------------------------------------------------|-------------------------------------|------------|
+| other  | [VectorVariable](`optyx.core.vectors.VectorVariable`) \| [VectorExpression](`optyx.core.vectors.VectorExpression`) | Vector to compute dot product with. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                          | Description                     |
+|--------|-----------------------------------------------|---------------------------------|
+|        | [DotProduct](`optyx.core.vectors.DotProduct`) | DotProduct expression (scalar). |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> x = VectorVariable("x", 3)
+>>> y = VectorVariable("y", 3)
+>>> d = x.dot(y)
+>>> d.evaluate({"x[0]": 1, "x[1]": 2, "x[2]": 3, "y[0]": 4, "y[1]": 5, "y[2]": 6})
+32.0
+
+### eq { #optyx.core.vectors.VectorVariable.eq }
+
+```python
+core.vectors.VectorVariable.eq(other)
+```
+
+Element-wise == constraint.
+
+#### Example {.doc-section .doc-section-example}
+
+>>> x = VectorVariable("x", 3)
+>>> y = VectorVariable("y", 3)
+>>> constraints = x.eq(y)  # 3 constraints: x[i] == y[i]
+
+### from_numpy { #optyx.core.vectors.VectorVariable.from_numpy }
+
+```python
+core.vectors.VectorVariable.from_numpy(
+    name,
+    array,
+    lb=None,
+    ub=None,
+    domain='continuous',
+)
+```
+
+Create a VectorVariable with size inferred from a NumPy array.
+
+The array values are not stored - this is just a convenience
+method to create a vector matching the array's shape.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                          | Description                                    | Default        |
+|--------|-----------------------------------------------|------------------------------------------------|----------------|
+| name   | [str](`str`)                                  | Base name for the vector variables.            | _required_     |
+| array  | [np](`numpy`).[ndarray](`numpy.ndarray`)      | NumPy array to match size (1D array expected). | _required_     |
+| lb     | [float](`float`) \| None                      | Lower bound for all variables.                 | `None`         |
+| ub     | [float](`float`) \| None                      | Upper bound for all variables.                 | `None`         |
+| domain | [DomainType](`optyx.core.vectors.DomainType`) | Variable domain type.                          | `'continuous'` |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                  | Description                                  |
+|--------|-------------------------------------------------------|----------------------------------------------|
+|        | [VectorVariable](`optyx.core.vectors.VectorVariable`) | VectorVariable with size matching the array. |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> import numpy as np
+>>> data = np.array([1.0, 2.0, 3.0, 4.0])
+>>> x = VectorVariable.from_numpy("x", data, lb=0)
+>>> len(x)
+4
+
+### get_variables { #optyx.core.vectors.VectorVariable.get_variables }
+
+```python
+core.vectors.VectorVariable.get_variables()
+```
+
+Return all variables in this vector.
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                            | Description                          |
+|--------|-----------------------------------------------------------------|--------------------------------------|
+|        | [list](`list`)\[[Variable](`optyx.core.expressions.Variable`)\] | List of Variable instances in order. |
+
+### norm { #optyx.core.vectors.VectorVariable.norm }
+
+```python
+core.vectors.VectorVariable.norm(ord=2)
+```
+
+Compute the norm of this vector.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type         | Description                                                    | Default   |
+|--------|--------------|----------------------------------------------------------------|-----------|
+| ord    | [int](`int`) | Order of the norm. 2 for L2 (Euclidean), 1 for L1 (Manhattan). | `2`       |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                                           | Description                           |
+|--------|--------------------------------------------------------------------------------|---------------------------------------|
+|        | [L2Norm](`optyx.core.vectors.L2Norm`) \| [L1Norm](`optyx.core.vectors.L1Norm`) | L2Norm or L1Norm expression (scalar). |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> x = VectorVariable("x", 2)
+>>> n = x.norm()  # L2 norm
+>>> n.evaluate({"x[0]": 3, "x[1]": 4})
+5.0
+>>> n1 = x.norm(1)  # L1 norm
+>>> n1.evaluate({"x[0]": 3, "x[1]": -4})
+7.0
+
+### sum { #optyx.core.vectors.VectorVariable.sum }
+
+```python
+core.vectors.VectorVariable.sum()
+```
+
+Compute sum of all elements in the vector.
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                        | Description                    |
+|--------|---------------------------------------------|--------------------------------|
+|        | [VectorSum](`optyx.core.vectors.VectorSum`) | VectorSum expression (scalar). |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> x = VectorVariable("x", 3)
+>>> s = x.sum()
+>>> s.evaluate({"x[0]": 1, "x[1]": 2, "x[2]": 3})
+6.0
+
+### to_numpy { #optyx.core.vectors.VectorVariable.to_numpy }
+
+```python
+core.vectors.VectorVariable.to_numpy(solution)
+```
+
+Extract solution values as a NumPy array.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name     | Type                                                          | Description                                  | Default    |
+|----------|---------------------------------------------------------------|----------------------------------------------|------------|
+| solution | [Mapping](`typing.Mapping`)\[[str](`str`), [float](`float`)\] | Dictionary mapping variable names to values. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                     | Description                              |
+|--------|------------------------------------------|------------------------------------------|
+|        | [np](`numpy`).[ndarray](`numpy.ndarray`) | NumPy array of solution values in order. |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> x = VectorVariable("x", 3)
+>>> solution = {"x[0]": 1.0, "x[1]": 2.0, "x[2]": 3.0}
+>>> x.to_numpy(solution)
+array([1., 2., 3.])

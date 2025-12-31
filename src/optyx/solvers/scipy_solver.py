@@ -121,11 +121,34 @@ def solve_scipy(
     scipy_constraints = cache["scipy_constraints"]
     bounds = cache["bounds"]
 
+    # Track if we've warned about inf/nan to avoid spamming
+    _inf_nan_warned = [False]  # Use list to allow mutation in nested function
+
     def objective(x: np.ndarray) -> float:
-        return float(obj_fn(x))
+        val = float(obj_fn(x))
+        if not np.isfinite(val) and not _inf_nan_warned[0]:
+            warnings.warn(
+                f"Objective function returned {val} at point {x}. "
+                "This may indicate evaluation at a singularity (e.g., log(0), 1/0). "
+                "Consider adjusting variable bounds or initial point.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            _inf_nan_warned[0] = True
+        return val
 
     def gradient(x: np.ndarray) -> np.ndarray:
-        return grad_fn(x).flatten()
+        grad = grad_fn(x).flatten()
+        if not np.all(np.isfinite(grad)) and not _inf_nan_warned[0]:
+            warnings.warn(
+                f"Gradient contains inf/nan values at point {x}. "
+                "This may indicate evaluation near a singularity. "
+                "Consider adjusting variable bounds or initial point.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            _inf_nan_warned[0] = True
+        return grad
 
     # Build Hessian for methods that support it (not cached - method-dependent)
     hess_fn: Callable[[np.ndarray], np.ndarray] | None = None
@@ -202,12 +225,56 @@ def solve_scipy(
 
     solve_time = time.perf_counter() - start_time
 
+    # Check if constraints are satisfied (SLSQP can return "optimal" with violated constraints)
+    # Use scaled tolerance: atol + rtol * max(1, |constraint_value|)
+    atol = tol if tol is not None else 1e-6
+    rtol = 1e-6
+    constraints_violated = False
+    max_violation = 0.0
+
+    if result.success and scipy_constraints:
+        for c in scipy_constraints:
+            c_val = c["fun"](result.x)
+            # Scaled tolerance based on constraint magnitude
+            scaled_tol = atol + rtol * max(1.0, abs(c_val))
+
+            if c["type"] == "ineq" and c_val < -scaled_tol:
+                # Inequality constraint violated (should be >= 0)
+                violation = -c_val
+                max_violation = max(max_violation, violation)
+                constraints_violated = True
+            elif c["type"] == "eq" and abs(c_val) > scaled_tol:
+                # Equality constraint violated (should be == 0)
+                violation = abs(c_val)
+                max_violation = max(max_violation, violation)
+                constraints_violated = True
+
+    # If SLSQP returned "optimal" but constraints are violated, retry with trust-constr
+    if constraints_violated and method == "SLSQP":
+        warnings.warn(
+            f"SLSQP returned a solution that violates constraints (max violation: {max_violation:.2e}). "
+            "Retrying with trust-constr method for more robust optimization.",
+            UserWarning,
+            stacklevel=3,
+        )
+        # Recursive call with trust-constr
+        return solve_scipy(
+            problem=problem,
+            method="trust-constr",
+            x0=x0,
+            tol=tol,
+            maxiter=maxiter,
+            use_hessian=use_hessian,
+            strict=strict,
+            **kwargs,
+        )
+
     # Map SciPy result to Solution
-    if result.success:
+    if result.success and not constraints_violated:
         status = SolverStatus.OPTIMAL
     elif "maximum" in result.message.lower() and "iteration" in result.message.lower():
         status = SolverStatus.MAX_ITERATIONS
-    elif "infeasible" in result.message.lower():
+    elif "infeasible" in result.message.lower() or constraints_violated:
         status = SolverStatus.INFEASIBLE
     elif "positive directional derivative" in result.message.lower():
         # SLSQP reports this when it converged but hit numerical precision limits
@@ -236,25 +303,41 @@ def solve_scipy(
     )
 
 
-def _compute_initial_point(variables: list) -> np.ndarray:
+def _compute_initial_point(
+    variables: list, problem: "Problem | None" = None
+) -> np.ndarray:
     """Compute a reasonable initial point from variable bounds.
 
     Strategy:
-    - If both bounds exist: use midpoint
-    - If only lower bound: use lb + 1
+    - If both bounds exist: use interior point lb + epsilon*(ub-lb) to avoid
+      singularities at boundaries (e.g., log(0), 1/0)
+    - If only lower bound: use lb + epsilon to stay interior
     - If only upper bound: use ub - 1
     - If unbounded: use 0
+
+    Note: Using strictly interior points avoids singularities for functions
+    like log(x), 1/x, sqrt(x) when lb=0. The epsilon offset (1% of range or
+    1e-4 minimum) provides a safe starting point.
     """
     x0 = np.zeros(len(variables))
+
+    # Small epsilon for interior point calculation
+    _INTERIOR_EPSILON = 1e-4
+    _INTERIOR_FRACTION = 0.01  # 1% of range
 
     for i, v in enumerate(variables):
         lb = v.lb if v.lb is not None else -np.inf
         ub = v.ub if v.ub is not None else np.inf
 
         if np.isfinite(lb) and np.isfinite(ub):
-            x0[i] = (lb + ub) / 2
+            # Use interior point: lb + small fraction of range
+            range_size = ub - lb
+            epsilon = max(_INTERIOR_EPSILON, _INTERIOR_FRACTION * range_size)
+            # Ensure we don't exceed upper bound
+            x0[i] = min(lb + epsilon, (lb + ub) / 2)
         elif np.isfinite(lb):
-            x0[i] = lb + 1.0
+            # Interior to lower bound
+            x0[i] = lb + _INTERIOR_EPSILON
         elif np.isfinite(ub):
             x0[i] = ub - 1.0
         else:

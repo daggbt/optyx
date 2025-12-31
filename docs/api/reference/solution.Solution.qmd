@@ -40,15 +40,19 @@ solution.Solution.get(var, default=None)
 
 Get the optimal value of a variable with a default.
 
+For scalar Variable: returns float.
+For VectorVariable: returns 1D numpy array.
+For MatrixVariable: returns 2D numpy array.
+
 #### Parameters {.doc-section .doc-section-parameters}
 
-| Name    | Type                                                          | Description                            | Default    |
-|---------|---------------------------------------------------------------|----------------------------------------|------------|
-| var     | [Variable](`optyx.core.expressions.Variable`) \| [str](`str`) | Variable object or variable name.      | _required_ |
-| default | [float](`float`) \| None                                      | Value to return if variable not found. | `None`     |
+| Name    | Type                                                                                                                                                                             | Description                                                 | Default    |
+|---------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------|------------|
+| var     | [Variable](`optyx.core.expressions.Variable`) \| [VectorVariable](`optyx.core.vectors.VectorVariable`) \| [MatrixVariable](`optyx.core.matrices.MatrixVariable`) \| [str](`str`) | Variable, VectorVariable, MatrixVariable, or variable name. | _required_ |
+| default | [float](`float`) \| [NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[floating](`numpy.floating`)\] \| None                                                                      | Value to return if variable not found.                      | `None`     |
 
 #### Returns {.doc-section .doc-section-returns}
 
-| Name   | Type                     | Description                   |
-|--------|--------------------------|-------------------------------|
-|        | [float](`float`) \| None | The optimal value or default. |
+| Name   | Type                                                                                                        | Description                      |
+|--------|-------------------------------------------------------------------------------------------------------------|----------------------------------|
+|        | [float](`float`) \| [NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[floating](`numpy.floating`)\] \| None | The optimal value(s) or default. |
