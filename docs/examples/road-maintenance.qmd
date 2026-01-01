@@ -68,14 +68,14 @@ Expanding this manually is tedious. Optyx computes it **symbolically and exactly
 
 ```{python}
 import numpy as np
-from optyx import Variable, Problem, exp
+from optyx import Variable, VectorVariable, Problem, exp
 from optyx.core.compiler import compile_gradient
 
 # Road network data
 roads = ["Hwy 101", "Route 66", "I-95", "Main St", "Broadway"]
-traffic = [50000, 12000, 85000, 5000, 15000]  # Daily vehicles
-current_pci = [45, 60, 35, 70, 55]           # Current condition
-decay_rate = [5, 3, 8, 2, 4]                 # Annual deterioration
+traffic = np.array([50000, 12000, 85000, 5000, 15000])  # Daily vehicles
+current_pci = np.array([45, 60, 35, 70, 55])           # Current condition
+decay_rate = np.array([5, 3, 8, 2, 4])                 # Annual deterioration
 
 total_budget = 10.0  # $10M available
 max_per_road = 5.0   # Max $5M per road
@@ -92,10 +92,10 @@ for i, road in enumerate(roads):
 
 ```{python}
 # Decision variables
-road_ids = ["hwy101", "route66", "i95", "main_st", "broadway"]
-budget_vars = [Variable(f"budget_{rid}", lb=0.0, ub=max_per_road) for rid in road_ids]
+budget = VectorVariable("budget", len(roads), lb=0.0, ub=max_per_road)
 
 # Non-linear models as optyx expressions
+# These functions work element-wise on VectorVariables
 def repair_model(spend):
     """Diminishing returns: Gain = 40 * (1 - exp(-0.5 * spend))"""
     return 40.0 * (1 - exp(-0.5 * spend))
@@ -105,13 +105,12 @@ def satisfaction_model(pci):
     return 100.0 / (1 + exp(-0.12 * (pci - 50)))
 
 # Build objective: maximize total weighted satisfaction
-total_utility = 0
-for i in range(len(roads)):
-    future_pci = current_pci[i] - decay_rate[i] + repair_model(budget_vars[i])
-    user_sat = satisfaction_model(future_pci)
-    total_utility += traffic[i] * user_sat
+# Vectorized operations:
+future_pci = current_pci - decay_rate + repair_model(budget)
+user_sat = satisfaction_model(future_pci)
+total_utility = traffic @ user_sat
 
-print("✓ Symbolic model built with nested exp() and sigmoid functions")
+print("✓ Symbolic model built with vectorized operations")
 ```
 
 ---
@@ -120,10 +119,10 @@ print("✓ Symbolic model built with nested exp() and sigmoid functions")
 
 ```{python}
 # Compile the gradient function
-grad_fn = compile_gradient(total_utility, budget_vars)
+grad_fn = compile_gradient(total_utility, budget)
 
 # Evaluate at uniform $1M allocation
-test_point = np.array([1.0, 1.0, 1.0, 1.0, 1.0])
+test_point = np.ones(len(roads))
 grad_values = grad_fn(test_point)
 
 print("Marginal Utility at $1M uniform allocation:")
@@ -142,9 +141,7 @@ The gradient shows **I-95** has 25× higher marginal utility than **Main St** �
 
 ```{python}
 # Add penalty for unspent budget (encourages full allocation)
-budget_sum = budget_vars[0]
-for v in budget_vars[1:]:
-    budget_sum = budget_sum + v
+budget_sum = budget.sum()
 
 penalty = 1e6 * (budget_sum - total_budget) ** 2
 penalized_utility = total_utility - penalty
@@ -169,9 +166,12 @@ print("-" * 70)
 print(f"{'Road':<12} {'Traffic':>10} {'Old PCI':>10} {'Budget':>10} {'New PCI':>10} {'Satisf%':>10}")
 print("-" * 70)
 
+# Get all budget values at once
+budget_vals = sol[budget]
+
 total_spent = 0
 for i, road in enumerate(roads):
-    spend = sol[budget_vars[i]]
+    spend = budget_vals[i]
     total_spent += spend
     
     pci_gain = 40.0 * (1 - np.exp(-0.5 * spend))

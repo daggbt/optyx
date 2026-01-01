@@ -188,17 +188,29 @@ $$
 f(\mathbf{x}) = \sum_{i=1}^{n-1} \left[ 100(x_{i+1} - x_i^2)^2 + (1 - x_i)^2 \right]
 $$
 
+We can implement this efficiently using `VectorVariable` and slicing:
+
 ```{python}
-from optyx import Variable, Problem
+from optyx import Variable, VectorVariable, Problem
 
 def solve_nd_rosenbrock(n):
-    """Solve n-dimensional Rosenbrock."""
-    x = [Variable(f"x_{i}") for i in range(n)]
+    """Solve n-dimensional Rosenbrock using VectorVariable."""
+    x = VectorVariable("x", n)
     
-    f = sum(
-        100*(x[i+1] - x[i]**2)**2 + (1 - x[i])**2
-        for i in range(n-1)
-    )
+    # Vectorized construction:
+    # x_next is x[1:] (indices 1 to n-1)
+    # x_curr is x[:-1] (indices 0 to n-2)
+    x_next = x[1:]
+    x_curr = x[:-1]
+    
+    # Term 1: 100 * (x_{i+1} - x_i^2)^2
+    term1 = 100 * (x_next - x_curr**2)**2
+    
+    # Term 2: (1 - x_i)^2
+    term2 = (1 - x_curr)**2
+    
+    # Sum over the vector expression
+    f = (term1 + term2).sum()
     
     sol = Problem(f"rosenbrock_{n}d").minimize(f).solve()
     return sol
@@ -209,7 +221,7 @@ print("-" * 50)
 print(f"{'N':>4} | {'Objective':>12} | {'Time (ms)':>10} | {'Iterations':>10}")
 print("-" * 50)
 
-for n in [2, 3, 5, 10]:
+for n in [2, 3, 5, 10, 20]:
     sol = solve_nd_rosenbrock(n)
     print(f"{n:>4} | {sol.objective_value:>12.2e} | {sol.solve_time*1000:>10.1f} | {sol.iterations:>10}")
 ```

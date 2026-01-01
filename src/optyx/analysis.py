@@ -49,37 +49,46 @@ def compute_degree(expr: Expression) -> Optional[int]:
     return _compute_degree_cached(id(expr), expr)
 
 
-def _estimate_tree_depth(expr: Expression) -> int:
+def _estimate_tree_depth(expr: Expression, max_depth: int = 500) -> int:
     """Estimate the depth of an expression tree.
 
-    Uses a fast heuristic that follows the left spine of the tree,
-    which catches the common case of left-associative chains like
-    (((a + b) + c) + d) + e.
-    """
-    depth = 0
-    current = expr
-    while True:
-        if isinstance(current, (Constant, Variable)):
-            break
-        elif isinstance(current, BinaryOp):
-            depth += 1
-            # Follow left spine (left-associative chains)
-            current = current.left
-        elif isinstance(current, UnaryOp):
-            depth += 1
-            current = current.operand
-        else:
-            # Vector expressions or other - check their children
-            from optyx.core.vectors import LinearCombination, VectorSum, DotProduct
+    Uses iterative traversal to check both left and right branches,
+    avoiding RecursionError for any tree shape (left-skewed, right-skewed,
+    or balanced).
 
-            if isinstance(current, (LinearCombination, VectorSum)):
-                break  # These don't recurse deeply
-            elif isinstance(current, DotProduct):
-                depth += 1
-                current = current.left
-            else:
-                break
-    return depth
+    Args:
+        expr: The expression to check.
+        max_depth: Maximum depth to check before returning early.
+
+    Returns:
+        Estimated maximum depth of the tree.
+    """
+    from optyx.core.vectors import LinearCombination, VectorSum, DotProduct
+    from typing import Any
+
+    # Use explicit stack to avoid recursion
+    stack: list[tuple[Any, int]] = [(expr, 0)]  # (node, current_depth)
+    max_found = 0
+
+    while stack and max_found < max_depth:
+        current, depth = stack.pop()
+        max_found = max(max_found, depth)
+
+        if isinstance(current, (Constant, Variable)):
+            continue
+        elif isinstance(current, BinaryOp):
+            # Check both branches
+            stack.append((current.left, depth + 1))
+            stack.append((current.right, depth + 1))
+        elif isinstance(current, UnaryOp):
+            stack.append((current.operand, depth + 1))
+        elif isinstance(current, (LinearCombination, VectorSum)):
+            continue  # These don't recurse deeply
+        elif isinstance(current, DotProduct):
+            stack.append((current.left, depth + 1))
+            stack.append((current.right, depth + 1))
+
+    return max_found
 
 
 def _compute_degree_iterative(expr: Expression) -> Optional[int]:
@@ -180,7 +189,7 @@ def _compute_degree_iterative(expr: Expression) -> Optional[int]:
                 # Phase 2: both children done
                 right_result = result_stack.pop()
 
-                if right_result is None:
+                if right_result is None or left_deg is None:
                     result_stack.append(None)
                     continue
 
@@ -218,11 +227,34 @@ def _compute_degree_impl(expr: Expression) -> Optional[int]:
     if isinstance(expr, Variable):
         return 1
 
-    # Vector expressions - these are always linear
+    # Vector expressions
     if isinstance(expr, LinearCombination):
-        return 1  # c @ x is always linear (degree 1)
+        # Check if vector contains variables (degree 1) or expressions
+        if hasattr(expr.vector, "_variables"):
+            return 1
+        # Check expressions in vector (VectorExpression case)
+        if hasattr(expr.vector, "_expressions"):
+            max_deg = 0
+            for sub_expr in expr.vector._expressions:  # type: ignore[union-attr]
+                d = _compute_degree_impl(sub_expr)
+                if d is None:
+                    return None
+                max_deg = max(max_deg, d)
+            return max_deg
+        return 1  # Default for unknown vector types
+
     if isinstance(expr, VectorSum):
-        return 1  # sum(x) is always linear (degree 1)
+        if hasattr(expr.vector, "_variables"):
+            return 1
+        if hasattr(expr.vector, "_expressions"):
+            max_deg = 0
+            for sub_expr in expr.vector._expressions:  # type: ignore[union-attr]
+                d = _compute_degree_impl(sub_expr)
+                if d is None:
+                    return None
+                max_deg = max(max_deg, d)
+            return max_deg
+        return 1  # Default for unknown vector types
     if isinstance(expr, DotProduct):
         # x · y could be quadratic if both are variables
         # For now, return 2 (quadratic) as worst case

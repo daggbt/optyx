@@ -20,6 +20,15 @@ Optyx provides a symbolic optimization interface with automatic differentiation.
 | [Problem](problem.qmd) | Optimization problem container | `optyx` |
 | [Solution](solution.qmd) | Solve result with optimal values | `optyx` |
 
+### Vector & Matrix Variables
+
+| Class | Description | Module |
+|-------|-------------|--------|
+| [VectorVariable](vectors.qmd) | Array of decision variables | `optyx` |
+| [MatrixVariable](matrices.qmd) | 2D grid of decision variables | `optyx` |
+| [Parameter](parameters.qmd) | Updatable constant for re-solves | `optyx` |
+| [QuadraticForm](matrices.qmd#quadratic-forms) | Efficient $x^T Q x$ expression | `optyx` |
+
 ### Mathematical Functions
 
 | Function | Description |

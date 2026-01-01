@@ -1,0 +1,47 @@
+# core.vectors.DotProduct { #optyx.core.vectors.DotProduct }
+
+```python
+core.vectors.DotProduct(left, right)
+```
+
+Dot product of two vectors: x · y = x[0]*y[0] + x[1]*y[1] + ... + x[n-1]*y[n-1].
+
+This is a scalar expression representing the inner product.
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                                                                               | Description    | Default    |
+|--------|--------------------------------------------------------------------------------------------------------------------|----------------|------------|
+| left   | [VectorVariable](`optyx.core.vectors.VectorVariable`) \| [VectorExpression](`optyx.core.vectors.VectorExpression`) | First vector.  | _required_ |
+| right  | [VectorVariable](`optyx.core.vectors.VectorVariable`) \| [VectorExpression](`optyx.core.vectors.VectorExpression`) | Second vector. | _required_ |
+
+## Example {.doc-section .doc-section-example}
+
+>>> x = VectorVariable("x", 3)
+>>> y = VectorVariable("y", 3)
+>>> d = DotProduct(x, y)
+>>> d.evaluate({"x[0]": 1, "x[1]": 2, "x[2]": 3, "y[0]": 4, "y[1]": 5, "y[2]": 6})
+32.0
+
+## Methods
+
+| Name | Description |
+| --- | --- |
+| [evaluate](#optyx.core.vectors.DotProduct.evaluate) | Evaluate the dot product given variable values. |
+| [get_variables](#optyx.core.vectors.DotProduct.get_variables) | Return all variables this expression depends on. |
+
+### evaluate { #optyx.core.vectors.DotProduct.evaluate }
+
+```python
+core.vectors.DotProduct.evaluate(values)
+```
+
+Evaluate the dot product given variable values.
+
+### get_variables { #optyx.core.vectors.DotProduct.get_variables }
+
+```python
+core.vectors.DotProduct.get_variables()
+```
+
+Return all variables this expression depends on.

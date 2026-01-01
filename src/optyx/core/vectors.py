@@ -18,6 +18,7 @@ from optyx.core.expressions import (
     BinaryOp,
     _ensure_expr,
 )
+from optyx.core.errors import DimensionMismatchError
 
 if TYPE_CHECKING:
     from optyx.constraints import Constraint
@@ -96,8 +97,11 @@ class DotProduct(Expression):
             else len(right)
         )
         if left_size != right_size:
-            raise ValueError(
-                f"Vector size mismatch for dot product: {left_size} vs {right_size}"
+            raise DimensionMismatchError(
+                operation="dot product",
+                left_shape=left_size,
+                right_shape=right_size,
+                suggestion="Vectors must have the same length.",
             )
         self.left = left
         self.right = right
@@ -266,8 +270,11 @@ class LinearCombination(Expression):
         coefficients = np.asarray(coefficients)
         vec_size = vector.size if hasattr(vector, "size") else len(vector)
         if len(coefficients) != vec_size:
-            raise ValueError(
-                f"Coefficient length {len(coefficients)} != vector size {vec_size}"
+            raise DimensionMismatchError(
+                operation="linear combination",
+                left_shape=len(coefficients),
+                right_shape=vec_size,
+                suggestion="Coefficient array length must match vector size.",
             )
         self.coefficients = coefficients
         self.vector = vector
@@ -317,6 +324,9 @@ class VectorExpression:
 
     __slots__ = ("_expressions", "size")
 
+    # Tell NumPy to defer to Python's operators
+    __array_ufunc__ = None
+
     def __init__(self, expressions: Sequence[Expression]) -> None:
         if len(expressions) == 0:
             raise ValueError("VectorExpression cannot be empty")
@@ -342,6 +352,15 @@ class VectorExpression:
     def evaluate(self, values: Mapping[str, ArrayLike | float]) -> list[float]:
         """Evaluate all expressions and return as list."""
         return [expr.evaluate(values) for expr in self._expressions]  # type: ignore[misc]
+
+    def sum(self) -> Expression:
+        """Sum of all elements."""
+        if not self._expressions:
+            return Constant(0.0)
+        result: Expression = self._expressions[0]
+        for expr in self._expressions[1:]:
+            result = result + expr
+        return result
 
     def get_variables(self) -> set[Variable]:
         """Return all variables these expressions depend on."""
@@ -386,9 +405,19 @@ class VectorExpression:
         """Scalar division."""
         return _vector_binary_op(self, other, "/")
 
+    def __rtruediv__(self, other: float | int) -> VectorExpression:
+        """Right scalar division."""
+        return VectorExpression(
+            [BinaryOp(_ensure_expr(other), expr, "/") for expr in self._expressions]
+        )
+
     def __neg__(self) -> VectorExpression:
         """Negate all elements."""
         return VectorExpression([-expr for expr in self._expressions])
+
+    def __pow__(self, other: float | int) -> VectorExpression:
+        """Element-wise power."""
+        return _vector_binary_op(self, other, "**")
 
     # Comparison operators - create lists of constraints
     def __le__(
@@ -442,6 +471,50 @@ class VectorExpression:
             32.0
         """
         return DotProduct(self, other)
+
+    def __matmul__(
+        self, other: VectorExpression | VectorVariable | np.ndarray | list
+    ) -> DotProduct | LinearCombination:
+        """Matrix multiplication operator for dot product.
+
+        For VectorExpression @ VectorVariable: returns DotProduct (same as .dot())
+        For VectorExpression @ array: returns LinearCombination
+
+        Args:
+            other: Vector or array to compute dot product with.
+
+        Returns:
+            DotProduct or LinearCombination expression (scalar).
+
+        Example:
+            >>> x = VectorVariable("x", 3)
+            >>> y = VectorVariable("y", 3)
+            >>> expr = x + 1
+            >>> d = expr @ y  # Dot product of (x + 1) with y
+        """
+        if isinstance(other, (VectorVariable, VectorExpression)):
+            return DotProduct(self, other)
+        elif isinstance(other, (np.ndarray, list)):
+            arr = np.asarray(other)
+            if arr.ndim != 1:
+                raise ValueError(f"Expected 1D array, got shape {arr.shape}")
+            return LinearCombination(arr, self)
+        else:
+            return NotImplemented
+
+    def __rmatmul__(self, other: np.ndarray | list) -> LinearCombination:
+        """Right matrix multiplication: array @ vector_expr.
+
+        Args:
+            other: Array to compute dot product with.
+
+        Returns:
+            LinearCombination expression (scalar).
+        """
+        arr = np.asarray(other)
+        if arr.ndim != 1:
+            return NotImplemented
+        return LinearCombination(arr, self)
 
 
 class VectorVariable:
@@ -632,9 +705,19 @@ class VectorVariable:
         """Scalar division: x / 2."""
         return _vector_binary_op(self, other, "/")
 
+    def __rtruediv__(self, other: float | int) -> VectorExpression:
+        """Right scalar division: 1 / x."""
+        return VectorExpression(
+            [BinaryOp(_ensure_expr(other), v, "/") for v in self._variables]
+        )
+
     def __neg__(self) -> VectorExpression:
         """Negate all elements: -x."""
         return VectorExpression([-v for v in self._variables])
+
+    def __pow__(self, other: float | int) -> VectorExpression:
+        """Element-wise power: x ** 2."""
+        return _vector_binary_op(self, other, "**")
 
     # Comparison operators - create lists of constraints
     def __le__(
@@ -689,6 +772,38 @@ class VectorVariable:
         """
         return DotProduct(self, other)
 
+    def __matmul__(
+        self, other: VectorVariable | VectorExpression | np.ndarray | list
+    ) -> DotProduct | LinearCombination:
+        """Matrix multiplication operator for dot product.
+
+        For VectorVariable @ VectorVariable: returns DotProduct (same as .dot())
+        For VectorVariable @ array: returns LinearCombination (coefficients @ vector)
+
+        Args:
+            other: Vector or array to compute dot product with.
+
+        Returns:
+            DotProduct or LinearCombination expression (scalar).
+
+        Example:
+            >>> x = VectorVariable("x", 3)
+            >>> y = VectorVariable("y", 3)
+            >>> d = x @ y  # Same as x.dot(y)
+            >>> coeffs = np.array([1, 2, 3])
+            >>> lc = x @ coeffs  # Same as coeffs @ x
+        """
+        if isinstance(other, (VectorVariable, VectorExpression)):
+            return DotProduct(self, other)
+        elif isinstance(other, (np.ndarray, list)):
+            # VectorVariable @ array is the same as array @ VectorVariable
+            arr = np.asarray(other)
+            if arr.ndim != 1:
+                raise ValueError(f"Expected 1D array, got shape {arr.shape}")
+            return LinearCombination(arr, self)
+        else:
+            return NotImplemented
+
     def sum(self) -> VectorSum:
         """Compute sum of all elements in the vector.
 
@@ -702,6 +817,31 @@ class VectorVariable:
             6.0
         """
         return VectorSum(self)
+
+    def norm(self, ord: int = 2) -> L2Norm | L1Norm:
+        """Compute the norm of this vector.
+
+        Args:
+            ord: Order of the norm. 2 for L2 (Euclidean), 1 for L1 (Manhattan).
+
+        Returns:
+            L2Norm or L1Norm expression (scalar).
+
+        Example:
+            >>> x = VectorVariable("x", 2)
+            >>> n = x.norm()  # L2 norm
+            >>> n.evaluate({"x[0]": 3, "x[1]": 4})
+            5.0
+            >>> n1 = x.norm(1)  # L1 norm
+            >>> n1.evaluate({"x[0]": 3, "x[1]": -4})
+            7.0
+        """
+        if ord == 2:
+            return L2Norm(self)
+        elif ord == 1:
+            return L1Norm(self)
+        else:
+            raise ValueError(f"Unsupported norm order: {ord}. Use 1 or 2.")
 
     def __rmatmul__(self, other: np.ndarray) -> LinearCombination:
         """Enable numpy_array @ vector syntax for linear combinations.
@@ -776,14 +916,14 @@ class VectorVariable:
 
 def _vector_constraint(
     left: VectorVariable | VectorExpression,
-    right: VectorVariable | VectorExpression | float | int,
+    right: VectorVariable | VectorExpression | float | int | np.ndarray | list,
     sense: Literal["<=", ">=", "=="],
 ) -> list[Constraint]:
     """Create element-wise constraints for vectors.
 
     Args:
         left: Left operand (VectorVariable or VectorExpression).
-        right: Right operand (vector or scalar).
+        right: Right operand (vector, scalar, numpy array, or list).
         sense: Constraint sense (<=, >=, or ==).
 
     Returns:
@@ -806,12 +946,34 @@ def _vector_constraint(
         return [_make_constraint(expr, sense, right) for expr in left_exprs]
     elif isinstance(right, VectorVariable):
         if len(right) != len(left_exprs):
-            raise ValueError(f"Vector size mismatch: {len(left_exprs)} vs {len(right)}")
+            raise DimensionMismatchError(
+                operation=f"vector constraint ({sense})",
+                left_shape=len(left_exprs),
+                right_shape=len(right),
+            )
         right_exprs: list[Expression] = list(right._variables)
     elif isinstance(right, VectorExpression):
         if right.size != len(left_exprs):
-            raise ValueError(f"Vector size mismatch: {len(left_exprs)} vs {right.size}")
+            raise DimensionMismatchError(
+                operation=f"vector constraint ({sense})",
+                left_shape=len(left_exprs),
+                right_shape=right.size,
+            )
         right_exprs = list(right._expressions)
+    elif isinstance(right, (np.ndarray, list)):
+        # Handle numpy arrays and lists
+        right_arr = np.asarray(right)
+        if right_arr.ndim != 1:
+            raise ValueError(f"Expected 1D array, got shape {right_arr.shape}")
+        if len(right_arr) != len(left_exprs):
+            raise ValueError(
+                f"Vector size mismatch: {len(left_exprs)} vs {len(right_arr)}"
+            )
+        # Create constraints with scalar values from array
+        return [
+            _make_constraint(left_expr, sense, float(val))
+            for left_expr, val in zip(left_exprs, right_arr)
+        ]
     else:
         raise TypeError(f"Unsupported operand type: {type(right)}")
 
@@ -825,7 +987,7 @@ def _vector_constraint(
 def _vector_binary_op(
     left: VectorVariable | VectorExpression,
     right: VectorVariable | VectorExpression | float | int,
-    op: Literal["+", "-", "*", "/"],
+    op: Literal["+", "-", "*", "/", "**"],
 ) -> VectorExpression:
     """Helper for element-wise binary operations on vectors.
 
@@ -858,6 +1020,13 @@ def _vector_binary_op(
         if right.size != len(left_exprs):
             raise ValueError(f"Vector size mismatch: {len(left_exprs)} vs {right.size}")
         right_exprs = list(right._expressions)
+    elif isinstance(right, (np.ndarray, list)):
+        arr = np.asarray(right)
+        if arr.ndim != 1:
+            raise ValueError(f"Expected 1D array, got shape {arr.shape}")
+        if len(arr) != len(left_exprs):
+            raise ValueError(f"Vector size mismatch: {len(left_exprs)} vs {len(arr)}")
+        right_exprs = [Constant(val) for val in arr]
     else:
         raise TypeError(f"Unsupported operand type: {type(right)}")
 

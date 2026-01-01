@@ -30,6 +30,12 @@ class Constraint:
         expr: The constraint expression (LHS - RHS, so constraint is expr sense 0)
         sense: The constraint type: "<=", ">=", or "=="
         name: Optional name for the constraint
+
+    Example:
+        >>> x = Variable("x")
+        >>> c = x + 2 <= 10  # Creates Constraint with expr = x + 2 - 10
+        >>> c.is_satisfied({"x": 5.0})
+        True
     """
 
     expr: Expression

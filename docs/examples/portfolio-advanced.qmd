@@ -1,0 +1,502 @@
+---
+title: "Advanced Portfolio Optimization"
+description: "Mean-variance portfolio optimization with covariance using QuadraticForm"
+date: last-modified
+---
+
+## Introduction
+
+This tutorial builds a complete **Markowitz mean-variance portfolio optimization** model using Optyx's v1.2.0 features. You'll see how VectorVariable, QuadraticForm, and Parameter work together for realistic portfolio problems.
+
+By the end, you'll be able to:
+
+- Model portfolio variance using quadratic forms
+- Implement efficient frontiers
+- Use Parameters for fast sensitivity analysis
+- Handle real-world constraints (sector limits, turnover)
+
+---
+
+## The Markowitz Model
+
+Harry Markowitz's insight: investors care about both **return** (higher is better) and **risk** (lower is better). The mean-variance model:
+
+$$
+\begin{aligned}
+\text{minimize} \quad & \mathbf{w}^\top \mathbf{\Sigma} \mathbf{w} \\
+\text{subject to} \quad & \mathbf{w}^\top \boldsymbol{\mu} \geq r_{\text{target}} \\
+& \mathbf{w}^\top \mathbf{1} = 1 \\
+& \mathbf{w} \geq 0
+\end{aligned}
+$$
+
+Where:
+- $\mathbf{w}$ = portfolio weights (decision variables)
+- $\boldsymbol{\mu}$ = expected returns vector
+- $\mathbf{\Sigma}$ = covariance matrix
+- $r_{\text{target}}$ = minimum acceptable return
+
+---
+
+## Problem Setup
+
+```{python}
+import numpy as np
+np.random.seed(42)
+
+# 10 assets
+n_assets = 10
+asset_names = [f"Asset_{i}" for i in range(n_assets)]
+
+# Expected annual returns (5% to 15%)
+expected_returns = np.linspace(0.05, 0.15, n_assets)
+
+# Generate realistic covariance matrix
+# Start with random factors, then create covariance
+n_factors = 3
+factor_loadings = np.random.randn(n_assets, n_factors) * 0.1
+specific_var = np.diag(np.random.uniform(0.01, 0.04, n_assets))
+covariance = factor_loadings @ factor_loadings.T + specific_var
+
+# Ensure positive definiteness
+covariance = (covariance + covariance.T) / 2
+min_eig = np.min(np.linalg.eigvalsh(covariance))
+if min_eig < 0:
+    covariance += (-min_eig + 0.001) * np.eye(n_assets)
+
+# Display statistics
+print("Asset Statistics:")
+print("-" * 50)
+volatility = np.sqrt(np.diag(covariance))
+for i in range(n_assets):
+    print(f"{asset_names[i]}: return={expected_returns[i]:.1%}, vol={volatility[i]:.1%}")
+```
+
+---
+
+## Basic Model with VectorVariable
+
+```{python}
+from optyx import VectorVariable, Problem, QuadraticForm
+
+# Portfolio weights
+weights = VectorVariable("w", n_assets, lb=0, ub=1)
+
+# Expected portfolio return: w · μ
+portfolio_return = expected_returns @ weights
+
+# Portfolio variance: w.T @ Σ @ w
+portfolio_variance = QuadraticForm(weights, covariance)
+
+print(f"Return expression type: {type(portfolio_return).__name__}")
+print(f"Variance expression type: {type(portfolio_variance).__name__}")
+```
+
+::: {.callout-note}
+## QuadraticForm Efficiency
+`QuadraticForm(weights, covariance)` computes `w.T @ Σ @ w` with an analytic gradient:
+`∇ variance = 2 Σ w`. No loop over n² terms needed.
+:::
+
+---
+
+## Minimum Variance Portfolio
+
+Find the portfolio with the lowest risk, requiring at least 8% return:
+
+```{python}
+target_return = 0.08
+
+solution = (
+    Problem("min_variance")
+    .minimize(portfolio_variance)
+    .subject_to(weights.sum().eq(1))           # Fully invested
+    .subject_to(portfolio_return >= target_return)  # Target return
+    .solve()
+)
+
+print("=" * 60)
+print("MINIMUM VARIANCE PORTFOLIO")
+print("=" * 60)
+print(f"Status: {solution.status}")
+print(f"Solve time: {solution.solve_time*1000:.2f} ms")
+print()
+
+# Extract weights
+opt_weights = np.array([solution[f'w[{i}]'] for i in range(n_assets)])
+opt_return = expected_returns @ opt_weights
+opt_vol = np.sqrt(opt_weights @ covariance @ opt_weights)
+
+print(f"Portfolio Return: {opt_return:.2%}")
+print(f"Portfolio Volatility: {opt_vol:.2%}")
+print(f"Sharpe Ratio (rf=2%): {(opt_return - 0.02) / opt_vol:.3f}")
+print()
+
+print("Asset Allocation:")
+for i in range(n_assets):
+    if opt_weights[i] > 0.01:
+        print(f"  {asset_names[i]}: {opt_weights[i]:.1%}")
+```
+
+---
+
+## Efficient Frontier
+
+The efficient frontier shows the best risk-return tradeoff. Let's trace it by varying the target return:
+
+```{python}
+from optyx import VectorVariable, Problem, QuadraticForm
+
+def solve_for_target(target_return):
+    """Solve minimum variance for a given target return."""
+    w = VectorVariable("w", n_assets, lb=0, ub=1)
+    port_ret = expected_returns @ w
+    port_var = QuadraticForm(w, covariance)
+    
+    sol = (
+        Problem()
+        .minimize(port_var)
+        .subject_to(w.sum().eq(1))
+        .subject_to(port_ret >= target_return)
+        .solve()
+    )
+    
+    if sol.status.value == "optimal":
+        weights = np.array([sol[f'w[{i}]'] for i in range(n_assets)])
+        ret = expected_returns @ weights
+        vol = np.sqrt(weights @ covariance @ weights)
+        return ret, vol, weights
+    return None
+
+# Trace the frontier
+targets = np.linspace(0.05, 0.14, 20)
+frontier = []
+
+for target in targets:
+    result = solve_for_target(target)
+    if result:
+        frontier.append(result)
+
+# Display results
+print("Efficient Frontier (Risk-Return Tradeoff):")
+print("-" * 50)
+print(f"{'Return':>10} {'Volatility':>12} {'Sharpe':>10}")
+print("-" * 50)
+for ret, vol, _ in frontier[::3]:  # Show every 3rd point
+    sharpe = (ret - 0.02) / vol
+    print(f"{ret:>10.2%} {vol:>12.2%} {sharpe:>10.3f}")
+```
+
+---
+
+## Using Parameters for Fast Re-solves
+
+When exploring scenarios, rebuilding the problem each time is wasteful. Use **Parameter** to update values without recompilation:
+
+```{python}
+from optyx import VectorVariable, Parameter, Problem, QuadraticForm
+
+# Create problem once
+w = VectorVariable("w", n_assets, lb=0, ub=1)
+target_param = Parameter("target", value=0.08)
+
+port_ret = expected_returns @ w
+port_var = QuadraticForm(w, covariance)
+
+problem = (
+    Problem("parametric_portfolio")
+    .minimize(port_var)
+    .subject_to(w.sum().eq(1))
+    .subject_to(port_ret >= target_param)
+)
+
+# Solve for different targets (much faster after first solve)
+import time
+
+targets = [0.06, 0.08, 0.10, 0.12]
+results = []
+
+print("Parametric Solves:")
+print("-" * 50)
+for i, target in enumerate(targets):
+    target_param.set(target)
+    
+    start = time.perf_counter()
+    sol = problem.solve()
+    elapsed = time.perf_counter() - start
+    
+    weights = np.array([sol[f'w[{i}]'] for i in range(n_assets)])
+    vol = np.sqrt(weights @ covariance @ weights)
+    
+    solve_type = "cold" if i == 0 else "warm"
+    print(f"Target {target:.0%}: vol={vol:.2%}, time={elapsed*1000:.2f}ms ({solve_type})")
+```
+
+::: {.callout-tip}
+## Parameter Performance
+After the first solve, subsequent solves with different parameter values reuse
+the compiled problem structure. This can be 10-100x faster for complex problems.
+:::
+
+---
+
+## Real-World Constraints
+
+### Sector Exposure Limits
+
+Limit exposure to any single sector:
+
+```{python}
+# Sector definitions (3 assets each in Tech, Energy, Finance; 1 in Other)
+sectors = {
+    "Tech": [0, 1, 2],
+    "Energy": [3, 4, 5],
+    "Finance": [6, 7, 8],
+    "Other": [9]
+}
+
+w = VectorVariable("w", n_assets, lb=0, ub=1)
+port_var = QuadraticForm(w, covariance)
+port_ret = expected_returns @ w
+
+problem = (
+    Problem("sector_constrained")
+    .minimize(port_var)
+    .subject_to(w.sum().eq(1))
+    .subject_to(port_ret >= 0.09)
+)
+
+# Sector limits: max 40% in any sector
+for sector_name, indices in sectors.items():
+    sector_weight = sum(w[i] for i in indices)
+    problem = problem.subject_to(sector_weight <= 0.40)
+
+solution = problem.solve()
+
+# Display by sector
+print("Sector-Constrained Portfolio:")
+print("-" * 50)
+for sector_name, indices in sectors.items():
+    sector_total = sum(solution[f'w[{i}]'] for i in indices)
+    print(f"{sector_name}: {sector_total:.1%}")
+```
+
+### Position Limits
+
+Limit individual positions:
+
+```{python}
+# Maximum 20% in any single asset, minimum 2% if invested
+w = VectorVariable("w", n_assets, lb=0, ub=0.20)
+
+# Note: minimum position constraints require binary variables or careful formulation
+# For simplicity, we just use upper bounds here
+
+solution = (
+    Problem("position_limited")
+    .minimize(QuadraticForm(w, covariance))
+    .subject_to(w.sum().eq(1))
+    .subject_to(expected_returns @ w >= 0.08)
+    .solve()
+)
+
+print("Position-Limited Portfolio:")
+print("-" * 40)
+weights = np.array([solution[f'w[{i}]'] for i in range(n_assets)])
+for i in range(n_assets):
+    if weights[i] > 0.01:
+        print(f"  {asset_names[i]}: {weights[i]:.1%}")
+
+print(f"\nMax position: {weights.max():.1%}")
+print(f"Positions > 1%: {np.sum(weights > 0.01)}")
+```
+
+---
+
+## Maximum Sharpe Ratio Portfolio
+
+The tangency portfolio maximizes risk-adjusted return. This is a more complex problem requiring a different formulation:
+
+```{python}
+from optyx import VectorVariable, Problem, QuadraticForm
+
+# Risk-free rate
+rf = 0.02
+
+# For max Sharpe, we minimize variance for unit excess return
+# This is equivalent to the tangency portfolio
+w = VectorVariable("w", n_assets, lb=0)  # No upper bound initially
+
+# Excess return must equal 1 (we'll rescale later)
+excess_returns = expected_returns - rf
+port_excess = excess_returns @ w
+
+solution = (
+    Problem("max_sharpe")
+    .minimize(QuadraticForm(w, covariance))
+    .subject_to(port_excess.eq(1))  # Normalize excess return to 1
+    .solve()
+)
+
+# Rescale to sum to 1
+raw_weights = np.array([solution[f'w[{i}]'] for i in range(n_assets)])
+tangency_weights = raw_weights / raw_weights.sum()
+
+# Compute metrics
+tang_return = expected_returns @ tangency_weights
+tang_vol = np.sqrt(tangency_weights @ covariance @ tangency_weights)
+tang_sharpe = (tang_return - rf) / tang_vol
+
+print("=" * 60)
+print("MAXIMUM SHARPE RATIO (TANGENCY) PORTFOLIO")
+print("=" * 60)
+print(f"Expected Return: {tang_return:.2%}")
+print(f"Volatility: {tang_vol:.2%}")
+print(f"Sharpe Ratio: {tang_sharpe:.3f}")
+print()
+print("Allocation:")
+for i in range(n_assets):
+    if tangency_weights[i] > 0.01:
+        print(f"  {asset_names[i]}: {tangency_weights[i]:.1%}")
+```
+
+---
+
+## Comparing Portfolios
+
+Let's compare all our portfolios:
+
+```{python}
+# Define portfolios
+portfolios = {
+    "Equal Weight": np.ones(n_assets) / n_assets,
+    "Min Variance (8% target)": np.array([solution[f'w[{i}]'] for i in range(n_assets)]),
+    "Max Sharpe": tangency_weights,
+}
+
+# Add min variance solution
+w_minvar = VectorVariable("w", n_assets, lb=0, ub=1)
+sol_minvar = (
+    Problem()
+    .minimize(QuadraticForm(w_minvar, covariance))
+    .subject_to(w_minvar.sum().eq(1))
+    .subject_to(expected_returns @ w_minvar >= 0.08)
+    .solve()
+)
+portfolios["Min Variance"] = np.array([sol_minvar[f'w[{i}]'] for i in range(n_assets)])
+
+print("Portfolio Comparison:")
+print("=" * 60)
+print(f"{'Portfolio':<25} {'Return':>10} {'Vol':>10} {'Sharpe':>10}")
+print("-" * 60)
+
+for name, weights in portfolios.items():
+    ret = expected_returns @ weights
+    vol = np.sqrt(weights @ covariance @ weights)
+    sharpe = (ret - rf) / vol
+    print(f"{name:<25} {ret:>10.2%} {vol:>10.2%} {sharpe:>10.3f}")
+```
+
+---
+
+## Performance: VectorVariable vs Loop-Based
+
+Let's compare the performance of VectorVariable approach vs traditional loops:
+
+```{python}
+import time
+
+def old_style_portfolio(n, returns, cov, target):
+    """Build portfolio with loop-based variables."""
+    from optyx import Variable, Problem
+    
+    # Create variables one by one
+    w = [Variable(f"w_{i}", lb=0, ub=1) for i in range(n)]
+    
+    # Portfolio return via loop
+    port_ret = sum(w[i] * returns[i] for i in range(n))
+    
+    # Portfolio variance via double loop (O(n²))
+    port_var = sum(
+        w[i] * cov[i, j] * w[j] 
+        for i in range(n) 
+        for j in range(n)
+    )
+    
+    # Budget constraint via loop
+    budget = sum(w)
+    
+    problem = (
+        Problem()
+        .minimize(port_var)
+        .subject_to(budget.eq(1))
+        .subject_to(port_ret >= target)
+    )
+    
+    return problem.solve()
+
+
+def new_style_portfolio(n, returns, cov, target):
+    """Build portfolio with VectorVariable."""
+    from optyx import VectorVariable, Problem, QuadraticForm
+    
+    w = VectorVariable("w", n, lb=0, ub=1)
+    port_ret = returns @ w
+    port_var = QuadraticForm(w, cov)
+    
+    problem = (
+        Problem()
+        .minimize(port_var)
+        .subject_to(w.sum().eq(1))
+        .subject_to(port_ret >= target)
+    )
+    
+    return problem.solve()
+
+
+# Benchmark
+n = 10
+print("Build + Solve Time Comparison (10 assets):")
+print("-" * 50)
+
+# Old style
+start = time.perf_counter()
+sol_old = old_style_portfolio(n, expected_returns, covariance, 0.08)
+old_time = time.perf_counter() - start
+
+# New style
+start = time.perf_counter()
+sol_new = new_style_portfolio(n, expected_returns, covariance, 0.08)
+new_time = time.perf_counter() - start
+
+print(f"Loop-based:    {old_time*1000:.2f} ms")
+print(f"VectorVariable: {new_time*1000:.2f} ms")
+print(f"Speedup: {old_time/new_time:.1f}x")
+```
+
+---
+
+## Summary
+
+This tutorial demonstrated:
+
+| Feature | Benefit |
+|---------|---------|
+| `VectorVariable` | Clean syntax for many variables |
+| `QuadraticForm` | O(1) gradient for variance |
+| `Parameter` | Fast re-solves for scenarios |
+| Vector operations | No explicit loops needed |
+
+Key takeaways:
+
+1. **Use QuadraticForm** for portfolio variance—it's much faster than expanding the sum
+2. **Use Parameter** when exploring different target returns or risk tolerances
+3. **Vector syntax** makes constraints like `w.sum().eq(1)` readable and maintainable
+
+---
+
+## Next Steps
+
+- [Vector Variables Tutorial](../tutorials/vectors.qmd) — Deep dive on VectorVariable features
+- [Matrix Variables Tutorial](../tutorials/matrices.qmd) — 2D arrays for assignment/transportation problems
+- [Portfolio Example](portfolio.qmd) — Simpler portfolio example

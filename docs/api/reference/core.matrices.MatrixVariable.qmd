@@ -1,0 +1,193 @@
+# core.matrices.MatrixVariable { #optyx.core.matrices.MatrixVariable }
+
+```python
+core.matrices.MatrixVariable(
+    name,
+    rows,
+    cols,
+    lb=None,
+    ub=None,
+    domain='continuous',
+    symmetric=False,
+)
+```
+
+A 2D matrix of optimization variables.
+
+MatrixVariable creates and manages a 2D collection of scalar Variable instances,
+providing natural 2D indexing, row/column slicing, and transpose views.
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name      | Type                                          | Description                                                            | Default        |
+|-----------|-----------------------------------------------|------------------------------------------------------------------------|----------------|
+| name      | [str](`str`)                                  | Base name for the matrix. Elements are named "{name}[i,j]".            | _required_     |
+| rows      | [int](`int`)                                  | Number of rows.                                                        | _required_     |
+| cols      | [int](`int`)                                  | Number of columns.                                                     | _required_     |
+| lb        | [float](`float`) \| None                      | Lower bound applied to all elements (None for unbounded).              | `None`         |
+| ub        | [float](`float`) \| None                      | Upper bound applied to all elements (None for unbounded).              | `None`         |
+| domain    | [DomainType](`optyx.core.vectors.DomainType`) | Variable type for all elements - 'continuous', 'integer', or 'binary'. | `'continuous'` |
+| symmetric | [bool](`bool`)                                | If True, enforces A[i,j] == A[j,i] (must be square).                   | `False`        |
+
+## Example {.doc-section .doc-section-example}
+
+>>> A = MatrixVariable("A", 3, 4)
+>>> A[0, 0]  # Variable named "A[0,0]"
+>>> A[1, :]  # VectorVariable with 4 elements (row 1)
+>>> A[:, 2]  # VectorVariable with 3 elements (column 2)
+>>> A.shape  # (3, 4)
+
+## Attributes
+
+| Name | Description |
+| --- | --- |
+| [T](#optyx.core.matrices.MatrixVariable.T) | Return a transpose view of the matrix. |
+| [shape](#optyx.core.matrices.MatrixVariable.shape) | Return the shape of the matrix as (rows, cols). |
+
+## Methods
+
+| Name | Description |
+| --- | --- |
+| [cols_iter](#optyx.core.matrices.MatrixVariable.cols_iter) | Iterate over columns of the matrix. |
+| [diagonal](#optyx.core.matrices.MatrixVariable.diagonal) | Extract the main diagonal of a square matrix. |
+| [get_variables](#optyx.core.matrices.MatrixVariable.get_variables) | Return all variables in this matrix (row-major order). |
+| [rows_iter](#optyx.core.matrices.MatrixVariable.rows_iter) | Iterate over rows of the matrix. |
+| [to_numpy](#optyx.core.matrices.MatrixVariable.to_numpy) | Extract matrix values from solution as numpy array. |
+| [trace](#optyx.core.matrices.MatrixVariable.trace) | Compute the trace (sum of diagonal elements) of a square matrix. |
+
+### cols_iter { #optyx.core.matrices.MatrixVariable.cols_iter }
+
+```python
+core.matrices.MatrixVariable.cols_iter()
+```
+
+Iterate over columns of the matrix.
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                                                   | Description                                      |
+|--------|----------------------------------------------------------------------------------------|--------------------------------------------------|
+|        | [Iterator](`typing.Iterator`)\[[VectorVariable](`optyx.core.vectors.VectorVariable`)\] | Iterator of VectorVariable, one for each column. |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> A = MatrixVariable("A", 3, 4)
+>>> for j, col in enumerate(A.cols_iter()):
+...     print(f"Col {j}: {len(col)} elements")
+
+### diagonal { #optyx.core.matrices.MatrixVariable.diagonal }
+
+```python
+core.matrices.MatrixVariable.diagonal()
+```
+
+Extract the main diagonal of a square matrix.
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                  | Description                                      |
+|--------|-------------------------------------------------------|--------------------------------------------------|
+|        | [VectorVariable](`optyx.core.vectors.VectorVariable`) | VectorVariable containing the diagonal elements. |
+
+#### Raises {.doc-section .doc-section-raises}
+
+| Name   | Type                       | Description                  |
+|--------|----------------------------|------------------------------|
+|        | [ValueError](`ValueError`) | If the matrix is not square. |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> A = MatrixVariable("A", 3, 3)
+>>> d = A.diagonal()
+>>> len(d)  # 3
+>>> d[0].name  # 'A[0,0]'
+
+### get_variables { #optyx.core.matrices.MatrixVariable.get_variables }
+
+```python
+core.matrices.MatrixVariable.get_variables()
+```
+
+Return all variables in this matrix (row-major order).
+
+For symmetric matrices, each unique variable appears only once.
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                            | Description                 |
+|--------|-----------------------------------------------------------------|-----------------------------|
+|        | [list](`list`)\[[Variable](`optyx.core.expressions.Variable`)\] | List of Variable instances. |
+
+### rows_iter { #optyx.core.matrices.MatrixVariable.rows_iter }
+
+```python
+core.matrices.MatrixVariable.rows_iter()
+```
+
+Iterate over rows of the matrix.
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                                                   | Description                                   |
+|--------|----------------------------------------------------------------------------------------|-----------------------------------------------|
+|        | [Iterator](`typing.Iterator`)\[[VectorVariable](`optyx.core.vectors.VectorVariable`)\] | Iterator of VectorVariable, one for each row. |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> A = MatrixVariable("A", 3, 4)
+>>> for i, row in enumerate(A.rows_iter()):
+...     print(f"Row {i}: {len(row)} elements")
+
+### to_numpy { #optyx.core.matrices.MatrixVariable.to_numpy }
+
+```python
+core.matrices.MatrixVariable.to_numpy(solution)
+```
+
+Extract matrix values from solution as numpy array.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name     | Type                                             | Description                                  | Default    |
+|----------|--------------------------------------------------|----------------------------------------------|------------|
+| solution | [dict](`dict`)\[[str](`str`), [float](`float`)\] | Dictionary mapping variable names to values. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                                            | Description                              |
+|--------|---------------------------------------------------------------------------------|------------------------------------------|
+|        | [NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[floating](`numpy.floating`)\] | 2D numpy array with the solution values. |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> A = MatrixVariable("A", 2, 2)
+>>> solution = {"A[0,0]": 1, "A[0,1]": 2, "A[1,0]": 3, "A[1,1]": 4}
+>>> A.to_numpy(solution)
+array([[1., 2.],
+       [3., 4.]])
+
+### trace { #optyx.core.matrices.MatrixVariable.trace }
+
+```python
+core.matrices.MatrixVariable.trace()
+```
+
+Compute the trace (sum of diagonal elements) of a square matrix.
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                              | Description                                           |
+|--------|---------------------------------------------------|-------------------------------------------------------|
+|        | [Expression](`optyx.core.expressions.Expression`) | Expression representing the sum of diagonal elements. |
+
+#### Raises {.doc-section .doc-section-raises}
+
+| Name   | Type                       | Description                  |
+|--------|----------------------------|------------------------------|
+|        | [ValueError](`ValueError`) | If the matrix is not square. |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> A = MatrixVariable("A", 3, 3)
+>>> tr = A.trace()
+>>> # tr = A[0,0] + A[1,1] + A[2,2]

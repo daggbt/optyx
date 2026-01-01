@@ -1,0 +1,91 @@
+# core.vectors.VectorExpression { #optyx.core.vectors.VectorExpression }
+
+```python
+core.vectors.VectorExpression(expressions)
+```
+
+A vector of expressions (result of vector arithmetic).
+
+VectorExpression represents element-wise operations on vectors,
+such as `x + y` or `2 * x`.
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name        | Type                                                                                        | Description                                  | Default    |
+|-------------|---------------------------------------------------------------------------------------------|----------------------------------------------|------------|
+| expressions | [Sequence](`collections.abc.Sequence`)\[[Expression](`optyx.core.expressions.Expression`)\] | List of scalar expressions, one per element. | _required_ |
+
+## Example {.doc-section .doc-section-example}
+
+>>> x = VectorVariable("x", 3)
+>>> y = VectorVariable("y", 3)
+>>> z = x + y  # VectorExpression with 3 elements
+>>> z[0].evaluate({"x[0]": 1, "y[0]": 2})
+3.0
+
+## Methods
+
+| Name | Description |
+| --- | --- |
+| [dot](#optyx.core.vectors.VectorExpression.dot) | Compute dot product with another vector. |
+| [eq](#optyx.core.vectors.VectorExpression.eq) | Element-wise == constraint. |
+| [evaluate](#optyx.core.vectors.VectorExpression.evaluate) | Evaluate all expressions and return as list. |
+| [get_variables](#optyx.core.vectors.VectorExpression.get_variables) | Return all variables these expressions depend on. |
+
+### dot { #optyx.core.vectors.VectorExpression.dot }
+
+```python
+core.vectors.VectorExpression.dot(other)
+```
+
+Compute dot product with another vector.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                                                                               | Description                         | Default    |
+|--------|--------------------------------------------------------------------------------------------------------------------|-------------------------------------|------------|
+| other  | [VectorExpression](`optyx.core.vectors.VectorExpression`) \| [VectorVariable](`optyx.core.vectors.VectorVariable`) | Vector to compute dot product with. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                          | Description                     |
+|--------|-----------------------------------------------|---------------------------------|
+|        | [DotProduct](`optyx.core.vectors.DotProduct`) | DotProduct expression (scalar). |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> x = VectorVariable("x", 3)
+>>> y = VectorVariable("y", 3)
+>>> d = x.dot(y)
+>>> d.evaluate({"x[0]": 1, "x[1]": 2, "x[2]": 3, "y[0]": 4, "y[1]": 5, "y[2]": 6})
+32.0
+
+### eq { #optyx.core.vectors.VectorExpression.eq }
+
+```python
+core.vectors.VectorExpression.eq(other)
+```
+
+Element-wise == constraint.
+
+#### Example {.doc-section .doc-section-example}
+
+>>> x = VectorVariable("x", 3)
+>>> y = VectorVariable("y", 3)
+>>> constraints = x.eq(y)  # 3 constraints: x[i] == y[i]
+
+### evaluate { #optyx.core.vectors.VectorExpression.evaluate }
+
+```python
+core.vectors.VectorExpression.evaluate(values)
+```
+
+Evaluate all expressions and return as list.
+
+### get_variables { #optyx.core.vectors.VectorExpression.get_variables }
+
+```python
+core.vectors.VectorExpression.get_variables()
+```
+
+Return all variables these expressions depend on.

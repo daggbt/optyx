@@ -46,7 +46,7 @@ $$
 
 ```{python}
 import numpy as np
-from optyx import Variable, Problem
+from optyx import VectorVariable, Problem, QuadraticForm
 
 # Asset data
 assets = ["Tech", "Energy", "Finance", "Healthcare", "Consumer", "Utilities"]
@@ -76,20 +76,14 @@ for i, asset in enumerate(assets):
 
 ```{python}
 # Decision variables: portfolio weights
-weights = [Variable(asset, lb=0, ub=0.4) for asset in assets]  # Max 40% per asset
+# Create a vector of variables w[0]...w[5]
+weights = VectorVariable("w", n_assets, lb=0, ub=0.4)
 
-# Portfolio return: sum of weight * expected return
-portfolio_return = sum(
-    weights[i] * expected_returns[i] 
-    for i in range(n_assets)
-)
+# Portfolio return: vector dot product (returns @ weights)
+portfolio_return = expected_returns @ weights
 
-# Portfolio variance: w^T * Cov * w
-portfolio_variance = sum(
-    weights[i] * weights[j] * cov_matrix[i, j]
-    for i in range(n_assets)
-    for j in range(n_assets)
-)
+# Portfolio variance: quadratic form (w^T * Cov * w)
+portfolio_variance = QuadraticForm(weights, cov_matrix)
 
 # Constraints
 total_weight = sum(weights)
@@ -119,12 +113,16 @@ print("MINIMUM VARIANCE PORTFOLIO")
 print(f"Target Return: {target_return:.1%}")
 print("=" * 50)
 print("\nOptimal Allocation:")
-for asset in assets:
-    w = solution[asset]
+
+# Extract values using the vector helper
+w_opt = weights.to_numpy(solution.values)
+
+for i, asset in enumerate(assets):
+    w = w_opt[i]
     if w > 0.01:
         print(f"  {asset:12s}: {w:6.1%}")
 
-actual_return = sum(solution[a] * expected_returns[i] for i, a in enumerate(assets))
+actual_return = w_opt @ expected_returns
 actual_risk = np.sqrt(solution.objective_value)
 print(f"\nPortfolio Metrics:")
 print(f"  Expected Return: {actual_return:.2%}")
@@ -141,14 +139,11 @@ The efficient frontier shows the best risk-return trade-offs:
 ```{python}
 def solve_for_return_target(target):
     """Solve minimum variance portfolio for given return target."""
-    w = [Variable(f"w_{i}", lb=0, ub=0.4) for i in range(n_assets)]
+    w = VectorVariable("w", n_assets, lb=0, ub=0.4)
     
-    port_ret = sum(w[i] * expected_returns[i] for i in range(n_assets))
-    port_var = sum(
-        w[i] * w[j] * cov_matrix[i, j]
-        for i in range(n_assets) for j in range(n_assets)
-    )
-    total = sum(w)
+    port_ret = expected_returns @ w
+    port_var = QuadraticForm(w, cov_matrix)
+    total = w.sum()
     
     sol = (
         Problem()
@@ -219,28 +214,27 @@ shocked_returns = expected_returns.copy()
 shocked_returns[0] = 0.05  # Tech return drops
 
 # Re-optimize
-w = [Variable(f"w_{i}", lb=0, ub=0.4) for i in range(n_assets)]
-port_ret = sum(w[i] * shocked_returns[i] for i in range(n_assets))
-port_var = sum(
-    w[i] * w[j] * cov_matrix[i, j]
-    for i in range(n_assets) for j in range(n_assets)
-)
+w_shocked = VectorVariable("w_shocked", n_assets, lb=0, ub=0.4)
+port_ret = shocked_returns @ w_shocked
+port_var = QuadraticForm(w_shocked, cov_matrix)
 
 solution_shocked = (
     Problem()
     .minimize(port_var)
-    .subject_to(sum(w) >= 0.99)
-    .subject_to(sum(w) <= 1.01)
+    .subject_to(w_shocked.sum() >= 0.99)
+    .subject_to(w_shocked.sum() <= 1.01)
     .subject_to(port_ret >= 0.07)  # Lower target after shock
     .solve()
 )
 
 print("\nRebalanced Portfolio (after Tech shock):")
+w_new_vals = solution_shocked[w_shocked]
+
 for i, asset in enumerate(assets):
-    w_old = solution[asset]
-    w_new = solution_shocked[f"w_{i}"]
-    if abs(w_old - w_new) > 0.01:
-        print(f"  {asset:12s}: {w_old:6.1%} → {w_new:6.1%}")
+    w_old_val = w_opt[i]
+    w_new_val = w_new_vals[i]
+    if abs(w_old_val - w_new_val) > 0.01:
+        print(f"  {asset:12s}: {w_old_val:6.1%} → {w_new_val:6.1%}")
 ```
 
 ---

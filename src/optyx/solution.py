@@ -45,6 +45,12 @@ class Solution:
         iterations: Number of solver iterations.
         message: Solver message or error description.
         solve_time: Time taken to solve (seconds).
+
+    Example:
+        >>> solution = problem.solve()
+        >>> if solution.is_optimal:
+        ...     print(f"Optimal value: {solution.objective_value}")
+        ...     print(f"x = {solution['x']}")
     """
 
     status: SolverStatus

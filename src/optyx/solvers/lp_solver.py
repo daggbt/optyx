@@ -176,6 +176,7 @@ def solve_lp(
         status = SolverStatus.FAILED
 
     # Build values dictionary
+    # For unbounded problems, result.x may contain a direction (ray)
     values: dict[str, float] = {}
     if result.x is not None:
         for i, var_name in enumerate(lp_data.variables):
@@ -188,11 +189,18 @@ def solve_lp(
         if lp_data.sense == "max":
             objective_value = -objective_value
 
+    # Build informative message for unbounded/infeasible cases
+    message = result.message if hasattr(result, "message") else ""
+    if status == SolverStatus.UNBOUNDED and values:
+        message = f"{message} Unbounded direction available in solution.values."
+    elif status == SolverStatus.INFEASIBLE:
+        message = f"{message} No feasible solution exists."
+
     return Solution(
         status=status,
         objective_value=objective_value,
         values=values,
         iterations=result.nit if hasattr(result, "nit") else None,
-        message=result.message if hasattr(result, "message") else "",
+        message=message,
         solve_time=solve_time,
     )

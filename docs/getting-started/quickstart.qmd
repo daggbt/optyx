@@ -55,6 +55,12 @@ y = Variable("y", lb=0)
 z = Variable("z", lb=-10, ub=10)
 ```
 
+::: {.callout-tip}
+## Scaling Up
+For problems with many variables, use `VectorVariable` instead of creating individual `Variable` objects. See [Vector Variables](../api/vectors.qmd) for details.
+:::
+
+
 ### 2. Build Expressions
 
 Use natural Python operators to build objective functions:

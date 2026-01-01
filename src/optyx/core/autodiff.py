@@ -23,8 +23,9 @@ if TYPE_CHECKING:
 # Gradient Registry System
 # =============================================================================
 
-# Type alias for gradient functions
-GradientFunc = Callable[["Expression", "Variable"], "Expression"]
+# Type alias for gradient functions - uses ... for argument types
+# since actual gradient functions take specific Expression subclasses
+GradientFunc = Callable[..., "Expression"]
 
 # Registry mapping expression types to gradient functions
 _gradient_registry: dict[type, GradientFunc] = {}

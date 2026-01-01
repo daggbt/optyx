@@ -171,6 +171,11 @@ class Constant(Expression):
     """A constant numerical value in an expression.
 
     Wraps scalars or numpy arrays as expression nodes.
+
+    Example:
+        >>> c = Constant(5.0)
+        >>> c.evaluate({})  # No variables needed
+        5.0
     """
 
     __slots__ = ("value",)
@@ -198,6 +203,12 @@ class Variable(Expression):
         lb: Lower bound (None for unbounded).
         ub: Upper bound (None for unbounded).
         domain: Variable type - 'continuous', 'integer', or 'binary'.
+
+    Example:
+        >>> x = Variable("x", lb=0, ub=10)
+        >>> y = Variable("y", domain="binary")
+        >>> x.evaluate({"x": 5.0})
+        5.0
     """
 
     __slots__ = ("name", "lb", "ub", "domain")
@@ -448,9 +459,8 @@ def _get_variables_iterative(expr: Expression) -> set[Variable]:
             variables.update(node.get_variables())
             continue
         if isinstance(node, DotProduct):
-            # Push children for processing
-            stack.append(node.left)
-            stack.append(node.right)
+            # DotProduct has get_variables(), use it directly
+            variables.update(node.get_variables())
             continue
         if isinstance(node, (L2Norm, L1Norm)):
             variables.update(node.get_variables())
