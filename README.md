@@ -75,7 +75,7 @@ Python has excellent optimization libraries. SciPy provides algorithms. CVXPY ha
 
 ### Being Honest
 
-Optyx is young (v1.1.1) and opinionated. It's **not** a replacement for specialized tools:
+Optyx is young and opinionated. It's **not** a replacement for specialized tools:
 
 | Need | Use Instead |
 |------|-------------|
