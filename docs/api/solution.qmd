@@ -94,10 +94,11 @@ from optyx import SolverStatus
 | Status | Description |
 |--------|-------------|
 | `SolverStatus.OPTIMAL` | Converged to an optimal solution |
-| `SolverStatus.FEASIBLE` | Found a feasible point (may not be optimal) |
 | `SolverStatus.INFEASIBLE` | No feasible solution exists |
 | `SolverStatus.UNBOUNDED` | Objective can be improved indefinitely |
+| `SolverStatus.MAX_ITERATIONS` | Reached iteration limit |
 | `SolverStatus.FAILED` | Solver encountered an error |
+| `SolverStatus.NOT_SOLVED` | Problem has not been solved yet |
 
 ### Checking Status
 
@@ -154,8 +155,8 @@ def safe_solve(prob):
     
     if solution.status == SolverStatus.OPTIMAL:
         return solution
-    elif solution.status == SolverStatus.FEASIBLE:
-        print("Warning: Solution may not be optimal")
+    elif solution.status == SolverStatus.MAX_ITERATIONS:
+        print("Warning: Reached iteration limit, solution may not be optimal")
         return solution
     else:
         raise RuntimeError(f"Solver failed: {solution.message}")

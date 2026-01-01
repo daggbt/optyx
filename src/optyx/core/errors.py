@@ -166,9 +166,7 @@ class BoundsError(OptyxError, ValueError):
         self.upper = upper
         self.reason = reason
 
-        msg = (
-            f"Invalid bounds for variable '{variable_name}': " f"lb={lower}, ub={upper}"
-        )
+        msg = f"Invalid bounds for variable '{variable_name}': lb={lower}, ub={upper}"
 
         if reason:
             msg += f". {reason}"
