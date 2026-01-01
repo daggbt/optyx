@@ -8,6 +8,11 @@ date: last-modified
 
 Decision variables that the optimizer will determine.
 
+::: {.callout-tip}
+## Vector Variables
+For creating arrays of variables (e.g., `x[0]`, `x[1]`), use [VectorVariable](vectors.qmd) instead of creating individual `Variable` objects in a loop.
+:::
+
 ```python
 from optyx import Variable
 

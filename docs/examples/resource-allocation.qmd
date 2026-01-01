@@ -1,0 +1,334 @@
+---
+title: "Large-Scale Resource Allocation"
+description: "Allocating budget across 100+ projects using VectorVariable"
+date: last-modified
+---
+
+## Overview
+
+This example demonstrates Optyx v1.2.0's scalability by solving a resource allocation problem with **100 decision variables**. Before VectorVariable, this would require tedious loops and error-prone indexing.
+
+::: {.callout-note}
+## v1.2.0 Feature
+This example uses `VectorVariable` to create 100 decision variables in one line, with vectorized operations for constraints and objectives.
+:::
+
+---
+
+## The Problem
+
+A company must allocate its annual budget across 100 projects. Each project has:
+
+- **Expected return** (5% to 25% annually)
+- **Risk score** (higher = riskier)
+- **Resource requirements** (budget, personnel, equipment)
+- **Sector assignment** (Tech, Healthcare, Finance, Energy, Manufacturing)
+
+**Constraints:**
+- Total allocation must equal 100% (fully invested)
+- Can't exceed available resources
+- Max 10% per project (diversification)
+- Max 30% per sector (sector limit)
+
+**Objective:** Maximize risk-adjusted return = Expected Return − λ × Risk
+
+---
+
+## Problem Data
+
+```{python}
+import numpy as np
+np.random.seed(42)
+
+n_projects = 100
+n_sectors = 5
+n_resources = 3
+
+# Expected returns (5% to 25%)
+expected_returns = np.random.uniform(0.05, 0.25, n_projects)
+
+# Risk scores (0.1 to 0.5)
+risk_scores = np.random.uniform(0.1, 0.5, n_projects)
+
+# Resource requirements: budget, personnel, equipment
+resource_requirements = np.random.uniform(0.5, 5.0, (n_resources, n_projects))
+
+# Available resources
+total_resources = np.array([150.0, 200.0, 100.0])  # $150M, 200 FTE, 100 units
+resource_names = ["Budget ($M)", "Personnel (FTE)", "Equipment"]
+
+# Sector assignments (20 projects each)
+sector_assignments = np.zeros((n_sectors, n_projects))
+for i in range(n_projects):
+    sector_assignments[i % n_sectors, i] = 1
+sector_names = ["Tech", "Healthcare", "Finance", "Energy", "Manufacturing"]
+
+print(f"Projects: {n_projects}")
+print(f"Return range: {expected_returns.min()*100:.1f}% - {expected_returns.max()*100:.1f}%")
+print(f"Risk range: {risk_scores.min():.2f} - {risk_scores.max():.2f}")
+```
+
+---
+
+## Building the Model
+
+### Traditional Approach (Pre-v1.2.0)
+
+Without VectorVariable, you'd write:
+
+```python
+# The old way: tedious loops
+from optyx import Variable, Problem
+
+allocation = [Variable(f"alloc_{i}", lb=0, ub=0.1) for i in range(100)]
+
+# Objective via loop
+objective = sum(allocation[i] * expected_returns[i] for i in range(100))
+
+# Budget constraint via loop  
+budget = sum(allocation[i] for i in range(100))
+
+# Resource constraints via nested loops
+for r in range(3):
+    usage = sum(allocation[i] * resource_requirements[r, i] for i in range(100))
+    # ...add constraint
+```
+
+This is verbose, error-prone, and slow to build.
+
+### v1.2.0 Approach
+
+```{python}
+from optyx import VectorVariable, Problem, Parameter
+
+# v1.2.0: Create 100 variables in ONE LINE
+allocation = VectorVariable("alloc", n_projects, lb=0, ub=0.10)
+
+# Risk aversion parameter (for sensitivity analysis)
+risk_aversion = Parameter("lambda", value=1.0)
+
+# Objective: vectorized operation
+expected_return = expected_returns @ allocation
+weighted_risk = risk_scores @ allocation
+objective = expected_return - risk_aversion * weighted_risk
+
+print(f"Variables created: {len(allocation)}")
+print(f"Objective type: {type(objective).__name__}")
+```
+
+---
+
+## Adding Constraints
+
+### Budget Constraint
+
+```{python}
+# v1.2.0: Clean syntax
+problem = (
+    Problem("resource_allocation")
+    .maximize(objective)
+    .subject_to(allocation.sum().eq(1))  # Fully allocated
+)
+
+print("Budget constraint added")
+```
+
+### Resource Constraints
+
+```{python}
+# v1.2.0: Vectorized resource usage
+for r in range(n_resources):
+    resource_usage = resource_requirements[r] @ allocation
+    problem = problem.subject_to(resource_usage <= total_resources[r])
+
+print(f"Resource constraints added: {n_resources}")
+```
+
+### Sector Exposure Limits
+
+```{python}
+max_sector_exposure = 0.30  # Max 30% per sector
+
+for s in range(n_sectors):
+    sector_exposure = sector_assignments[s] @ allocation
+    problem = problem.subject_to(sector_exposure <= max_sector_exposure)
+
+print(f"Sector constraints added: {n_sectors}")
+print(f"Total constraints: {1 + n_resources + n_sectors}")
+```
+
+---
+
+## Solving
+
+```{python}
+import time
+
+start = time.perf_counter()
+solution = problem.solve(method="SLSQP")
+elapsed = time.perf_counter() - start
+
+print(f"Status: {solution.status}")
+print(f"Solve time: {elapsed*1000:.1f} ms")
+print(f"Objective: {solution.objective_value:.4f}")
+```
+
+---
+
+## Analyzing Results
+
+```{python}
+# Extract allocations
+opt_alloc = np.array([solution[f"alloc[{i}]"] for i in range(n_projects)])
+
+print("=" * 50)
+print("ALLOCATION SUMMARY")
+print("=" * 50)
+print(f"Total allocated: {opt_alloc.sum()*100:.2f}%")
+print(f"Non-zero positions: {np.sum(opt_alloc > 0.001)}")
+print(f"Max position: {opt_alloc.max()*100:.2f}%")
+```
+
+### Portfolio Metrics
+
+```{python}
+portfolio_return = opt_alloc @ expected_returns
+portfolio_risk = opt_alloc @ risk_scores
+
+print(f"\nPortfolio Return: {portfolio_return*100:.2f}%")
+print(f"Portfolio Risk: {portfolio_risk:.4f}")
+print(f"Risk-Adjusted Return: {solution.objective_value*100:.2f}%")
+```
+
+### Resource Utilization
+
+```{python}
+print("\nResource Utilization:")
+for r in range(n_resources):
+    usage = opt_alloc @ resource_requirements[r]
+    util = usage / total_resources[r] * 100
+    print(f"  {resource_names[r]}: {usage:.1f} / {total_resources[r]:.1f} ({util:.1f}%)")
+```
+
+### Sector Breakdown
+
+```{python}
+print("\nSector Exposure:")
+for s in range(n_sectors):
+    exposure = opt_alloc @ sector_assignments[s]
+    print(f"  {sector_names[s]}: {exposure*100:.1f}%")
+```
+
+### Top Projects
+
+```{python}
+print("\nTop 10 Projects:")
+print(f"{'Rank':<6} {'Project':<10} {'Alloc':>10} {'Return':>10} {'Risk':>8}")
+print("-" * 48)
+
+sorted_idx = np.argsort(opt_alloc)[::-1]
+for rank, idx in enumerate(sorted_idx[:10], 1):
+    print(f"{rank:<6} Project {idx:<4} {opt_alloc[idx]*100:>8.2f}% "
+          f"{expected_returns[idx]*100:>8.1f}% {risk_scores[idx]:>8.2f}")
+```
+
+---
+
+## Sensitivity Analysis
+
+Use `Parameter` to efficiently explore different risk aversion levels:
+
+```{python}
+risk_levels = [0.5, 1.0, 2.0, 5.0]
+
+print("Risk Aversion Sensitivity:")
+print(f"{'Lambda':>10} {'Return':>10} {'Risk':>10} {'Time':>10}")
+print("-" * 42)
+
+for lam in risk_levels:
+    risk_aversion.set(lam)  # Fast parameter update
+    
+    start = time.perf_counter()
+    sol = problem.solve(method="SLSQP")
+    elapsed = time.perf_counter() - start
+    
+    alloc = np.array([sol[f"alloc[{i}]"] for i in range(n_projects)])
+    ret = alloc @ expected_returns
+    risk = alloc @ risk_scores
+    
+    print(f"{lam:>10.1f} {ret*100:>9.2f}% {risk:>10.4f} {elapsed*1000:>8.1f} ms")
+```
+
+::: {.callout-tip}
+## Parameter Efficiency
+Notice the solve times after the first solve. The `Parameter` class allows updating values without rebuilding the problem structure, making repeated solves much faster.
+:::
+
+---
+
+## Code Comparison
+
+### Lines of Code
+
+| Approach | Variable Creation | Objective | Constraints | Total |
+|----------|------------------|-----------|-------------|-------|
+| Loop-based | ~100 lines | ~5 lines | ~20 lines | ~125 lines |
+| VectorVariable | 1 line | 3 lines | ~10 lines | ~15 lines |
+
+### Build Time
+
+```{python}
+def build_loop_based():
+    from optyx import Variable, Problem
+    alloc = [Variable(f"a_{i}", lb=0, ub=0.1) for i in range(100)]
+    obj = sum(alloc[i] * expected_returns[i] for i in range(100))
+    prob = Problem().maximize(obj).subject_to(sum(alloc).eq(1))
+    return prob
+
+def build_vector_based():
+    from optyx import VectorVariable, Problem
+    alloc = VectorVariable("a", 100, lb=0, ub=0.1)
+    prob = Problem().maximize(expected_returns @ alloc).subject_to(alloc.sum().eq(1))
+    return prob
+
+# Time comparison
+start = time.perf_counter()
+_ = build_loop_based()
+loop_time = time.perf_counter() - start
+
+start = time.perf_counter()
+_ = build_vector_based()
+vec_time = time.perf_counter() - start
+
+print(f"Loop-based build: {loop_time*1000:.2f} ms")
+print(f"VectorVariable build: {vec_time*1000:.2f} ms")
+print(f"Speedup: {loop_time/vec_time:.1f}x")
+```
+
+---
+
+## Summary
+
+This example demonstrated:
+
+| Feature | Benefit |
+|---------|---------|
+| `VectorVariable("alloc", 100)` | Create 100 variables in one line |
+| `returns @ allocation` | Vectorized dot product |
+| `allocation.sum().eq(1)` | Clean constraint syntax |
+| `Parameter("lambda")` | Fast sensitivity analysis |
+
+Key takeaways:
+
+1. **VectorVariable scales** — 100+ variables without code bloat
+2. **Vectorized operations** — No loops for objectives/constraints
+3. **Parameter for scenarios** — Fast re-solves when data changes
+4. **Cleaner code** — Easier to read, write, and maintain
+
+---
+
+## Next Steps
+
+- [Vector Variables Tutorial](../tutorials/vectors.qmd) — Complete VectorVariable guide
+- [Advanced Portfolio Optimization](portfolio-advanced.qmd) — Covariance with QuadraticForm
+- [API Reference](../api/reference/index.qmd) — Full documentation

@@ -7,15 +7,49 @@ Automatic differentiation for symbolic expressions.
 Implements symbolic differentiation using the chain rule, producing
 gradient expressions that can be compiled for fast evaluation.
 
+Supports native gradient rules for vector expressions (VectorSum,
+LinearCombination, DotProduct) with O(1) coefficient lookup for
+scalability to n=10,000+ variables.
+
 ## Functions
 
 | Name | Description |
 | --- | --- |
+| [apply_gradient_rule](#optyx.core.autodiff.apply_gradient_rule) | Apply the registered gradient rule for an expression type. |
 | [compile_hessian](#optyx.core.autodiff.compile_hessian) | Compile the Hessian for fast evaluation. |
 | [compile_jacobian](#optyx.core.autodiff.compile_jacobian) | Compile the Jacobian for fast evaluation. |
 | [compute_hessian](#optyx.core.autodiff.compute_hessian) | Compute the Hessian matrix of an expression. |
 | [compute_jacobian](#optyx.core.autodiff.compute_jacobian) | Compute the Jacobian matrix of expressions with respect to variables. |
 | [gradient](#optyx.core.autodiff.gradient) | Compute the symbolic gradient of an expression with respect to a variable. |
+| [has_gradient_rule](#optyx.core.autodiff.has_gradient_rule) | Check if an expression type has a registered gradient rule. |
+| [register_gradient](#optyx.core.autodiff.register_gradient) | Decorator to register a gradient rule for an expression type. |
+
+### apply_gradient_rule { #optyx.core.autodiff.apply_gradient_rule }
+
+```python
+core.autodiff.apply_gradient_rule(expr, wrt)
+```
+
+Apply the registered gradient rule for an expression type.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type           | Description                                    | Default    |
+|--------|----------------|------------------------------------------------|------------|
+| expr   | \'Expression\' | The expression to differentiate.               | _required_ |
+| wrt    | \'Variable\'   | The variable to differentiate with respect to. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type           | Description              |
+|--------|----------------|--------------------------|
+|        | \'Expression\' | The gradient expression. |
+
+#### Raises {.doc-section .doc-section-raises}
+
+| Name   | Type                       | Description                                                 |
+|--------|----------------------------|-------------------------------------------------------------|
+|        | [ValueError](`ValueError`) | If no gradient rule is registered for this expression type. |
 
 ### compile_hessian { #optyx.core.autodiff.compile_hessian }
 
@@ -127,6 +161,11 @@ core.autodiff.gradient(expr, wrt)
 
 Compute the symbolic gradient of an expression with respect to a variable.
 
+Uses a three-tier approach for optimal performance:
+1. Registered gradient rules (O(1) for vector expressions)
+2. Cached recursive computation (for shallow trees)
+3. Iterative fallback (for deep trees to avoid RecursionError)
+
 #### Parameters {.doc-section .doc-section-parameters}
 
 | Name   | Type                                              | Description                                    | Default    |
@@ -145,3 +184,54 @@ Compute the symbolic gradient of an expression with respect to a variable.
 >>> x = Variable("x")
 >>> expr = x**2 + 3*x
 >>> grad = gradient(expr, x)  # Returns: 2*x + 3
+
+### has_gradient_rule { #optyx.core.autodiff.has_gradient_rule }
+
+```python
+core.autodiff.has_gradient_rule(expr)
+```
+
+Check if an expression type has a registered gradient rule.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type           | Description              | Default    |
+|--------|----------------|--------------------------|------------|
+| expr   | \'Expression\' | The expression to check. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type           | Description                                                     |
+|--------|----------------|-----------------------------------------------------------------|
+|        | [bool](`bool`) | True if a gradient rule is registered for this expression type. |
+
+### register_gradient { #optyx.core.autodiff.register_gradient }
+
+```python
+core.autodiff.register_gradient(expr_type)
+```
+
+Decorator to register a gradient rule for an expression type.
+
+Registered gradient rules are used by the main `gradient()` function
+before falling back to recursive tree traversal. This enables O(1)
+gradient computation for vector expressions.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name      | Type           | Description                                           | Default    |
+|-----------|----------------|-------------------------------------------------------|------------|
+| expr_type | [type](`type`) | The expression class to register a gradient rule for. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                                                                                                        | Description                                       |
+|--------|---------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------|
+|        | [Callable](`typing.Callable`)\[\[[GradientFunc](`optyx.core.autodiff.GradientFunc`)\], [GradientFunc](`optyx.core.autodiff.GradientFunc`)\] | A decorator that registers the gradient function. |
+
+#### Example {.doc-section .doc-section-example}
+
+@register_gradient(VectorSum)
+def gradient_vector_sum(expr: VectorSum, wrt: Variable) -> Expression:
+    # O(1) gradient computation
+    ...

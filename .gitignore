@@ -54,3 +54,4 @@ Thumbs.db
 # Comparison scripts (local analysis only)
 compare_optyx_scipy.py
 benchmarks/comparison/bench_vector_vs_loop.py
+benchmarks/comparison/bench_matrix_vs_alternatives.py

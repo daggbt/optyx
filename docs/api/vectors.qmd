@@ -1,0 +1,157 @@
+---
+title: "Vector Variables"
+description: "Working with high-dimensional decision variables"
+date: last-modified
+---
+
+## Overview
+
+`VectorVariable` allows you to define and manipulate arrays of decision variables efficiently. Instead of creating variables one by one in a loop, you can create thousands at once and perform vectorized operations.
+
+```python
+from optyx import VectorVariable
+
+# Create 100 variables: x[0], x[1], ..., x[99]
+x = VectorVariable("x", 100, lb=0)
+```
+
+## Creating Vectors
+
+### Basic Creation
+
+```python
+# Unbounded vector of size 10
+x = VectorVariable("x", 10)
+
+# Non-negative vector
+y = VectorVariable("y", 10, lb=0)
+
+# Bounded vector
+z = VectorVariable("z", 10, lb=-1, ub=1)
+
+# Binary vector (relaxed to [0, 1] in standard solvers)
+b = VectorVariable("b", 10, domain="binary")
+```
+
+### From NumPy Arrays
+
+You can create a vector matching the size of an existing data array:
+
+```python
+import numpy as np
+data = np.array([1.5, 2.0, 3.5])
+x = VectorVariable.from_numpy("x", data, lb=0)
+# x has size 3
+```
+
+## Indexing and Slicing
+
+`VectorVariable` supports standard Python indexing and slicing:
+
+```python
+x = VectorVariable("x", 10)
+
+# Access single element (returns Variable)
+x0 = x[0]
+
+# Slice (returns new VectorVariable)
+subset = x[2:5]  # x[2], x[3], x[4]
+
+# Negative indexing
+last = x[-1]
+```
+
+## Vector Operations
+
+### Arithmetic
+
+You can perform element-wise arithmetic with scalars or other vectors:
+
+```python
+x = VectorVariable("x", 3)
+y = VectorVariable("y", 3)
+
+# Element-wise addition
+z = x + y
+
+# Scalar multiplication
+w = 2 * x
+
+# Linear combination
+expr = 2*x + 3*y + 1
+```
+
+### Dot Product
+
+Compute the dot product between two vectors or a vector and a constant array:
+
+```python
+# Vector-Vector dot product
+d = x.dot(y)  # or x @ y
+
+# Vector-Constant dot product
+c = np.array([1, 2, 3])
+val = c @ x   # 1*x[0] + 2*x[1] + 3*x[2]
+```
+
+### Norms
+
+Compute L1 and L2 norms:
+
+```python
+from optyx import L1Norm, L2Norm
+
+# L1 Norm: sum(|x_i|)
+n1 = L1Norm(x)
+
+# L2 Norm: sqrt(sum(x_i^2))
+n2 = L2Norm(x)
+```
+
+### Summation
+
+Sum all elements in a vector:
+
+```python
+from optyx import sum
+
+total = sum(x)
+```
+
+## Constraints
+
+Constraints can be applied to entire vectors at once. This creates a list of constraints, one for each element.
+
+```python
+x = VectorVariable("x", 10)
+y = VectorVariable("y", 10)
+
+# Element-wise constraints
+prob.subject_to(x >= 0)      # x[i] >= 0 for all i
+prob.subject_to(x + y <= 1)  # x[i] + y[i] <= 1 for all i
+prob.subject_to(x <= y)      # x[i] <= y[i] for all i
+```
+
+## Integration with NumPy
+
+`VectorVariable` is designed to work seamlessly with NumPy arrays for data-driven optimization.
+
+```python
+import numpy as np
+
+# Data
+prices = np.array([10, 20, 30])
+costs = np.array([5, 15, 25])
+demand = np.array([100, 200, 150])
+
+# Variables
+qty = VectorVariable("qty", 3, lb=0)
+
+# Objective: Maximize profit
+revenue = prices @ qty
+cost = costs @ qty
+prob.maximize(revenue - cost)
+
+# Constraints
+prob.subject_to(qty <= demand)
+```

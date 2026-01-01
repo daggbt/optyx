@@ -1,0 +1,81 @@
+---
+title: "Parameters"
+description: "Updatable constants for fast re-solves"
+date: last-modified
+---
+
+## Overview
+
+`Parameter` objects act like constants in your optimization problem but can be updated between solves without rebuilding the problem structure. This is crucial for:
+
+*   **Sensitivity Analysis**: Solving the same problem with slightly different inputs.
+*   **Real-time Optimization**: Updating current state or prices.
+*   **Efficient Re-solving**: Avoiding the overhead of reconstructing the expression tree.
+
+```python
+from optyx import Parameter, Variable, Problem
+
+x = Variable("x")
+p = Parameter("price", value=10.0)
+
+prob = Problem().minimize(p * x).subject_to(x >= 5)
+prob.solve()
+```
+
+## Scalar Parameters
+
+```python
+# Create a parameter
+limit = Parameter("limit", value=100.0)
+
+# Use in constraints
+prob.subject_to(x <= limit)
+
+# Solve
+prob.solve()
+
+# Update and re-solve
+limit.set(120.0)
+prob.solve()
+```
+
+## Vector Parameters
+
+`VectorParameter` holds an array of values, useful for price vectors or demand forecasts.
+
+```python
+from optyx import VectorParameter
+
+# Create vector parameter
+prices = VectorParameter("prices", values=[10, 20, 30])
+
+# Use in objective (dot product)
+revenue = prices @ x  # x is a VectorVariable
+prob.maximize(revenue)
+
+# Update all values at once
+prices.set([12, 22, 32])
+```
+
+## Matrix Parameters
+
+`MatrixParameter` holds a 2D array, useful for covariance matrices or cost grids.
+
+```python
+from optyx import MatrixParameter
+import numpy as np
+
+# Covariance matrix
+cov = MatrixParameter("Sigma", values=np.eye(3), symmetric=True)
+
+# Use in quadratic form
+risk = QuadraticForm(x, cov)
+
+# Update matrix
+new_cov = np.array([[1.0, 0.2], [0.2, 1.0]])
+cov.set(new_cov)
+```
+
+## Performance Benefits
+
+Using `Parameter` is significantly faster than creating a new `Problem` instance when only the numerical data changes. The solver can reuse the compiled structure of the problem (Jacobian/Hessian sparsity patterns), only updating the specific values that changed.

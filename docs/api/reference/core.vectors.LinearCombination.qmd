@@ -1,0 +1,50 @@
+# core.vectors.LinearCombination { #optyx.core.vectors.LinearCombination }
+
+```python
+core.vectors.LinearCombination(coefficients, vector)
+```
+
+Linear combination of vector elements with constant coefficients.
+
+Represents: c[0]*x[0] + c[1]*x[1] + ... + c[n-1]*x[n-1]
+
+This enables efficient numpy integration: `coefficients @ vector`.
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name         | Type                                                                                                               | Description                                    | Default    |
+|--------------|--------------------------------------------------------------------------------------------------------------------|------------------------------------------------|------------|
+| coefficients | [np](`numpy`).[ndarray](`numpy.ndarray`)                                                                           | NumPy array of constant coefficients.          | _required_ |
+| vector       | [VectorVariable](`optyx.core.vectors.VectorVariable`) \| [VectorExpression](`optyx.core.vectors.VectorExpression`) | VectorVariable or VectorExpression to combine. | _required_ |
+
+## Example {.doc-section .doc-section-example}
+
+>>> import numpy as np
+>>> returns = np.array([0.12, 0.08, 0.10])
+>>> weights = VectorVariable("w", 3)
+>>> portfolio_return = LinearCombination(returns, weights)
+>>> portfolio_return.evaluate({"w[0]": 0.5, "w[1]": 0.3, "w[2]": 0.2})
+0.084
+
+## Methods
+
+| Name | Description |
+| --- | --- |
+| [evaluate](#optyx.core.vectors.LinearCombination.evaluate) | Evaluate the linear combination given variable values. |
+| [get_variables](#optyx.core.vectors.LinearCombination.get_variables) | Return all variables this expression depends on. |
+
+### evaluate { #optyx.core.vectors.LinearCombination.evaluate }
+
+```python
+core.vectors.LinearCombination.evaluate(values)
+```
+
+Evaluate the linear combination given variable values.
+
+### get_variables { #optyx.core.vectors.LinearCombination.get_variables }
+
+```python
+core.vectors.LinearCombination.get_variables()
+```
+
+Return all variables this expression depends on.

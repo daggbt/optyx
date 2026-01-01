@@ -74,7 +74,7 @@ We believe most optimization code is harder to write than it needs to be. Optyx 
 
 ### Being Honest
 
-Optyx is young (v1.1.1) and opinionated. It's **not** a replacement for specialized tools:
+Optyx is young (v1.2.0) and opinionated. It's **not** a replacement for specialized tools:
 
 - Need MILP at scale? → Use Pyomo or Gurobi
 - Need convex guarantees? → Use CVXPY  
@@ -225,6 +225,370 @@ Up to **900x faster** on repeated solves.
 
 ---
 
+## Under the Hood: A Glimpse
+
+Optyx isn't magic—it's a **SciPy wrapper** with a symbolic frontend. Here's the 30-second version of what happens when you solve a problem:
+
+```
+Your Code                    What Optyx Builds              What Runs
+──────────                   ─────────────────              ─────────
+x**2 + y**2         →        Expression Tree        →       SciPy's minimize()
+                                   Add
+                                  /   \
+                              Power   Power
+                              / \     / \
+                             x   2   y   2
+```
+
+**Step 1: Build the Tree** — Python operators (`+`, `*`, `**`) are overloaded to construct a symbolic expression tree instead of computing values.
+
+**Step 2: Walk for Gradients** — Each node knows its derivative rule. `Power(x, 2)` knows ∂/∂x = 2x. The tree is walked to compute exact gradients via the chain rule.
+
+**Step 3: Compile to Callables** — The tree is compiled into fast Python functions that SciPy can call repeatedly during optimization.
+
+**Step 4: Call SciPy** — Optyx passes your objective, gradient, and constraints to `scipy.optimize.minimize()` (or HiGHS for LP). The actual optimization algorithm is SciPy's.
+
+::: {.callout-warning}
+## Honest About Overhead
+The symbolic layer adds compilation cost. First solve is ~1.5-2x slower than hand-written SciPy. The payoff comes from: (1) never writing gradients, (2) re-solves reusing compiled functions, (3) readable code you can maintain.
+:::
+
+[Full technical deep-dive →](getting-started/how-it-works.qmd)
+
+---
+
+## Variable: The Building Block
+
+Everything in Optyx starts with `Variable`. It represents a decision variable—a value the solver will determine.
+
+```{python}
+from optyx import Variable
+
+# Basic variable
+x = Variable("x")
+
+# With bounds
+y = Variable("y", lb=0, ub=10)  # 0 ≤ y ≤ 10
+
+# Integer domain
+n = Variable("n", lb=0, ub=100, domain="integer")
+
+# Binary (0 or 1)
+select = Variable("select", domain="binary")
+
+print(f"Variable x: bounds=[{x.lb}, {x.ub}]")
+print(f"Variable y: bounds=[{y.lb}, {y.ub}]")
+print(f"Variable n: domain={n.domain}")
+```
+
+Variables combine with Python operators to build expressions:
+
+```{python}
+from optyx import Variable
+
+x = Variable("x")
+y = Variable("y")
+
+# Arithmetic builds expression trees
+linear = 3*x + 2*y - 5
+quadratic = x**2 + x*y + y**2
+nonlinear = (x + 1) / (y + 1)
+
+print(f"Linear: {linear}")
+print(f"Quadratic: {quadratic}")
+```
+
+---
+
+## Loops: The Traditional Approach
+
+What if you have many variables? The natural approach is loops:
+
+```{python}
+from optyx import Variable, Problem
+import numpy as np
+
+# 10 portfolio weights
+n_assets = 10
+weights = [Variable(f"w_{i}", lb=0, ub=1) for i in range(n_assets)]
+
+# Expected returns
+np.random.seed(42)
+returns = np.random.uniform(0.05, 0.15, n_assets)
+
+# Build objective via loop
+expected_return = sum(weights[i] * returns[i] for i in range(n_assets))
+
+# Budget constraint via loop
+budget = sum(weights)
+
+print(f"Created {len(weights)} variables")
+print(f"Objective type: {type(expected_return).__name__}")
+```
+
+This works for small problems. But there are limitations...
+
+---
+
+## The Limitations of Loops
+
+As problems grow, the loop approach becomes painful:
+
+### 1. Verbose Code
+
+```python
+# 100 variables = 100 iterations
+weights = [Variable(f"w_{i}", lb=0, ub=1) for i in range(100)]
+
+# Quadratic objective = 10,000 iterations (n²)
+variance = sum(
+    weights[i] * covariance[i, j] * weights[j]
+    for i in range(100)
+    for j in range(100)
+)
+```
+
+### 2. Error-Prone Indexing
+
+```python
+# Easy to make mistakes with indices
+constraint = sum(weights[i] * data[j] for i in range(n))  # Bug: should be data[i]
+```
+
+### 3. Slow Expression Building
+
+Each loop iteration creates expression nodes. For `n=100`:
+- Linear sum: 100 additions
+- Quadratic form: 10,000 multiplications + 10,000 additions
+
+This compilation overhead grows with problem size.
+
+### 4. No Vectorized Gradients
+
+Loop-built expressions differentiate element-by-element. NumPy-style operations could be much faster.
+
+---
+
+## VectorVariable: Vectors Done Right
+
+**VectorVariable** (v1.2.0) solves these problems with NumPy-like syntax:
+
+```{python}
+from optyx import VectorVariable
+import numpy as np
+
+# Create 10 variables in one line
+w = VectorVariable("w", size=10, lb=0, ub=1)
+
+print(f"Created: {w.name} with {len(w)} elements")
+print(f"First element: {w[0].name}")
+print(f"Last element: {w[-1].name}")
+```
+
+### Vectorized Operations
+
+```{python}
+from optyx import VectorVariable, Problem
+import numpy as np
+
+np.random.seed(42)
+n = 10
+
+# Data as NumPy arrays
+returns = np.random.uniform(0.05, 0.15, n)
+ 
+# Variables as VectorVariable
+w = VectorVariable("w", n, lb=0, ub=1)
+
+# Dot product — no loops!
+expected_return = returns @ w
+
+# Sum — one call!
+budget = w.sum()
+
+print(f"Return type: {type(expected_return).__name__}")
+print(f"Sum type: {type(budget).__name__}")
+```
+
+### Full Portfolio Example
+
+```{python}
+from optyx import VectorVariable, Problem
+import numpy as np
+
+np.random.seed(42)
+n = 20  # 20 assets
+
+# Problem data
+returns = np.random.uniform(0.05, 0.15, n)
+
+# Decision variables
+w = VectorVariable("w", n, lb=0, ub=1)
+
+# Maximize return subject to budget
+solution = (
+    Problem("portfolio_vector")
+    .maximize(returns @ w)
+    .subject_to(w.sum().eq(1))
+    .solve()
+)
+
+# Extract results
+opt_weights = np.array([solution[f"w[{i}]"] for i in range(n)])
+print(f"Status: {solution.status}")
+print(f"Max return: {solution.objective_value:.2%}")
+print(f"Non-zero positions: {np.sum(opt_weights > 0.01)}")
+```
+
+### Key VectorVariable Features
+
+| Feature | Syntax | Description |
+|---------|--------|-------------|
+| Create | `VectorVariable("x", n)` | n-element vector |
+| Index | `x[i]`, `x[-1]` | Single Variable |
+| Slice | `x[2:5]` | Sub-vector |
+| Sum | `x.sum()` | Σ xᵢ |
+| Dot | `a @ x` | Σ aᵢxᵢ |
+| L2 Norm | `norm(x)` | √(Σ xᵢ²) |
+| L1 Norm | `norm(x, ord=1)` | Σ \|xᵢ\| |
+| Equality | `x.sum().eq(1)` | Sum equals 1 |
+
+[Full VectorVariable Tutorial →](tutorials/vectors.qmd)
+
+---
+
+## MatrixVariable: 2D Arrays
+
+For problems with natural 2D structure—transportation, assignment, scheduling—use **MatrixVariable**:
+
+```{python}
+from optyx import MatrixVariable
+
+# 3×4 matrix of decision variables
+X = MatrixVariable("X", rows=3, cols=4, lb=0)
+
+print(f"Shape: {X.shape}")
+print(f"Element [1,2]: {X[1, 2].name}")
+```
+
+### Row and Column Operations
+
+```{python}
+from optyx import MatrixVariable
+
+X = MatrixVariable("X", rows=3, cols=4, lb=0)
+
+# Row slice — returns VectorVariable
+row_0 = X[0, :]
+print(f"Row 0: {len(row_0)} elements")
+
+# Column slice
+col_2 = X[:, 2]
+print(f"Column 2: {len(col_2)} elements")
+
+# Row sum
+row_sum = X[0, :].sum()
+print(f"Row sum type: {type(row_sum).__name__}")
+```
+
+### Transportation Problem Example
+
+Ship goods from warehouses to stores, minimizing cost:
+
+```{python}
+from optyx import MatrixVariable, Problem
+import numpy as np
+
+# 3 warehouses, 4 stores
+supply = np.array([100, 150, 200])
+demand = np.array([80, 120, 100, 150])
+costs = np.array([
+    [4, 6, 9, 5],
+    [5, 3, 7, 8],
+    [6, 8, 4, 3],
+])
+
+# Decision: ship[i,j] = units from warehouse i to store j
+ship = MatrixVariable("ship", rows=3, cols=4, lb=0)
+
+# Objective: minimize total cost
+total_cost = sum(
+    costs[i, j] * ship[i, j]
+    for i in range(3) for j in range(4)
+)
+
+problem = Problem("transport").minimize(total_cost)
+
+# Supply constraints
+for i in range(3):
+    problem = problem.subject_to(ship[i, :].sum() <= supply[i])
+
+# Demand constraints
+for j in range(4):
+    problem = problem.subject_to(ship[:, j].sum().eq(demand[j]))
+
+solution = problem.solve()
+
+print(f"Status: {solution.status}")
+print(f"Total cost: ${solution.objective_value:.2f}")
+```
+
+### Key MatrixVariable Features
+
+| Feature | Syntax | Description |
+|---------|--------|-------------|
+| Create | `MatrixVariable("X", m, n)` | m×n matrix |
+| Index | `X[i, j]` | Single Variable |
+| Row | `X[i, :]` | Row as VectorVariable |
+| Column | `X[:, j]` | Column as VectorVariable |
+| Transpose | `X.T` | Transposed view |
+| Diagonal | `X.diagonal()` | Main diagonal (square) |
+| Symmetric | `symmetric=True` | Enforce X[i,j]==X[j,i] |
+
+[Full MatrixVariable Tutorial →](tutorials/matrices.qmd)
+
+---
+
+## QuadraticForm: Efficient Covariance
+
+For portfolio variance (w.T @ Σ @ w), use `QuadraticForm` for analytic gradients:
+
+```{python}
+from optyx import VectorVariable, QuadraticForm, Problem
+import numpy as np
+
+np.random.seed(42)
+n = 10
+
+# Create positive-definite covariance
+data = np.random.randn(n, 5)
+cov = data @ data.T / 5
+
+# Decision variables
+w = VectorVariable("w", n, lb=0, ub=1)
+
+# QuadraticForm computes w.T @ cov @ w with analytic gradient
+variance = QuadraticForm(w, cov)
+
+solution = (
+    Problem("min_variance")
+    .minimize(variance)
+    .subject_to(w.sum().eq(1))
+    .solve()
+)
+
+print(f"Min variance: {solution.objective_value:.6f}")
+```
+
+::: {.callout-note}
+## Why QuadraticForm?
+A loop-built quadratic form creates n² expression nodes. `QuadraticForm` uses a single node with analytic gradient: ∇(w.T Q w) = 2Qw. This is much faster for large n.
+:::
+
+[Advanced Portfolio Tutorial →](examples/portfolio-advanced.qmd)
+
+---
+
 ## Performance
 
 Optyx is designed for developer productivity first, but it's not slow:
@@ -251,14 +615,88 @@ Then try the [5-minute quickstart](getting-started/quickstart.qmd) or explore th
 
 ---
 
+## What's New in v1.2.0
+
+The biggest release yet brings **scalable optimization** to Optyx:
+
+::: {.grid}
+
+::: {.g-col-12 .g-col-md-6}
+### Vector & Matrix Variables
+
+Handle hundreds or thousands of variables with clean syntax:
+
+```python
+from optyx import VectorVariable, Problem, QuadraticForm
+import numpy as np
+
+# 100 decision variables in one line
+weights = VectorVariable("w", 100, lb=0, ub=1)
+
+# Covariance matrix (100x100)
+cov = np.random.randn(100, 100)
+cov = cov @ cov.T  # Make positive definite
+
+# Portfolio variance as quadratic form
+risk = QuadraticForm(weights, cov)
+
+solution = (
+    Problem()
+    .minimize(risk)
+    .subject_to(weights.sum().eq(1))
+    .solve()
+)
+```
+
+No loops, no index bookkeeping—just math.
+:::
+
+::: {.g-col-12 .g-col-md-6}
+### Parameters for Fast Re-solves
+
+Change inputs without rebuilding the problem:
+
+```python
+from optyx import Variable, Parameter, Problem
+
+x = Variable("x", lb=0)
+price = Parameter("price", value=100)
+
+prob = Problem().maximize(price * x - x**2)
+
+# First solve
+sol1 = prob.solve()
+
+# Price changes — instant re-solve
+price.set(150)
+sol2 = prob.solve()  # Uses cached structure
+```
+
+Up to **900x faster** for repeated solves with changing data.
+:::
+
+:::
+
+### New in v1.2.0
+
+- **VectorVariable** — Create vectors of variables with `VectorVariable("x", 100)`
+- **MatrixVariable** — 2D variable arrays with row/column slicing
+- **Native gradient rules** — L2Norm, L1Norm, QuadraticForm compute gradients without loops
+- **Parameter class** — Updatable constants for fast scenario analysis
+- **VectorParameter** — Array-valued parameters for bulk updates
+
+[Learn more →](tutorials/vectors.qmd)
+
+---
+
 ## What's Coming
 
 Optyx is actively developed. On the roadmap:
 
-- **Vector & Matrix variables** — Handle problems with thousands of decision variables cleanly
 - **JAX backend** — JIT-compiled autodiff for complex models  
 - **More solvers** — IPOPT integration for large-scale NLP
 - **Debugging tools** — Infeasibility diagnostics and constraint analysis
+- **Stochastic programming** — Scenario-based optimization support
 
 See the [roadmap](https://github.com/daggbt/optyx/blob/main/optyx-project/ROADMAP.md) for details.
 

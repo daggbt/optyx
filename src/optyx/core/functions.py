@@ -23,6 +23,12 @@ def sin(x: Expression | float) -> UnaryOp:
     Returns:
         Expression representing sin(x).
     """
+    # Handle vector inputs element-wise
+    from optyx.core.vectors import VectorExpression, VectorVariable
+
+    if isinstance(x, (VectorExpression, VectorVariable)):
+        return VectorExpression([sin(xi) for xi in x])  # type: ignore
+
     return UnaryOp(_ensure_expr(x), "sin")
 
 
@@ -35,6 +41,12 @@ def cos(x: Expression | float) -> UnaryOp:
     Returns:
         Expression representing cos(x).
     """
+    # Handle vector inputs element-wise
+    from optyx.core.vectors import VectorExpression, VectorVariable
+
+    if isinstance(x, (VectorExpression, VectorVariable)):
+        return VectorExpression([cos(xi) for xi in x])  # type: ignore
+
     return UnaryOp(_ensure_expr(x), "cos")
 
 
@@ -47,6 +59,12 @@ def tan(x: Expression | float) -> UnaryOp:
     Returns:
         Expression representing tan(x).
     """
+    # Handle vector inputs element-wise
+    from optyx.core.vectors import VectorExpression, VectorVariable
+
+    if isinstance(x, (VectorExpression, VectorVariable)):
+        return VectorExpression([tan(xi) for xi in x])  # type: ignore
+
     return UnaryOp(_ensure_expr(x), "tan")
 
 
@@ -59,6 +77,12 @@ def exp(x: Expression | float) -> UnaryOp:
     Returns:
         Expression representing exp(x).
     """
+    # Handle vector inputs element-wise
+    from optyx.core.vectors import VectorExpression, VectorVariable
+
+    if isinstance(x, (VectorExpression, VectorVariable)):
+        return VectorExpression([exp(xi) for xi in x])  # type: ignore
+
     return UnaryOp(_ensure_expr(x), "exp")
 
 
@@ -71,6 +95,12 @@ def log(x: Expression | float) -> UnaryOp:
     Returns:
         Expression representing log(x).
     """
+    # Handle vector inputs element-wise
+    from optyx.core.vectors import VectorExpression, VectorVariable
+
+    if isinstance(x, (VectorExpression, VectorVariable)):
+        return VectorExpression([log(xi) for xi in x])  # type: ignore
+
     return UnaryOp(_ensure_expr(x), "log")
 
 
@@ -83,6 +113,12 @@ def sqrt(x: Expression | float) -> UnaryOp:
     Returns:
         Expression representing sqrt(x).
     """
+    # Handle vector inputs element-wise
+    from optyx.core.vectors import VectorExpression, VectorVariable
+
+    if isinstance(x, (VectorExpression, VectorVariable)):
+        return VectorExpression([sqrt(xi) for xi in x])  # type: ignore
+
     return UnaryOp(_ensure_expr(x), "sqrt")
 
 
@@ -97,6 +133,12 @@ def abs_(x: Expression | float) -> UnaryOp:
     Returns:
         Expression representing |x|.
     """
+    # Handle vector inputs element-wise
+    from optyx.core.vectors import VectorExpression, VectorVariable
+
+    if isinstance(x, (VectorExpression, VectorVariable)):
+        return VectorExpression([abs_(xi) for xi in x])  # type: ignore
+
     return UnaryOp(_ensure_expr(x), "abs")
 
 

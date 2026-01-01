@@ -8,6 +8,7 @@ Performance optimizations:
 - Early termination: stops traversal immediately when non-polynomial detected
 - Degree-bounded traversal: is_linear/is_quadratic stop when threshold exceeded
 - Memoization: caches results for repeated sub-expressions (common in constraints)
+- Iterative traversal: for deep expression trees (> 400 depth) to avoid recursion limit
 """
 
 from __future__ import annotations
@@ -21,6 +22,9 @@ import numpy as np
 from numpy.typing import NDArray
 
 from optyx.core.expressions import Expression, Constant, Variable, BinaryOp, UnaryOp
+
+# Recursion threshold - use iterative algorithm for trees deeper than this
+_RECURSION_THRESHOLD = 400
 
 if TYPE_CHECKING:
     from optyx.constraints import Constraint
@@ -36,8 +40,175 @@ def compute_degree(expr: Expression) -> Optional[int]:
           division by variable, non-integer powers)
 
     Uses memoization for repeated sub-expressions.
+    For deep expression trees (> 400 depth), uses iterative algorithm.
     """
+    # Check tree depth and use iterative for deep trees
+    depth = _estimate_tree_depth(expr)
+    if depth >= _RECURSION_THRESHOLD:
+        return _compute_degree_iterative(expr)
     return _compute_degree_cached(id(expr), expr)
+
+
+def _estimate_tree_depth(expr: Expression, max_depth: int = 500) -> int:
+    """Estimate the depth of an expression tree.
+
+    Uses iterative traversal to check both left and right branches,
+    avoiding RecursionError for any tree shape (left-skewed, right-skewed,
+    or balanced).
+
+    Args:
+        expr: The expression to check.
+        max_depth: Maximum depth to check before returning early.
+
+    Returns:
+        Estimated maximum depth of the tree.
+    """
+    from optyx.core.vectors import LinearCombination, VectorSum, DotProduct
+    from typing import Any
+
+    # Use explicit stack to avoid recursion
+    stack: list[tuple[Any, int]] = [(expr, 0)]  # (node, current_depth)
+    max_found = 0
+
+    while stack and max_found < max_depth:
+        current, depth = stack.pop()
+        max_found = max(max_found, depth)
+
+        if isinstance(current, (Constant, Variable)):
+            continue
+        elif isinstance(current, BinaryOp):
+            # Check both branches
+            stack.append((current.left, depth + 1))
+            stack.append((current.right, depth + 1))
+        elif isinstance(current, UnaryOp):
+            stack.append((current.operand, depth + 1))
+        elif isinstance(current, (LinearCombination, VectorSum)):
+            continue  # These don't recurse deeply
+        elif isinstance(current, DotProduct):
+            stack.append((current.left, depth + 1))
+            stack.append((current.right, depth + 1))
+
+    return max_found
+
+
+def _compute_degree_iterative(expr: Expression) -> Optional[int]:
+    """Compute degree iteratively using explicit stack.
+
+    Handles deep expression trees that would cause RecursionError.
+    """
+    from optyx.core.vectors import DotProduct, LinearCombination, VectorSum
+
+    # Stack: (expression, phase, left_result, right_result)
+    # phase 0: first visit, phase 1: left done, phase 2: both done
+    stack: list[tuple[Expression, int, Optional[int], Optional[int]]] = [
+        (expr, 0, None, None)
+    ]
+    result_stack: list[Optional[int]] = []
+
+    while stack:
+        node, phase, left_deg, right_deg = stack.pop()
+
+        # Leaf nodes - return immediately
+        if isinstance(node, Constant):
+            result_stack.append(0)
+            continue
+        if isinstance(node, Variable):
+            result_stack.append(1)
+            continue
+
+        # Vector expressions - these have known degrees
+        if isinstance(node, LinearCombination):
+            result_stack.append(1)
+            continue
+        if isinstance(node, VectorSum):
+            result_stack.append(1)
+            continue
+        if isinstance(node, DotProduct):
+            result_stack.append(2)
+            continue
+
+        # Unary operations
+        if isinstance(node, UnaryOp):
+            if node.op == "neg":
+                if phase == 0:
+                    stack.append((node, 1, None, None))
+                    stack.append((node.operand, 0, None, None))
+                else:
+                    result_stack.append(result_stack.pop())
+            else:
+                result_stack.append(None)
+            continue
+
+        # Binary operations
+        if isinstance(node, BinaryOp):
+            op = node.op
+
+            if phase == 0:
+                # First visit - process children
+                stack.append((node, 1, None, None))
+                stack.append((node.left, 0, None, None))
+            elif phase == 1:
+                # Left done
+                left_result = result_stack.pop()
+
+                # Early termination for power/division
+                if op == "**":
+                    if not isinstance(node.right, Constant):
+                        result_stack.append(None)
+                        continue
+                    exp_val = node.right.value
+                    if not isinstance(exp_val, numbers.Number):
+                        result_stack.append(None)
+                        continue
+                    exp_float = float(exp_val)
+                    if not exp_float.is_integer() or exp_float < 0:
+                        result_stack.append(None)
+                        continue
+                    if left_result is None:
+                        result_stack.append(None)
+                    else:
+                        result_stack.append(left_result * int(exp_float))
+                    continue
+
+                if op == "/":
+                    if not isinstance(node.right, Constant):
+                        result_stack.append(None)
+                    else:
+                        result_stack.append(left_result)
+                    continue
+
+                # Early termination on None for other ops
+                if left_result is None:
+                    result_stack.append(None)
+                    continue
+
+                # Need to process right child
+                stack.append((node, 2, left_result, None))
+                stack.append((node.right, 0, None, None))
+            else:
+                # Phase 2: both children done
+                right_result = result_stack.pop()
+
+                if right_result is None or left_deg is None:
+                    result_stack.append(None)
+                    continue
+
+                if op in ("+", "-"):
+                    result_stack.append(max(left_deg, right_result))
+                elif op == "*":
+                    # x*y where both have degree > 0 is non-polynomial for our LP detection
+                    if left_deg > 0 and right_result > 0:
+                        result_stack.append(None)
+                    else:
+                        result_stack.append(left_deg + right_result)
+                else:
+                    result_stack.append(None)
+            continue
+
+        # Unknown node type
+        result_stack.append(None)
+
+    return result_stack[-1] if result_stack else None
 
 
 @lru_cache(maxsize=1024)
@@ -48,11 +219,46 @@ def _compute_degree_cached(expr_id: int, expr: Expression) -> Optional[int]:
 
 def _compute_degree_impl(expr: Expression) -> Optional[int]:
     """Core degree computation with early termination."""
+    from optyx.core.vectors import DotProduct, LinearCombination, VectorSum
+
     # Fast path: leaf nodes (most common)
     if isinstance(expr, Constant):
         return 0
     if isinstance(expr, Variable):
         return 1
+
+    # Vector expressions
+    if isinstance(expr, LinearCombination):
+        # Check if vector contains variables (degree 1) or expressions
+        if hasattr(expr.vector, "_variables"):
+            return 1
+        # Check expressions in vector (VectorExpression case)
+        if hasattr(expr.vector, "_expressions"):
+            max_deg = 0
+            for sub_expr in expr.vector._expressions:  # type: ignore[union-attr]
+                d = _compute_degree_impl(sub_expr)
+                if d is None:
+                    return None
+                max_deg = max(max_deg, d)
+            return max_deg
+        return 1  # Default for unknown vector types
+
+    if isinstance(expr, VectorSum):
+        if hasattr(expr.vector, "_variables"):
+            return 1
+        if hasattr(expr.vector, "_expressions"):
+            max_deg = 0
+            for sub_expr in expr.vector._expressions:  # type: ignore[union-attr]
+                d = _compute_degree_impl(sub_expr)
+                if d is None:
+                    return None
+                max_deg = max(max_deg, d)
+            return max_deg
+        return 1  # Default for unknown vector types
+    if isinstance(expr, DotProduct):
+        # x · y could be quadratic if both are variables
+        # For now, return 2 (quadratic) as worst case
+        return 2
 
     # Binary operations - early termination on None
     if isinstance(expr, BinaryOp):
@@ -271,6 +477,8 @@ def extract_linear_coefficient(expr: Expression, var: Variable) -> float:
 
 def _extract_coefficient_impl(expr: Expression, var: Variable) -> float:
     """Recursive coefficient extraction."""
+    from optyx.core.vectors import LinearCombination, VectorSum
+
     # Constant - contributes 0 to variable coefficient
     if isinstance(expr, Constant):
         return 0.0
@@ -278,6 +486,31 @@ def _extract_coefficient_impl(expr: Expression, var: Variable) -> float:
     # Variable - contributes 1 if same variable, 0 otherwise
     if isinstance(expr, Variable):
         return 1.0 if expr.name == var.name else 0.0
+
+    # LinearCombination: c @ x - efficiently extract coefficient
+    if isinstance(expr, LinearCombination):
+        from optyx.core.vectors import VectorVariable
+
+        if isinstance(expr.vector, VectorVariable):
+            for i, v in enumerate(expr.vector._variables):
+                if v.name == var.name:
+                    return float(expr.coefficients[i])
+            return 0.0
+        else:
+            # VectorExpression - sum coefficients from each element
+            total = 0.0
+            for i, elem in enumerate(expr.vector._expressions):
+                total += float(expr.coefficients[i]) * _extract_coefficient_impl(
+                    elem, var
+                )
+            return total
+
+    # VectorSum: sum(x) - each variable has coefficient 1
+    if isinstance(expr, VectorSum):
+        for v in expr.vector._variables:
+            if v.name == var.name:
+                return 1.0
+        return 0.0
 
     # Binary operations
     if isinstance(expr, BinaryOp):
@@ -358,10 +591,16 @@ def extract_constant_term(expr: Expression) -> float:
 
 def _extract_constant_impl(expr: Expression) -> float:
     """Recursive constant term extraction."""
+    from optyx.core.vectors import LinearCombination, VectorSum
+
     if isinstance(expr, Constant):
         return float(expr.value)
 
     if isinstance(expr, Variable):
+        return 0.0
+
+    # Vector expressions have no constant term (purely linear)
+    if isinstance(expr, (LinearCombination, VectorSum)):
         return 0.0
 
     if isinstance(expr, BinaryOp):
@@ -457,6 +696,8 @@ class LinearProgramExtractor:
         Raises:
             ValueError: If objective is not set or not linear.
         """
+        from optyx.core.vectors import LinearCombination, VectorVariable
+
         if problem.objective is None:
             raise ValueError("Problem has no objective function")
 
@@ -467,8 +708,22 @@ class LinearProgramExtractor:
         n = len(variables)
         c = np.zeros(n, dtype=np.float64)
 
-        for i, var in enumerate(variables):
-            c[i] = extract_linear_coefficient(problem.objective, var)
+        # Build variable name to index mapping
+        var_index = {var.name: i for i, var in enumerate(variables)}
+
+        # Fast path for LinearCombination (from VectorVariable @ array)
+        obj = problem.objective
+        if isinstance(obj, LinearCombination) and isinstance(
+            obj.vector, VectorVariable
+        ):
+            for i, var in enumerate(obj.vector._variables):
+                idx = var_index.get(var.name)
+                if idx is not None:
+                    c[idx] = float(obj.coefficients[i])
+        else:
+            # Standard path for other expression types
+            for i, var in enumerate(variables):
+                c[i] = extract_linear_coefficient(obj, var)
 
         sense = "min" if problem.sense == "minimize" else "max"
         return c, sense, variables
@@ -498,11 +753,26 @@ class LinearProgramExtractor:
         Raises:
             ValueError: If any constraint is not linear.
         """
+        from optyx.core.vectors import LinearCombination, VectorVariable
+
         n = len(variables)
         ub_rows: list[NDArray[np.floating]] = []
         ub_rhs: list[float] = []
         eq_rows: list[NDArray[np.floating]] = []
         eq_rhs: list[float] = []
+
+        # Build variable name to index mapping for fast lookup
+        var_index = {var.name: i for i, var in enumerate(variables)}
+
+        def _extract_lc_fast(lc: LinearCombination, row: np.ndarray) -> bool:
+            """Fast extraction for LinearCombination. Returns True if successful."""
+            if isinstance(lc.vector, VectorVariable):
+                for i, var in enumerate(lc.vector._variables):
+                    idx = var_index.get(var.name)
+                    if idx is not None:
+                        row[idx] += float(lc.coefficients[i])
+                return True
+            return False
 
         for constraint in problem.constraints:
             if not is_linear(constraint.expr):
@@ -510,8 +780,28 @@ class LinearProgramExtractor:
 
             # Extract coefficients for this constraint
             row = np.zeros(n, dtype=np.float64)
-            for i, var in enumerate(variables):
-                row[i] = extract_linear_coefficient(constraint.expr, var)
+            expr = constraint.expr
+            used_fast_path = False
+
+            # Fast path for pure LinearCombination
+            if isinstance(expr, LinearCombination):
+                used_fast_path = _extract_lc_fast(expr, row)
+
+            # Fast path for LinearCombination +/- Constant (common pattern)
+            elif isinstance(expr, BinaryOp) and expr.op in ("+", "-"):
+                if isinstance(expr.left, LinearCombination):
+                    used_fast_path = _extract_lc_fast(expr.left, row)
+                elif isinstance(expr.right, LinearCombination) and expr.op == "+":
+                    used_fast_path = _extract_lc_fast(expr.right, row)
+                elif isinstance(expr.right, LinearCombination) and expr.op == "-":
+                    if _extract_lc_fast(expr.right, row):
+                        row *= -1  # Negate since it's subtracted
+                        used_fast_path = True
+
+            if not used_fast_path:
+                # Standard path for other expression types
+                for i, var in enumerate(variables):
+                    row[i] = extract_linear_coefficient(expr, var)
 
             # RHS is the negative of the constant term
             # Constraint form: expr sense 0, where expr = Ax - b

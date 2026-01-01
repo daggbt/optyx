@@ -506,7 +506,7 @@ class TestVectorConstraints:
         """Constraint between differently sized vectors raises ValueError."""
         x = VectorVariable("x", 3)
         y = VectorVariable("y", 5)
-        with pytest.raises(ValueError, match="size mismatch"):
+        with pytest.raises(ValueError, match="Dimension mismatch"):
             x <= y
 
     def test_vector_expression_constraints(self):
@@ -646,7 +646,7 @@ class TestDotProduct:
         """Dot product with different sizes raises ValueError."""
         x = VectorVariable("x", 3)
         y = VectorVariable("y", 5)
-        with pytest.raises(ValueError, match="size mismatch"):
+        with pytest.raises(ValueError, match="Dimension mismatch"):
             x.dot(y)
 
     def test_dot_product_repr(self):
@@ -805,7 +805,7 @@ class TestLinearCombination:
         """LinearCombination raises on size mismatch."""
         coeffs = np.array([1.0, 2.0])
         x = VectorVariable("x", 3)
-        with pytest.raises(ValueError, match="Coefficient length"):
+        with pytest.raises(ValueError, match="Dimension mismatch"):
             LinearCombination(coeffs, x)
 
     def test_linear_combination_repr(self):

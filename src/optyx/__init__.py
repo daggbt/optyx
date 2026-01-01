@@ -20,6 +20,7 @@ from optyx.core.matrices import (
     diag_matrix,
     frobenius_norm,
 )
+from optyx.core.parameters import Parameter, VectorParameter, MatrixParameter
 from optyx.core.functions import (
     sin,
     cos,
@@ -53,6 +54,10 @@ __all__ = [
     "Constant",
     "VectorVariable",
     "MatrixVariable",
+    # Parameters
+    "Parameter",
+    "VectorParameter",
+    "MatrixParameter",
     # Matrix operations
     "MatrixVectorProduct",
     "QuadraticForm",

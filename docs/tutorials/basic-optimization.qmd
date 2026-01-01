@@ -80,14 +80,20 @@ print(f"Constraints created: {machine_time.sense}, {labor.sense}, {materials.sen
 ```{python}
 from optyx import Problem
 
-solution = (
+prob = (
     Problem("production_planning")
     .maximize(profit)
     .subject_to(machine_time)
     .subject_to(labor)
     .subject_to(materials)
-    .solve()
 )
+
+# Inspect the problem before solving
+print(prob.summary())
+```
+
+```{python}
+solution = prob.solve()
 ```
 
 ---
@@ -236,10 +242,15 @@ for i, v in enumerate(vars):
     print(f"  x_{i} = {sol[v.name]:.2f}")
 ```
 
+::: {.callout-tip}
+For larger problems, use `VectorVariable` for better performance and cleaner code.
+:::
+
 ---
 
 ## Next Steps
 
+- [Vector Variables](../api/vectors.qmd) — Scaling up to larger problems
 - [Constraints Tutorial](constraints.qmd) — Complex constraint patterns
 - [Autodiff Tutorial](autodiff.qmd) — Understanding gradients
 - [Portfolio Example](../examples/portfolio.qmd) — Real-world application

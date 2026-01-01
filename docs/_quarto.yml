@@ -20,6 +20,25 @@ quartodoc:
         - core.expressions.Constant
         - core.expressions.Expression
     
+    - title: Vector & Matrix Variables
+      desc: "High-dimensional decision variables for scalable optimization"
+      contents:
+        - core.vectors.VectorVariable
+        - core.vectors.VectorExpression
+        - core.vectors.DotProduct
+        - core.vectors.L2Norm
+        - core.vectors.L1Norm
+        - core.vectors.LinearCombination
+        - core.matrices.MatrixVariable
+        - core.matrices.QuadraticForm
+        - core.matrices.MatrixVectorProduct
+    
+    - title: Parameters
+      desc: "Updatable constants for fast re-solves"
+      contents:
+        - core.parameters.Parameter
+        - core.parameters.VectorParameter
+    
     - title: Constraints
       desc: "Equality and inequality constraints"
       contents:
@@ -78,6 +97,8 @@ website:
             href: getting-started/quickstart.qmd
           - text: "Core Concepts"
             href: getting-started/concepts.qmd
+          - text: "How It Works"
+            href: getting-started/how-it-works.qmd
       - text: "Tutorials"
         menu:
           - text: "Basic Optimization"
@@ -86,6 +107,12 @@ website:
             href: tutorials/constraints.qmd
           - text: "Automatic Differentiation"
             href: tutorials/autodiff.qmd
+          - text: "---"
+          - text: "v1.2.0 Features"
+          - text: "Vector Variables"
+            href: tutorials/vectors.qmd
+          - text: "Matrix Variables"
+            href: tutorials/matrices.qmd
       - text: "Examples"
         menu:
           - text: "Portfolio Optimization"
@@ -98,6 +125,12 @@ website:
             href: examples/road-maintenance.qmd
           - text: "Rosenbrock Function"
             href: examples/rosenbrock.qmd
+          - text: "---"
+          - text: "Large-Scale (v1.2.0)"
+          - text: "Resource Allocation"
+            href: examples/resource-allocation.qmd
+          - text: "Advanced Portfolio (Covariance)"
+            href: examples/portfolio-advanced.qmd
       - text: "API Reference"
         menu:
           - text: "Overview"
@@ -106,6 +139,12 @@ website:
           - text: "Guides"
           - text: "Expressions"
             href: api/expressions.qmd
+          - text: "Vector Variables"
+            href: api/vectors.qmd
+          - text: "Matrix Variables"
+            href: api/matrices.qmd
+          - text: "Parameters"
+            href: api/parameters.qmd
           - text: "Constraints"
             href: api/constraints.qmd
           - text: "Problem"
@@ -133,12 +172,17 @@ website:
         - getting-started/installation.qmd
         - getting-started/quickstart.qmd
         - getting-started/concepts.qmd
+        - getting-started/how-it-works.qmd
     
     - title: "Tutorials"
       contents:
         - tutorials/basic-optimization.qmd
         - tutorials/constraints.qmd
         - tutorials/autodiff.qmd
+        - section: "v1.2.0 Features"
+          contents:
+            - tutorials/vectors.qmd
+            - tutorials/matrices.qmd
     
     - title: "Examples"
       contents:
@@ -147,6 +191,10 @@ website:
         - examples/mine-scheduling.qmd
         - examples/road-maintenance.qmd
         - examples/rosenbrock.qmd
+        - section: "Large-Scale (v1.2.0)"
+          contents:
+            - examples/resource-allocation.qmd
+            - examples/portfolio-advanced.qmd
     
     - title: "API Reference"
       contents:

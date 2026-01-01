@@ -1,0 +1,438 @@
+---
+title: "Matrix Variables Tutorial"
+description: "Working with 2D arrays of decision variables using MatrixVariable"
+date: last-modified
+---
+
+## Introduction
+
+Many optimization problems have naturally 2D structure: assignment problems, transportation networks, scheduling matrices, or covariance models. **MatrixVariable** provides a clean way to work with 2D arrays of decision variables.
+
+By the end of this tutorial, you'll understand how to:
+
+- Create 2D matrices of decision variables
+- Use 2D indexing and row/column slicing
+- Work with matrix operations (transpose, diagonal, trace)
+- Build matrix-vector products for quadratic forms
+
+---
+
+## Creating Matrix Variables
+
+```{python}
+from optyx import MatrixVariable
+
+# 3x4 matrix of decision variables
+A = MatrixVariable("A", rows=3, cols=4, lb=0)
+
+print(f"Matrix: {A.name}")
+print(f"Shape: {A.shape}")
+print(f"Total elements: {A.rows * A.cols}")
+```
+
+Elements are named with 2D indices: `A[0,0]`, `A[0,1]`, ..., `A[2,3]`.
+
+::: {.callout-tip}
+## Symmetric Matrices
+For covariance or distance matrices, use `symmetric=True` to enforce `A[i,j] == A[j,i]`:
+```python
+Sigma = MatrixVariable("Sigma", 5, 5, symmetric=True)
+```
+:::
+
+---
+
+## 2D Indexing
+
+Access individual elements with `[row, col]`:
+
+```{python}
+# Single element
+elem = A[1, 2]
+print(f"Element A[1,2]: {elem.name}")
+
+# Negative indices work
+corner = A[-1, -1]
+print(f"Bottom-right: {corner.name}")
+```
+
+---
+
+## Row and Column Slicing
+
+Extract entire rows or columns as VectorVariables:
+
+```{python}
+# Extract row 0 (all columns)
+row_0 = A[0, :]
+print(f"Row 0: {len(row_0)} elements")
+
+# Extract column 2 (all rows)
+col_2 = A[:, 2]
+print(f"Column 2: {len(col_2)} elements")
+```
+
+These return VectorVariable objects, so you can use all vector operations:
+
+```{python}
+# Sum of first row
+row_sum = A[0, :].sum()
+
+# Dot product with column
+import numpy as np
+coeffs = np.array([1.0, 2.0, 3.0])
+col_dot = coeffs @ A[:, 1]
+
+print(f"Row sum type: {type(row_sum).__name__}")
+print(f"Column dot type: {type(col_dot).__name__}")
+```
+
+---
+
+## Submatrix Slicing
+
+Extract rectangular submatrices:
+
+```{python}
+# Top-left 2x2 submatrix
+submatrix = A[:2, :2]
+print(f"Submatrix shape: {submatrix.shape}")
+
+# Specific rows and columns
+middle = A[1:3, 1:3]
+print(f"Middle shape: {middle.shape}")
+```
+
+---
+
+## Matrix Transpose
+
+The `.T` property returns a transposed view:
+
+```{python}
+# Original: 3x4
+print(f"Original shape: {A.shape}")
+
+# Transposed: 4x3
+A_T = A.T
+print(f"Transposed shape: {A_T.shape}")
+
+# Elements are the same, just reordered
+print(f"A[1,2] is same as A.T[2,1]: {A[1,2].name} vs {A_T[2,1].name}")
+```
+
+---
+
+## Iteration
+
+Iterate over rows, or use `rows_iter()` and `cols_iter()` for explicit control:
+
+```{python}
+B = MatrixVariable("B", 2, 3)
+
+# Iterate over rows (default behavior)
+print("Iterating over rows:")
+for row in B:
+    print(f"  {row.name}: {len(row)} elements")
+```
+
+```{python}
+# Iterate over rows
+print("\nRows:")
+for i, row in enumerate(B.rows_iter()):
+    print(f"  Row {i}: {[v.name for v in row]}")
+```
+
+```{python}
+# Iterate over columns
+print("\nColumns:")
+for j, col in enumerate(B.cols_iter()):
+    print(f"  Col {j}: {[v.name for v in col]}")
+```
+
+---
+
+## Diagonal and Trace
+
+For square matrices, extract the diagonal or compute the trace:
+
+```{python}
+# Square matrix
+S = MatrixVariable("S", 3, 3)
+
+# Main diagonal as VectorVariable
+diag = S.diagonal()
+print(f"Diagonal: {[v.name for v in diag]}")
+
+# Trace: sum of diagonal elements
+tr = S.trace()
+print(f"Trace type: {type(tr).__name__}")
+```
+
+---
+
+## Matrix-Vector Product
+
+Multiply a **constant NumPy matrix** by a VectorVariable to create linear combinations:
+
+```{python}
+from optyx import VectorVariable
+from optyx import matmul
+import numpy as np
+
+# Constant coefficient matrix (3x4)
+A = np.array([
+    [1, 2, 3, 4],
+    [5, 6, 7, 8],
+    [9, 10, 11, 12],
+])
+
+# Decision variables
+x = VectorVariable("x", 4)
+
+# Matrix-vector product: A @ x
+result = matmul(A, x)  # or just: A @ x
+
+print(f"Result type: {type(result).__name__}")
+print(f"Result length: {len(result)}")
+```
+
+This creates a VectorExpression where each element is a linear combination of the input vector.
+
+::: {.callout-note}
+## Constant vs Variable Matrices
+`matmul` and `A @ x` work when A is a **constant NumPy array**. If you need a `MatrixVariable` (where matrix elements are also decision variables), that would create quadratic expressions—use the pattern in the transportation example instead.
+:::
+
+---
+
+## Quadratic Forms
+
+For portfolio variance (w.T @ Σ @ w), use `QuadraticForm` with a constant covariance matrix:
+
+```{python}
+from optyx import VectorVariable, QuadraticForm
+import numpy as np
+
+# 5 assets
+n = 5
+weights = VectorVariable("w", n, lb=0, ub=1)
+
+# Covariance matrix (constant, not a variable)
+np.random.seed(42)
+cov_data = np.random.randn(n, n)
+cov_matrix = cov_data @ cov_data.T / n  # Positive semi-definite
+
+# Quadratic form: w.T @ Sigma @ w
+portfolio_variance = QuadraticForm(weights, cov_matrix)
+
+print(f"Quadratic form type: {type(portfolio_variance).__name__}")
+```
+
+::: {.callout-note}
+## Efficient Gradients
+QuadraticForm computes gradients analytically: `∇(x.T Q x) = 2Qx`.
+This is much faster than differentiating the expanded sum.
+:::
+
+---
+
+## Complete Example: Transportation Problem
+
+Ship goods from 3 warehouses to 4 stores, minimizing total cost.
+
+```{python}
+from optyx import MatrixVariable, Problem
+import numpy as np
+
+# Problem data
+n_warehouses = 3
+n_stores = 4
+
+# Supply at each warehouse
+supply = np.array([100, 150, 200])
+
+# Demand at each store
+demand = np.array([80, 120, 100, 150])
+
+# Shipping cost per unit from warehouse i to store j
+costs = np.array([
+    [4, 6, 9, 5],   # From warehouse 0
+    [5, 3, 7, 8],   # From warehouse 1
+    [6, 8, 4, 3],   # From warehouse 2
+])
+
+# Decision variables: shipments[i,j] = units from warehouse i to store j
+shipments = MatrixVariable("ship", n_warehouses, n_stores, lb=0)
+
+# Objective: minimize total shipping cost
+total_cost = 0
+for i in range(n_warehouses):
+    for j in range(n_stores):
+        total_cost = total_cost + costs[i, j] * shipments[i, j]
+
+# Build problem
+problem = Problem("transportation").minimize(total_cost)
+
+# Supply constraints: can't ship more than available
+for i in range(n_warehouses):
+    problem = problem.subject_to(shipments[i, :].sum() <= supply[i])
+
+# Demand constraints: must meet each store's demand
+for j in range(n_stores):
+    problem = problem.subject_to(shipments[:, j].sum().eq(demand[j]))
+
+# Solve
+solution = problem.solve()
+
+print("=" * 60)
+print("TRANSPORTATION SOLUTION")
+print("=" * 60)
+print(f"Status: {solution.status}")
+print(f"Total Cost: ${solution.objective_value:.2f}")
+print()
+
+# Display shipment matrix
+print("Shipments (warehouse → store):")
+print("          ", end="")
+for j in range(n_stores):
+    print(f"Store {j:2d}  ", end="")
+print()
+
+for i in range(n_warehouses):
+    print(f"Warehouse {i}: ", end="")
+    for j in range(n_stores):
+        val = solution[f'ship[{i},{j}]']
+        print(f"{val:7.1f}  ", end="")
+    print()
+```
+
+---
+
+## Complete Example: Assignment Problem
+
+Assign 4 workers to 4 tasks to minimize total cost.
+
+```{python}
+from optyx import MatrixVariable, Problem
+import numpy as np
+
+n = 4
+
+# Cost matrix: cost[i,j] = cost of worker i doing task j
+cost_matrix = np.array([
+    [9, 2, 7, 8],
+    [6, 4, 3, 7],
+    [5, 8, 1, 8],
+    [7, 6, 9, 4],
+])
+
+# Binary assignment matrix
+assign = MatrixVariable("assign", n, n, domain="binary")
+
+# Objective: minimize total cost
+total_cost = 0
+for i in range(n):
+    for j in range(n):
+        total_cost = total_cost + cost_matrix[i, j] * assign[i, j]
+
+problem = Problem("assignment").minimize(total_cost)
+
+# Each worker assigned to exactly one task
+for i in range(n):
+    problem = problem.subject_to(assign[i, :].sum().eq(1))
+
+# Each task assigned to exactly one worker
+for j in range(n):
+    problem = problem.subject_to(assign[:, j].sum().eq(1))
+
+solution = problem.solve()
+
+print("=" * 50)
+print("ASSIGNMENT SOLUTION")
+print("=" * 50)
+print(f"Status: {solution.status}")
+print(f"Total Cost: {solution.objective_value:.0f}")
+print()
+print("Assignments:")
+for i in range(n):
+    for j in range(n):
+        if solution[f'assign[{i},{j}]'] > 0.5:
+            print(f"  Worker {i} → Task {j} (cost: {cost_matrix[i,j]})")
+```
+
+---
+
+## Symmetric Matrices
+
+For problems like covariance estimation or distance matrices:
+
+```{python}
+# Symmetric 3x3 matrix
+Sigma = MatrixVariable("Sigma", 3, 3, symmetric=True)
+
+# Check symmetry: same variable for [i,j] and [j,i]
+print(f"Sigma[0,1] name: {Sigma[0,1].name}")
+print(f"Sigma[1,0] name: {Sigma[1,0].name}")
+print(f"Same object: {Sigma[0,1] is Sigma[1,0]}")
+```
+
+This halves the number of variables for symmetric problems.
+
+---
+
+## Performance Tips
+
+1. **Use row/column slicing** for aggregations:
+   ```python
+   # Good: single slice operation
+   row_total = A[0, :].sum()
+   
+   # Slower: element-wise loop
+   row_total = sum(A[0, j] for j in range(cols))
+   ```
+
+2. **Use QuadraticForm** for quadratic objectives:
+   ```python
+   # Good: analytic gradient
+   variance = QuadraticForm(x, cov_matrix)
+   
+   # Slower: builds full expression tree
+   variance = sum(x[i] * cov[i,j] * x[j] for i in range(n) for j in range(n))
+   ```
+
+3. **Leverage symmetry** when applicable:
+   ```python
+   # Good: half the variables
+   A = MatrixVariable("A", n, n, symmetric=True)
+   
+   # Wasteful: full n² variables with equality constraints
+   A = MatrixVariable("A", n, n)
+   # + manual constraints for A[i,j] == A[j,i]
+   ```
+
+---
+
+## Summary
+
+| Feature | Syntax | Description |
+|---------|--------|-------------|
+| Create | `MatrixVariable("A", m, n)` | m×n matrix |
+| Index | `A[i, j]` | Single Variable |
+| Row | `A[i, :]` | Row as VectorVariable |
+| Column | `A[:, j]` | Column as VectorVariable |
+| Submatrix | `A[i:k, j:l]` | Rectangular slice |
+| Transpose | `A.T` | Transposed view |
+| Diagonal | `A.diagonal()` | Main diagonal (square) |
+| Trace | `A.trace()` | Sum of diagonal (square) |
+| Symmetric | `symmetric=True` | Enforce A[i,j]==A[j,i] |
+| Iterate rows | `A.rows_iter()` | Iterator over rows |
+| Iterate cols | `A.cols_iter()` | Iterator over columns |
+
+---
+
+## Next Steps
+
+- [Advanced Portfolio Optimization](../examples/portfolio-advanced.qmd) — Full Markowitz model with covariance
+- [Vector Variables](vectors.qmd) — 1D vector operations
+- [API Reference](../api/reference/index.qmd) — Complete MatrixVariable documentation

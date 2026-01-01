@@ -30,7 +30,7 @@ Each block has properties: tonnage, copper grade, and mining cost.
 
 ```{python}
 import numpy as np
-from optyx import Variable, Problem
+from optyx import Variable, MatrixVariable, Problem
 
 # Time periods (years)
 n_periods = 4
@@ -70,16 +70,13 @@ print(f"Average grade: {np.average(block_grade, weights=block_tonnage):.2f}% Cu"
 
 ## Decision Variables
 
-We use continuous variables $x_{i,t} \in [0, 1]$ representing the fraction of block $i$ mined in period $t$:
+We use a matrix variable $X \in [0, 1]^{N \times T}$ representing the fraction of block $i$ mined in period $t$:
 
 ```{python}
 # x[i,t] = fraction of block i mined in period t
-x = {}
-for i in range(n_blocks):
-    for t in range(n_periods):
-        x[i, t] = Variable(f"x_{i}_{t}", lb=0, ub=1)
+x = MatrixVariable("x", rows=n_blocks, cols=n_periods, lb=0, ub=1)
 
-print(f"Decision variables: {len(x)} (blocks × periods)")
+print(f"Decision variables: {x.size} (blocks × periods)")
 ```
 
 ## Objective: Maximize NPV
@@ -95,24 +92,24 @@ where:
 - Cost = tonnage × (mining cost + processing cost)
 
 ```{python}
+# Calculate profit per block ($ thousands)
+# Revenue = tonnage * grade * recovery * price
+revenue_per_block = block_tonnage * (block_grade / 100) * recovery_rate * copper_price
+# Cost = tonnage * (mining_cost + processing_cost)
+cost_per_block = block_tonnage * (block_mining_cost + processing_cost)
+profit_per_block = revenue_per_block - cost_per_block
+
+# Discount factors for each period
+discount_factors = np.array([1 / (1 + discount_rate) ** t for t in range(n_periods)])
+
+# NPV = sum(profit[i] * x[i,t] * discount[t])
 npv = 0
 for t in range(n_periods):
-    discount_factor = 1 / (1 + discount_rate) ** t
-    
-    for i in range(n_blocks):
-        tonnage = block_tonnage[i]
-        grade = block_grade[i] / 100  # Convert to decimal
-        
-        # Revenue from copper ($ thousands)
-        revenue = tonnage * 1000 * grade * recovery_rate * copper_price / 1000
-        
-        # Costs ($ thousands)
-        cost = tonnage * 1000 * (block_mining_cost[i] + processing_cost) / 1000
-        
-        # NPV contribution
-        npv = npv + (revenue - cost) * discount_factor * x[i, t]
+    # Vectorized over blocks for each period: profit @ x_column
+    period_profit = profit_per_block @ x[:, t]
+    npv += period_profit * discount_factors[t]
 
-print("NPV objective built with discounted cash flows")
+print("NPV objective built with vectorized operations")
 ```
 
 ## Constraints
@@ -146,42 +143,40 @@ prob = Problem(name="mine_scheduling")
 prob.maximize(npv)
 
 # 1. Each block mined at most once
+# Sum across columns (time) for each row (block) must be <= 1
 for i in range(n_blocks):
-    total_extraction = sum(x[i, t] for t in range(n_periods))
-    prob.subject_to(total_extraction <= 1)
+    # x[i, :] returns a VectorVariable representing the row
+    prob.subject_to(x[i, :].sum() <= 1)
 
 # 2. Mining capacity per period
 for t in range(n_periods):
-    period_mining = sum(block_tonnage[i] * x[i, t] for i in range(n_blocks))
+    # Vectorized dot product: tonnage @ x_column
+    period_mining = block_tonnage @ x[:, t]
     prob.subject_to(period_mining <= max_mining_capacity)
 
 # 3. Processing capacity per period
 for t in range(n_periods):
-    period_processing = sum(block_tonnage[i] * x[i, t] for i in range(n_blocks))
+    period_processing = block_tonnage @ x[:, t]
     prob.subject_to(period_processing <= max_processing_capacity)
 
 # 4. Precedence constraints
 for (i, j) in precedence:
     for t in range(n_periods):
-        cum_i = sum(x[i, s] for s in range(t + 1))
-        cum_j = sum(x[j, s] for s in range(t + 1))
+        # Cumulative extraction up to time t
+        # We use slice indexing x[i, :t+1] which returns a VectorVariable
+        cum_i = x[i, :t+1].sum()
+        cum_j = x[j, :t+1].sum()
         prob.subject_to(cum_i >= cum_j)
 
 # 5. Grade blending constraints
 for t in range(n_periods):
-    # Minimum grade
-    min_grade_expr = sum(
-        block_tonnage[i] * (block_grade[i] - min_blend_grade) * x[i, t]
-        for i in range(n_blocks)
-    )
-    prob.subject_to(min_grade_expr >= 0)
+    # Minimum grade: sum(tonnage * (grade - min) * x) >= 0
+    min_grade_coefs = block_tonnage * (block_grade - min_blend_grade)
+    prob.subject_to(min_grade_coefs @ x[:, t] >= 0)
     
-    # Maximum grade
-    max_grade_expr = sum(
-        block_tonnage[i] * (max_blend_grade - block_grade[i]) * x[i, t]
-        for i in range(n_blocks)
-    )
-    prob.subject_to(max_grade_expr >= 0)
+    # Maximum grade: sum(tonnage * (max - grade) * x) >= 0
+    max_grade_coefs = block_tonnage * (max_blend_grade - block_grade)
+    prob.subject_to(max_grade_coefs @ x[:, t] >= 0)
 
 total_constraints = (
     n_blocks +                      # extraction limits
@@ -208,6 +203,9 @@ print(f"Solve time: {solution.solve_time*1000:.1f} ms")
 ### Extraction Schedule
 
 ```{python}
+# Get all values at once as a numpy array
+x_val = solution[x]  # Returns (n_blocks, n_periods) array
+
 # Print schedule table
 print(f"\n{'Block':<8}", end="")
 for t in range(n_periods):
@@ -220,7 +218,7 @@ for i in range(n_blocks):
     print(f"Block {i:<3}", end="")
     block_total = 0
     for t in range(n_periods):
-        val = solution[f"x_{i}_{t}"]
+        val = x_val[i, t]
         print(f"{val:>10.2f}", end="")
         block_total += val
         total_by_period[t] += val * block_tonnage[i]
@@ -240,10 +238,9 @@ print(f"\n{'Period':<12} {'Tonnage (kt)':>15} {'Avg Grade (%Cu)':>18}")
 print("-" * 45)
 
 for t in range(n_periods):
-    weighted_grade = sum(
-        block_grade[i] * block_tonnage[i] * solution[f"x_{i}_{t}"]
-        for i in range(n_blocks)
-    )
+    # Vectorized calculation using the result array
+    weighted_grade = (block_grade * block_tonnage) @ x_val[:, t]
+    
     if total_by_period[t] > 0:
         avg_grade = weighted_grade / total_by_period[t]
         print(f"Year {t+1:<7} {total_by_period[t]:>15.0f} {avg_grade:>18.2f}")
@@ -255,10 +252,10 @@ for t in range(n_periods):
 
 ```{python}
 total_tonnage = sum(total_by_period)
-total_cu = sum(
-    block_grade[i] / 100 * block_tonnage[i] * sum(solution[f"x_{i}_{t}"] for t in range(n_periods))
-    for i in range(n_blocks)
-)
+
+# Total copper = sum(grade * tonnage * total_extraction_per_block)
+total_extraction = x_val.sum(axis=1)
+total_cu = (block_grade / 100 * block_tonnage) @ total_extraction
 
 print(f"\nTotal ore mined: {total_tonnage:,.0f} kt")
 print(f"Total copper content: {total_cu:,.1f} kt Cu")
@@ -269,11 +266,11 @@ print(f"NPV per tonne ore: ${solution.objective_value / total_tonnage:.2f}/t")
 
 ## Key Takeaways
 
-1. **Indexed variables**: `x[i, t]` pattern for multi-dimensional decisions
-2. **Precedence constraints**: Ensure physically feasible mining sequences
-3. **Grade blending**: Linearized ratio constraints for mill feed quality
-4. **NPV discounting**: Time value of money in multi-period planning
-5. **Capacity planning**: Balance equipment and processing limits
+1. **Matrix variables**: `MatrixVariable` provides a clean interface for 2D decision variables.
+2. **Vectorized constraints**: Operations like `block_tonnage @ x[:, t]` make code readable and efficient.
+3. **Precedence constraints**: Ensure physically feasible mining sequences.
+4. **Grade blending**: Linearized ratio constraints for mill feed quality.
+5. **NPV discounting**: Time value of money in multi-period planning.
 
 ## Extensions
 

@@ -1,0 +1,583 @@
+---
+title: "How Optyx Works"
+description: "A transparent look at what happens under the hood"
+date: last-modified
+---
+
+## The Honest Truth
+
+Before we dive in, let's be clear about what Optyx is and isn't:
+
+**Optyx is a wrapper around SciPy's optimization routines** (and HiGHS for linear programs). It doesn't implement any optimization algorithms itself. The value proposition is simple:
+
+1. You write math-like Python: `x**2 + y**2`
+2. Optyx builds a symbolic tree and computes gradients automatically
+3. Optyx calls SciPy with your objective, gradient, and constraints
+4. You get a solution
+
+That's it. No magic. No novel algorithms. Just a convenience layer that trades some overhead for developer productivity.
+
+---
+
+## The Journey of a Problem
+
+Let's follow a simple problem through every step of Optyx's pipeline:
+
+```python
+from optyx import Variable, Problem
+
+x = Variable("x", lb=0)
+y = Variable("y", lb=0)
+
+solution = (
+    Problem()
+    .minimize(x**2 + y**2)
+    .subject_to(x + y >= 1)
+    .solve()
+)
+```
+
+What actually happens? Let's find out.
+
+---
+
+## Step 1: Building the Expression Tree
+
+When you write `x**2 + y**2`, Python doesn't compute a number. Instead, Optyx's operator overloading builds a **tree structure**:
+
+```
+              Add
+             /   \
+        Power     Power
+        /   \     /   \
+       x     2   y     2
+```
+
+Here's how it happens:
+
+```{python}
+from optyx import Variable
+
+x = Variable("x")
+y = Variable("y")
+
+# This doesn't compute 0 + 0 = 0
+# It builds a tree
+expr = x**2 + y**2
+
+# The tree can be inspected
+print(f"Expression type: {type(expr).__name__}")
+print(f"Expression: {expr}")
+print(f"Variables in tree: {[v.name for v in expr.get_variables()]}")
+```
+
+### How Operator Overloading Works
+
+The `Variable` class defines special methods like `__add__`, `__mul__`, `__pow__`:
+
+```python
+# Simplified version of what's in optyx
+class Variable:
+    def __add__(self, other):
+        return Add(self, other)  # Returns a NEW expression, not a number
+    
+    def __pow__(self, other):
+        return Power(self, other)
+```
+
+Each operator creates a new node in the tree. The tree IS the mathematical expression—it can be traversed, analyzed, and differentiated.
+
+### The Overhead
+
+Building the tree requires:
+- One object allocation per operator
+- Storing references to child nodes
+- Type checking and coercion
+
+For `n` operators, that's O(n) allocations. This is slower than just computing a number, but it's a one-time cost that enables everything else.
+
+---
+
+## Step 2: Evaluating the Tree
+
+When you call `expr.evaluate({'x': 3, 'y': 4})`, Optyx walks the tree bottom-up:
+
+```{python}
+from optyx import Variable
+
+x = Variable("x")
+y = Variable("y")
+expr = x**2 + y**2
+
+# Evaluation walks the tree
+result = expr.evaluate({'x': 3, 'y': 4})
+print(f"Result: {result}")  # 9 + 16 = 25
+```
+
+The traversal:
+1. Visit `x` → substitute 3
+2. Visit `Power(x, 2)` → compute 3² = 9
+3. Visit `y` → substitute 4
+4. Visit `Power(y, 2)` → compute 4² = 16
+5. Visit `Add(...)` → compute 9 + 16 = 25
+
+### The Overhead
+
+Tree traversal is slower than direct computation:
+
+- **Direct Python**: `3**2 + 4**2` → ~50 nanoseconds
+- **Optyx tree walk**: ~500 nanoseconds to ~2 microseconds
+
+That's 10-40x slower for a single evaluation. But during optimization, the solver calls this function hundreds or thousands of times with different values—the function call overhead dominates, and the tree walk becomes negligible.
+
+---
+
+## Step 3: Automatic Differentiation
+
+This is where the tree structure pays off. Each node type knows its own derivative rule:
+
+| Node | Derivative Rule |
+|------|-----------------|
+| `Add(a, b)` | ∂/∂x = ∂a/∂x + ∂b/∂x |
+| `Multiply(a, b)` | ∂/∂x = (∂a/∂x)·b + a·(∂b/∂x) |
+| `Power(a, n)` | ∂/∂x = n·a^(n-1)·(∂a/∂x) |
+| `Variable(x)` | ∂/∂x = 1, ∂/∂y = 0 |
+| `Constant(c)` | ∂/∂x = 0 |
+
+### Walking for Gradients
+
+To compute ∂(x² + y²)/∂x:
+
+```
+              Add           →  ∂/∂x = ∂(x²)/∂x + ∂(y²)/∂x
+             /   \
+        Power     Power     →  ∂(x²)/∂x = 2x·1 = 2x
+        /   \     /   \         ∂(y²)/∂x = 2y·0 = 0
+       x     2   y     2
+
+Result: ∂/∂x = 2x + 0 = 2x
+```
+
+```{python}
+from optyx import Variable
+from optyx.core.autodiff import gradient
+
+x = Variable("x")
+y = Variable("y")
+expr = x**2 + y**2
+
+# Compute symbolic gradients
+grad_x = gradient(expr, x)  # Returns an expression: 2*x
+grad_y = gradient(expr, y)  # Returns an expression: 2*y
+
+# Evaluate at a point
+print(f"∂f/∂x = {grad_x} → at (3,4): {grad_x.evaluate({'x': 3, 'y': 4})}")
+print(f"∂f/∂y = {grad_y} → at (3,4): {grad_y.evaluate({'x': 3, 'y': 4})}")
+```
+
+### Why This Matters
+
+Without autodiff, you'd write gradients by hand:
+
+```python
+# Manual gradient for scipy
+def objective(vars):
+    return vars[0]**2 + vars[1]**2
+
+def gradient(vars):  # You write this!
+    return np.array([2*vars[0], 2*vars[1]])
+```
+
+Easy for `x² + y²`. Painful for:
+```python
+100*(y - x**2)**2 + (1 - x)**2  # Rosenbrock: ∂/∂x = ?
+```
+
+Optyx computes the Rosenbrock gradient automatically:
+
+```{python}
+from optyx import Variable
+from optyx.core.autodiff import gradient
+
+x = Variable("x")
+y = Variable("y")
+rosenbrock = 100*(y - x**2)**2 + (1 - x)**2
+
+# Symbolic gradients - no manual derivation!
+grad_x = gradient(rosenbrock, x)
+grad_y = gradient(rosenbrock, y)
+
+# Evaluate at the optimum (1, 1)
+print(f"∂f/∂x at (1,1): {grad_x.evaluate({'x': 1, 'y': 1})}")
+print(f"∂f/∂y at (1,1): {grad_y.evaluate({'x': 1, 'y': 1})}")
+```
+
+### The Overhead
+
+Autodiff requires a second tree walk (for gradients) on top of the evaluation walk. For simple functions, this is slower than hand-written gradients. For complex functions, it's comparable—and you didn't have to derive anything.
+
+| Approach | Time per (f, ∇f) call | Developer Time |
+|----------|----------------------|----------------|
+| Hand-written | 1x (baseline) | Hours for complex f |
+| Finite differences | 2-3x (n+1 evaluations) | None |
+| Optyx autodiff | 1.5-2x | None |
+
+Optyx is faster than finite differences and requires zero manual effort.
+
+---
+
+## Step 4: Problem Compilation
+
+When you call `.solve()`, Optyx compiles the problem into a format SciPy understands:
+
+```{python}
+from optyx import Variable, Problem
+
+x = Variable("x", lb=0)
+y = Variable("y", lb=0)
+
+problem = (
+    Problem("example")
+    .minimize(x**2 + y**2)
+    .subject_to(x + y >= 1)
+)
+
+# What happens at compile time (simplified):
+# 1. Discover variables: [x, y]
+# 2. Extract bounds: [(0, inf), (0, inf)]
+# 3. Compile objective: f(v) -> v[0]**2 + v[1]**2
+# 4. Compile gradient: g(v) -> [2*v[0], 2*v[1]]
+# 5. Compile constraints: c(v) -> [v[0] + v[1] - 1]
+# 6. Select solver: 'SLSQP' (constrained NLP)
+```
+
+### Variable Discovery
+
+The expression tree is walked to find all `Variable` nodes:
+
+```{python}
+from optyx import Variable
+
+x = Variable("x")
+y = Variable("y")
+z = Variable("z")
+
+expr = x**2 + 2*x*y + y**2  # z is defined but not used
+
+variables = expr.get_variables()
+print(f"Variables in expression: {[v.name for v in variables]}")
+# z is NOT included - only variables actually in the tree
+```
+
+This determines the dimensionality of the problem and the order of variables in the solution vector.
+
+### Solver Selection
+
+Optyx analyzes the problem structure:
+
+```python
+# Pseudo-code for solver selection
+if all_constraints_are_linear and objective_is_linear:
+    solver = "highs"  # Industrial LP solver
+elif no_constraints:
+    solver = "L-BFGS-B"  # Fast unconstrained
+else:
+    solver = "SLSQP"  # General constrained NLP
+```
+
+You can override this with `problem.solve(method="trust-constr")`.
+
+### The Overhead
+
+Compilation involves:
+- Tree traversal to discover variables: O(tree size)
+- Constraint classification: O(number of constraints)
+- Creating wrapper functions: O(1) but has constant overhead
+
+For a typical problem, compilation takes 1-10 milliseconds. This is a one-time cost—re-solves skip compilation.
+
+---
+
+## Step 5: Calling SciPy
+
+Here's what Optyx actually passes to SciPy (simplified):
+
+```python
+from scipy.optimize import minimize
+
+# Optyx builds these from your expressions:
+def objective_fn(x_vec):
+    return expr.evaluate({'x': x_vec[0], 'y': x_vec[1]})
+
+def gradient_fn(x_vec):
+    grad_dict = expr.gradient({'x': x_vec[0], 'y': x_vec[1]})
+    return np.array([grad_dict['x'], grad_dict['y']])
+
+def constraint_fn(x_vec):
+    return x_vec[0] + x_vec[1] - 1  # x + y >= 1 becomes x + y - 1 >= 0
+
+# Then Optyx calls:
+result = minimize(
+    fun=objective_fn,
+    x0=np.array([0.5, 0.5]),
+    jac=gradient_fn,
+    method='SLSQP',
+    bounds=[(0, None), (0, None)],
+    constraints={'type': 'ineq', 'fun': constraint_fn}
+)
+```
+
+The actual optimization algorithm—SLSQP, L-BFGS-B, trust-constr, HiGHS—is entirely SciPy's code. Optyx just prepares the inputs and interprets the outputs.
+
+---
+
+## Step 6: The Solve Loop
+
+What happens inside SciPy's `minimize()`:
+
+```
+Iteration 0: x = [0.5, 0.5]
+             f(x) = 0.5, ∇f(x) = [1.0, 1.0]
+             constraints satisfied? Yes
+             
+Iteration 1: x = [0.497, 0.503] (take step)
+             f(x) = 0.500, ∇f(x) = [0.994, 1.006]
+             ...
+
+Iteration N: x = [0.5, 0.5] (converged)
+             f(x) = 0.5
+             ‖∇f‖ < tolerance
+             DONE
+```
+
+Optyx's objective/gradient functions are called at every iteration. A typical problem might need 10-100 iterations, so these functions are called 20-200 times (objective + gradient at each step).
+
+```{python}
+from optyx import Variable, Problem
+
+x = Variable("x", lb=0)
+y = Variable("y", lb=0)
+
+solution = (
+    Problem()
+    .minimize(x**2 + y**2)
+    .subject_to(x + y >= 1)
+    .solve()
+)
+
+print(f"Solution: x={solution['x']:.4f}, y={solution['y']:.4f}")
+print(f"Solve time: {solution.solve_time*1000:.2f} ms")
+if solution.iterations:
+    print(f"Iterations: {solution.iterations}")
+```
+
+---
+
+## Step 7: Caching for Re-solves
+
+First solve compiles everything. Subsequent solves reuse the compiled functions:
+
+```{python}
+from optyx import Variable, Problem, Parameter
+import time
+
+x = Variable("x", lb=0)
+y = Variable("y", lb=0)
+target = Parameter("target", value=1.0)
+
+problem = (
+    Problem()
+    .minimize(x**2 + y**2)
+    .subject_to(x + y >= target)
+)
+
+# First solve: includes compilation
+t0 = time.perf_counter()
+sol1 = problem.solve()
+first_time = time.perf_counter() - t0
+
+# Re-solves: skip compilation
+times = []
+for t in [1.5, 2.0, 2.5]:
+    target.set(t)
+    t0 = time.perf_counter()
+    sol = problem.solve()
+    times.append(time.perf_counter() - t0)
+
+print(f"First solve: {first_time*1000:.2f} ms")
+print(f"Re-solves: {[f'{t*1000:.2f} ms' for t in times]}")
+print(f"Speedup: {first_time / (sum(times)/len(times)):.1f}x")
+```
+
+This is where Optyx shines: when you solve similar problems repeatedly (scenario analysis, parameter sweeps, real-time optimization), the compilation cost is amortized.
+
+---
+
+## Why VectorVariable is Faster
+
+Consider a portfolio problem with 100 assets. The loop approach builds a huge tree:
+
+```python
+# Loop approach: 100 + 99 = 199 tree nodes just for the sum
+weights = [Variable(f"w_{i}", lb=0) for i in range(100)]
+total = sum(weights)  # 99 Add nodes chained together
+
+# Quadratic form: 100*100 + many more = ~20,000 nodes
+variance = sum(w[i] * cov[i,j] * w[j] for i in range(100) for j in range(100))
+```
+
+VectorVariable uses specialized nodes:
+
+```python
+# VectorVariable: 1 node + internal array operations
+w = VectorVariable("w", 100, lb=0)
+total = w.sum()  # 1 VectorSum node
+
+# QuadraticForm: 1 node + matrix operation
+variance = QuadraticForm(w, cov)  # 1 QuadraticForm node
+```
+
+The gradient computation is also vectorized:
+- Loop approach: 100 separate gradient computations
+- VectorVariable: 1 gradient computation using NumPy arrays
+
+```{python}
+from optyx import VectorVariable, QuadraticForm
+from optyx.core.autodiff import gradient
+import numpy as np
+import time
+
+n = 50
+np.random.seed(42)
+cov = np.eye(n)
+
+w = VectorVariable("w", n, lb=0)
+qf = QuadraticForm(w, cov)
+
+# Symbolic gradients are computed once (vectorized operation)
+# Then evaluated many times during optimization
+w0 = w._variables[0]  # Get first variable
+grad_wrt_w0 = gradient(qf, w0)  # Returns symbolic gradient
+
+print(f"QuadraticForm with {n} variables")
+print(f"Gradient expression: {type(grad_wrt_w0).__name__}")
+print(f"(Internally uses matrix operations for O(n) instead of O(n²) evaluation)")
+```
+
+---
+
+## The Trade-offs: Honest Assessment
+
+### Where Optyx Adds Overhead
+
+| Operation | Overhead vs Raw SciPy | Why |
+|-----------|----------------------|-----|
+| First solve | 1.5-2x slower | Tree building + compilation |
+| Each f(x) call | 10-40x slower | Tree walk vs direct computation |
+| Each ∇f(x) call | 1.5-2x slower | Autodiff vs hand-written |
+| Re-solve | Near 0x | Cached, same as raw SciPy |
+
+### When This Overhead Matters
+
+- **Matters**: Simple problems solved once (use raw SciPy)
+- **Matters**: Extremely time-critical real-time systems
+- **Matters**: When you need the absolute fastest solution
+
+### When Optyx Wins
+
+- **Wins**: Complex gradients you don't want to derive
+- **Wins**: Problems solved many times (caching pays off)
+- **Wins**: Rapid prototyping where developer time > compute time
+- **Wins**: Maintainable code that others can understand
+
+---
+
+## What Optyx Doesn't Do
+
+To be completely transparent:
+
+1. **No novel algorithms** — All optimization is SciPy/HiGHS
+2. **No symbolic simplification** — `x - x` is a tree, not 0
+3. **No global optimization** — Local methods only (for now)
+4. **No parallelization** — Single-threaded tree evaluation
+5. **No GPU support** — CPU only (JAX backend planned)
+6. **No mixed-integer beyond LP** — MILP via HiGHS, but no MINLP
+
+For these capabilities, use specialized tools:
+- **MILP at scale**: Gurobi, CPLEX, or Pyomo
+- **Convex optimization**: CVXPY
+- **Global optimization**: SciPy's differential_evolution, dual_annealing
+- **GPU acceleration**: JAX, PyTorch optimizers
+
+---
+
+## Summary: The Full Pipeline
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Your Code                                                          │
+│  ────────────────────────────────────────────────────────────────   │
+│  x = Variable("x")                                                  │
+│  problem = Problem().minimize(x**2).solve()                         │
+└─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Step 1: Expression Tree Building                                   │
+│  ────────────────────────────────────────────────────────────────   │
+│  Python operators (__add__, __mul__, __pow__) create tree nodes     │
+│  Overhead: O(n) allocations for n operators                         │
+└─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Step 2: Problem Compilation                                        │
+│  ────────────────────────────────────────────────────────────────   │
+│  - Discover variables by walking tree                               │
+│  - Classify constraints (linear, bounds, nonlinear)                 │
+│  - Select solver (HiGHS, SLSQP, L-BFGS-B, trust-constr)            │
+│  - Compile tree to callable functions                               │
+│  Overhead: 1-10 ms (one-time)                                       │
+└─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Step 3: SciPy Optimization                                         │
+│  ────────────────────────────────────────────────────────────────   │
+│  scipy.optimize.minimize(                                           │
+│      fun=compiled_objective,                                        │
+│      jac=compiled_gradient,  # ← Autodiff!                          │
+│      constraints=compiled_constraints,                              │
+│      bounds=extracted_bounds,                                       │
+│      method=selected_solver                                         │
+│  )                                                                  │
+│  Overhead: Near-zero (this is just SciPy)                           │
+└─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Step 4: Solution Packaging                                         │
+│  ────────────────────────────────────────────────────────────────   │
+│  - Map SciPy result back to named variables                         │
+│  - Package as Solution object                                       │
+│  - Cache compiled functions for re-solve                            │
+└─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Your Solution                                                      │
+│  ────────────────────────────────────────────────────────────────   │
+│  solution['x']  # Access by name                                    │
+│  solution.objective_value                                           │
+│  solution.status                                                    │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Next Steps
+
+- [Quickstart](quickstart.qmd) — Build your first problem in 5 minutes
+- [Core Concepts](concepts.qmd) — Deeper dive into Variables, Expressions, Constraints
+- [Automatic Differentiation Tutorial](../tutorials/autodiff.qmd) — More on how gradients work
+- [Benchmarks](../benchmarks.qmd) — Detailed performance comparisons

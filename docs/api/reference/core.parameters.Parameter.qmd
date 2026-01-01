@@ -1,0 +1,115 @@
+# core.parameters.Parameter { #optyx.core.parameters.Parameter }
+
+```python
+core.parameters.Parameter(name, value=0.0)
+```
+
+An updatable constant for optimization problems.
+
+Unlike Constant, a Parameter's value can be changed between solves
+without rebuilding the problem structure. This enables fast re-solves
+when only numerical values change (not problem structure).
+
+Parameters participate in expression building just like variables,
+but their values are fixed during each solve. Changing a parameter
+value and re-solving uses cached problem structure.
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                                      | Description                           | Default    |
+|--------|---------------------------------------------------------------------------|---------------------------------------|------------|
+| name   | [str](`str`)                                                              | Unique identifier for this parameter. | _required_ |
+| value  | [float](`float`) \| [int](`int`) \| [ArrayLike](`numpy.typing.ArrayLike`) | Initial value (scalar or array).      | `0.0`      |
+
+## Example {.doc-section .doc-section-example}
+
+>>> from optyx import Variable, Parameter, Problem
+>>>
+>>> x = Variable("x", lb=0)
+>>> price = Parameter("price", value=100)
+>>>
+>>> prob = Problem().maximize(price * x - x**2).subject_to(x <= 10)
+>>>
+>>> # Initial solve
+>>> sol1 = prob.solve()
+>>>
+>>> # Price changes - fast re-solve
+>>> price.set(120)
+>>> sol2 = prob.solve()  # Uses cached structure
+
+## Attributes
+
+| Name | Description |
+| --- | --- |
+| [value](#optyx.core.parameters.Parameter.value) | Get the current parameter value. |
+
+## Methods
+
+| Name | Description |
+| --- | --- |
+| [evaluate](#optyx.core.parameters.Parameter.evaluate) | Evaluate the parameter (returns current value). |
+| [get_variables](#optyx.core.parameters.Parameter.get_variables) | Return all variables this expression depends on. |
+| [set](#optyx.core.parameters.Parameter.set) | Update the parameter value. |
+
+### evaluate { #optyx.core.parameters.Parameter.evaluate }
+
+```python
+core.parameters.Parameter.evaluate(values)
+```
+
+Evaluate the parameter (returns current value).
+
+Parameters evaluate to their stored value, not from the values dict.
+This allows parameters to be updated independently of solve calls.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                                                                   | Description                                | Default    |
+|--------|--------------------------------------------------------------------------------------------------------|--------------------------------------------|------------|
+| values | [Mapping](`typing.Mapping`)\[[str](`str`), [ArrayLike](`numpy.typing.ArrayLike`) \| [float](`float`)\] | Variable values (not used for parameters). | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                                                                | Description                  |
+|--------|-----------------------------------------------------------------------------------------------------|------------------------------|
+|        | [NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[floating](`numpy.floating`)\] \| [float](`float`) | The current parameter value. |
+
+### get_variables { #optyx.core.parameters.Parameter.get_variables }
+
+```python
+core.parameters.Parameter.get_variables()
+```
+
+Return all variables this expression depends on.
+
+Parameters are not variables - they return an empty set.
+
+### set { #optyx.core.parameters.Parameter.set }
+
+```python
+core.parameters.Parameter.set(value)
+```
+
+Update the parameter value.
+
+This can be called between solves to change the parameter value
+without rebuilding the problem structure.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                                      | Description                                             | Default    |
+|--------|---------------------------------------------------------------------------|---------------------------------------------------------|------------|
+| value  | [float](`float`) \| [int](`int`) \| [ArrayLike](`numpy.typing.ArrayLike`) | New value (scalar or array, must match original shape). | _required_ |
+
+#### Raises {.doc-section .doc-section-raises}
+
+| Name   | Type                       | Description                            |
+|--------|----------------------------|----------------------------------------|
+|        | [ValueError](`ValueError`) | If array shape doesn't match original. |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> price = Parameter("price", value=100)
+>>> price.set(120)  # Update for next solve
+>>> price.value
+120.0

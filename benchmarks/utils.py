@@ -476,3 +476,171 @@ def plot_multi_scaling(
         plt.show()
     else:
         plt.close()
+
+
+@dataclass
+class ThreeSeriesData:
+    """Data for 3-series scaling comparison: Loop, VectorVariable, SciPy."""
+
+    sizes_loop: list[int] = field(default_factory=list)
+    loop_times: list[float] = field(default_factory=list)
+    loop_stds: list[float] = field(default_factory=list)
+
+    sizes_vec: list[int] = field(default_factory=list)
+    vec_times: list[float] = field(default_factory=list)
+    vec_stds: list[float] = field(default_factory=list)
+
+    sizes_scipy: list[int] = field(default_factory=list)
+    scipy_times: list[float] = field(default_factory=list)
+    scipy_stds: list[float] = field(default_factory=list)
+
+    label: str = ""
+
+    def add_loop_point(self, n: int, time_ms: float, std_ms: float) -> None:
+        """Add a loop-based timing point."""
+        self.sizes_loop.append(n)
+        self.loop_times.append(time_ms)
+        self.loop_stds.append(std_ms)
+
+    def add_vec_point(self, n: int, time_ms: float, std_ms: float) -> None:
+        """Add a VectorVariable timing point."""
+        self.sizes_vec.append(n)
+        self.vec_times.append(time_ms)
+        self.vec_stds.append(std_ms)
+
+    def add_scipy_point(self, n: int, time_ms: float, std_ms: float) -> None:
+        """Add a SciPy timing point."""
+        self.sizes_scipy.append(n)
+        self.scipy_times.append(time_ms)
+        self.scipy_stds.append(std_ms)
+
+
+def plot_three_series_scaling(
+    data: ThreeSeriesData,
+    title: str = "Loop vs VectorVariable vs SciPy",
+    save_path: Path | str | None = None,
+    show: bool = False,
+) -> None:
+    """Plot 3-series scaling: Loop (capped at 500), VectorVariable, SciPy (both to 10k).
+
+    Args:
+        data: ThreeSeriesData with timing results.
+        title: Plot title.
+        save_path: Path to save the plot.
+        show: Whether to display the plot.
+    """
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    # Left: Absolute times (log-log scale)
+    ax1 = axes[0]
+
+    if data.loop_times:
+        ax1.errorbar(
+            data.sizes_loop,
+            data.loop_times,
+            yerr=data.loop_stds,
+            marker="o",
+            capsize=3,
+            label="Optyx (Loop)",
+            linewidth=2,
+            color="tab:blue",
+        )
+
+    if data.vec_times:
+        ax1.errorbar(
+            data.sizes_vec,
+            data.vec_times,
+            yerr=data.vec_stds,
+            marker="^",
+            capsize=3,
+            label="Optyx (VectorVariable)",
+            linewidth=2,
+            color="tab:green",
+        )
+
+    if data.scipy_times:
+        ax1.errorbar(
+            data.sizes_scipy,
+            data.scipy_times,
+            yerr=data.scipy_stds,
+            marker="s",
+            capsize=3,
+            label="SciPy",
+            linewidth=2,
+            color="tab:orange",
+        )
+
+    ax1.set_xlabel("Problem Size (n)", fontsize=11)
+    ax1.set_ylabel("Time (ms)", fontsize=11)
+    ax1.set_title(f"{title} - Absolute Time", fontsize=12)
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    ax1.set_xscale("log")
+    ax1.set_yscale("log")
+
+    # Right: Overhead ratio vs SciPy (only where we have matching sizes)
+    ax2 = axes[1]
+
+    # Compute ratios for loop (matched sizes)
+    if data.loop_times and data.scipy_times:
+        loop_ratios = []
+        loop_ratio_sizes = []
+        for i, n in enumerate(data.sizes_loop):
+            if n in data.sizes_scipy:
+                scipy_idx = data.sizes_scipy.index(n)
+                if data.scipy_times[scipy_idx] > 0:
+                    ratio = data.loop_times[i] / data.scipy_times[scipy_idx]
+                    loop_ratios.append(ratio)
+                    loop_ratio_sizes.append(n)
+        if loop_ratios:
+            ax2.plot(
+                loop_ratio_sizes,
+                loop_ratios,
+                marker="o",
+                linewidth=2,
+                color="tab:blue",
+                label="Loop / SciPy",
+            )
+
+    # Compute ratios for VectorVariable (matched sizes)
+    if data.vec_times and data.scipy_times:
+        vec_ratios = []
+        vec_ratio_sizes = []
+        for i, n in enumerate(data.sizes_vec):
+            if n in data.sizes_scipy:
+                scipy_idx = data.sizes_scipy.index(n)
+                if data.scipy_times[scipy_idx] > 0:
+                    ratio = data.vec_times[i] / data.scipy_times[scipy_idx]
+                    vec_ratios.append(ratio)
+                    vec_ratio_sizes.append(n)
+        if vec_ratios:
+            ax2.plot(
+                vec_ratio_sizes,
+                vec_ratios,
+                marker="^",
+                linewidth=2,
+                color="tab:green",
+                label="VectorVariable / SciPy",
+            )
+
+    ax2.axhline(y=1.0, color="red", linestyle="--", label="Parity (1x)")
+    ax2.axhline(y=2.0, color="orange", linestyle="--", alpha=0.5, label="2x overhead")
+    ax2.set_xlabel("Problem Size (n)", fontsize=11)
+    ax2.set_ylabel("Overhead Ratio", fontsize=11)
+    ax2.set_title(f"{title} - Overhead vs SciPy", fontsize=12)
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    ax2.set_xscale("log")
+
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches="tight")
+        print(f"Saved plot to {save_path}")
+
+    if show:
+        plt.show()
+    else:
+        plt.close()

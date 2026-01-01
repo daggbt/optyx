@@ -1,0 +1,79 @@
+# core.parameters.VectorParameter { #optyx.core.parameters.VectorParameter }
+
+```python
+core.parameters.VectorParameter(name, size, values=None)
+```
+
+A vector of parameters for array-valued constants.
+
+VectorParameter creates a collection of scalar Parameter instances
+that can be updated together, useful for time-varying vectors like
+demand forecasts or price curves.
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                              | Description                                                   | Default    |
+|--------|-------------------------------------------------------------------|---------------------------------------------------------------|------------|
+| name   | [str](`str`)                                                      | Base name for the parameters. Elements are named "{name}[i]". | _required_ |
+| size   | [int](`int`)                                                      | Number of elements.                                           | _required_ |
+| values | [ArrayLike](`numpy.typing.ArrayLike`) \| [float](`float`) \| None | Initial values (array-like or scalar for all elements).       | `None`     |
+
+## Example {.doc-section .doc-section-example}
+
+>>> from optyx import VectorVariable, VectorParameter, dot
+>>>
+>>> # Time-varying prices
+>>> prices = VectorParameter("price", 24, values=[100]*24)
+>>> quantities = VectorVariable("q", 24, lb=0)
+>>>
+>>> revenue = dot(prices, quantities)
+>>>
+>>> # Update prices for next solve
+>>> prices.set([105, 110, 115, ...])  # New price forecast
+
+## Methods
+
+| Name | Description |
+| --- | --- |
+| [get_values](#optyx.core.parameters.VectorParameter.get_values) | Get all current parameter values as array. |
+| [set](#optyx.core.parameters.VectorParameter.set) | Update all parameter values. |
+| [to_numpy](#optyx.core.parameters.VectorParameter.to_numpy) | Get all current parameter values as numpy array. |
+
+### get_values { #optyx.core.parameters.VectorParameter.get_values }
+
+```python
+core.parameters.VectorParameter.get_values()
+```
+
+Get all current parameter values as array.
+
+### set { #optyx.core.parameters.VectorParameter.set }
+
+```python
+core.parameters.VectorParameter.set(values)
+```
+
+Update all parameter values.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                  | Description                             | Default    |
+|--------|---------------------------------------|-----------------------------------------|------------|
+| values | [ArrayLike](`numpy.typing.ArrayLike`) | New values (array-like of length size). | _required_ |
+
+#### Raises {.doc-section .doc-section-raises}
+
+| Name   | Type                       | Description                          |
+|--------|----------------------------|--------------------------------------|
+|        | [ValueError](`ValueError`) | If values length doesn't match size. |
+
+### to_numpy { #optyx.core.parameters.VectorParameter.to_numpy }
+
+```python
+core.parameters.VectorParameter.to_numpy()
+```
+
+Get all current parameter values as numpy array.
+
+This is an alias for get_values() for consistency with
+VectorVariable.to_numpy().

@@ -41,7 +41,7 @@ Any mutation (adding constraints, changing objective) invalidates the cache.
 | [maximize](#optyx.problem.Problem.maximize) | Set the objective function to maximize. |
 | [minimize](#optyx.problem.Problem.minimize) | Set the objective function to minimize. |
 | [solve](#optyx.problem.Problem.solve) | Solve the optimization problem. |
-| [subject_to](#optyx.problem.Problem.subject_to) | Add a constraint to the problem. |
+| [subject_to](#optyx.problem.Problem.subject_to) | Add a constraint or list of constraints to the problem. |
 
 ### get_bounds { #optyx.problem.Problem.get_bounds }
 
@@ -67,15 +67,25 @@ Set the objective function to maximize.
 
 #### Parameters {.doc-section .doc-section-parameters}
 
-| Name   | Type                                              | Description             | Default    |
-|--------|---------------------------------------------------|-------------------------|------------|
-| expr   | [Expression](`optyx.core.expressions.Expression`) | Expression to maximize. | _required_ |
+| Name   | Type                                              | Description                                                                                     | Default    |
+|--------|---------------------------------------------------|-------------------------------------------------------------------------------------------------|------------|
+| expr   | [Expression](`optyx.core.expressions.Expression`) | Expression to maximize. Must be an optyx Expression, Variable, or numeric constant (int/float). | _required_ |
 
 #### Returns {.doc-section .doc-section-returns}
 
 | Name   | Type                               | Description               |
 |--------|------------------------------------|---------------------------|
 |        | [Problem](`optyx.problem.Problem`) | Self for method chaining. |
+
+#### Raises {.doc-section .doc-section-raises}
+
+| Name   | Type                                                               | Description                             |
+|--------|--------------------------------------------------------------------|-----------------------------------------|
+|        | [InvalidOperationError](`optyx.core.errors.InvalidOperationError`) | If expr is not a valid expression type. |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> prob.maximize(revenue - cost)
 
 ### minimize { #optyx.problem.Problem.minimize }
 
@@ -87,15 +97,26 @@ Set the objective function to minimize.
 
 #### Parameters {.doc-section .doc-section-parameters}
 
-| Name   | Type                                              | Description             | Default    |
-|--------|---------------------------------------------------|-------------------------|------------|
-| expr   | [Expression](`optyx.core.expressions.Expression`) | Expression to minimize. | _required_ |
+| Name   | Type                                              | Description                                                                                     | Default    |
+|--------|---------------------------------------------------|-------------------------------------------------------------------------------------------------|------------|
+| expr   | [Expression](`optyx.core.expressions.Expression`) | Expression to minimize. Must be an optyx Expression, Variable, or numeric constant (int/float). | _required_ |
 
 #### Returns {.doc-section .doc-section-returns}
 
 | Name   | Type                               | Description               |
 |--------|------------------------------------|---------------------------|
 |        | [Problem](`optyx.problem.Problem`) | Self for method chaining. |
+
+#### Raises {.doc-section .doc-section-raises}
+
+| Name   | Type                                                               | Description                             |
+|--------|--------------------------------------------------------------------|-----------------------------------------|
+|        | [InvalidOperationError](`optyx.core.errors.InvalidOperationError`) | If expr is not a valid expression type. |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> prob.minimize(x**2 + y**2)
+>>> prob.minimize(x + 2*y - 5)
 
 ### solve { #optyx.problem.Problem.solve }
 
@@ -131,16 +152,27 @@ Solve the optimization problem.
 problem.Problem.subject_to(constraint)
 ```
 
-Add a constraint to the problem.
+Add a constraint or list of constraints to the problem.
 
 #### Parameters {.doc-section .doc-section-parameters}
 
-| Name       | Type                                         | Description        | Default    |
-|------------|----------------------------------------------|--------------------|------------|
-| constraint | [Constraint](`optyx.constraints.Constraint`) | Constraint to add. | _required_ |
+| Name       | Type                                                                                                           | Description                                                                                                                       | Default    |
+|------------|----------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|------------|
+| constraint | [Constraint](`optyx.constraints.Constraint`) \| [list](`list`)\[[Constraint](`optyx.constraints.Constraint`)\] | Constraint or list of constraints to add. Lists are typically produced by vectorized constraints like `x >= 0` on VectorVariable. | _required_ |
 
 #### Returns {.doc-section .doc-section-returns}
 
 | Name   | Type                               | Description               |
 |--------|------------------------------------|---------------------------|
 |        | [Problem](`optyx.problem.Problem`) | Self for method chaining. |
+
+#### Raises {.doc-section .doc-section-raises}
+
+| Name   | Type                                                   | Description                                   |
+|--------|--------------------------------------------------------|-----------------------------------------------|
+|        | [ConstraintError](`optyx.core.errors.ConstraintError`) | If constraint is not a valid Constraint type. |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> x = VectorVariable("x", 100)
+>>> prob.subject_to(x >= 0)  # Adds 100 constraints

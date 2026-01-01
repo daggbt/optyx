@@ -38,6 +38,18 @@ from optyx.core.verification import (
     gradient_check,
     GradientCheckResult,
 )
+from optyx.core.errors import (
+    OptyxError,
+    DimensionMismatchError,
+    InvalidOperationError,
+    BoundsError,
+    EmptyContainerError,
+    SolverError,
+    InfeasibleError,
+    UnboundedError,
+    NotSolvedError,
+    ParameterError,
+)
 
 __all__ = [
     # Expressions
@@ -73,4 +85,15 @@ __all__ = [
     "verify_gradient",
     "gradient_check",
     "GradientCheckResult",
+    # Errors
+    "OptyxError",
+    "DimensionMismatchError",
+    "InvalidOperationError",
+    "BoundsError",
+    "EmptyContainerError",
+    "SolverError",
+    "InfeasibleError",
+    "UnboundedError",
+    "NotSolvedError",
+    "ParameterError",
 ]

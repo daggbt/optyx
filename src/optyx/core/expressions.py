@@ -171,6 +171,11 @@ class Constant(Expression):
     """A constant numerical value in an expression.
 
     Wraps scalars or numpy arrays as expression nodes.
+
+    Example:
+        >>> c = Constant(5.0)
+        >>> c.evaluate({})  # No variables needed
+        5.0
     """
 
     __slots__ = ("value",)
@@ -198,6 +203,12 @@ class Variable(Expression):
         lb: Lower bound (None for unbounded).
         ub: Upper bound (None for unbounded).
         domain: Variable type - 'continuous', 'integer', or 'binary'.
+
+    Example:
+        >>> x = Variable("x", lb=0, ub=10)
+        >>> y = Variable("y", domain="binary")
+        >>> x.evaluate({"x": 5.0})
+        5.0
     """
 
     __slots__ = ("name", "lb", "ub", "domain")
@@ -344,3 +355,133 @@ def _ensure_expr(value: Expression | float | int | ArrayLike) -> Expression:
     if isinstance(value, Expression):
         return value
     return Constant(value)
+
+
+# =============================================================================
+# Iterative Variable Extraction (for deep expression trees)
+# =============================================================================
+
+# Recursion threshold - use iterative for trees deeper than this
+_RECURSION_THRESHOLD = 400
+
+
+def _estimate_tree_depth(expr: Expression) -> int:
+    """Estimate the depth of an expression tree.
+
+    Uses a fast heuristic that follows the left spine of the tree,
+    which catches the common case of left-associative chains.
+    """
+    depth = 0
+    current = expr
+    while True:
+        if isinstance(current, (Constant, Variable)):
+            break
+        elif isinstance(current, BinaryOp):
+            depth += 1
+            current = current.left
+        elif isinstance(current, UnaryOp):
+            depth += 1
+            current = current.operand
+        else:
+            # Vector/matrix expressions - check for deep nesting
+            from optyx.core.vectors import LinearCombination, VectorSum, DotProduct
+
+            if isinstance(current, (LinearCombination, VectorSum)):
+                break  # These don't recurse deeply
+            elif isinstance(current, DotProduct):
+                depth += 1
+                current = current.left
+            else:
+                break
+    return depth
+
+
+def get_all_variables(expr: Expression) -> set[Variable]:
+    """Extract all variables from an expression, using iterative method for deep trees.
+
+    This function handles arbitrarily deep expression trees without hitting
+    Python's recursion limit. For shallow trees, it delegates to the expression's
+    get_variables() method. For deep trees, it uses an explicit stack.
+
+    Args:
+        expr: The expression to extract variables from.
+
+    Returns:
+        Set of all Variable objects in the expression tree.
+    """
+    depth = _estimate_tree_depth(expr)
+    if depth < _RECURSION_THRESHOLD:
+        return expr.get_variables()
+    return _get_variables_iterative(expr)
+
+
+def _get_variables_iterative(expr: Expression) -> set[Variable]:
+    """Extract variables from expression using explicit stack.
+
+    Handles deep expression trees that would cause RecursionError.
+    """
+    from optyx.core.vectors import (
+        LinearCombination,
+        VectorSum,
+        DotProduct,
+        L2Norm,
+        L1Norm,
+    )
+
+    variables: set[Variable] = set()
+    stack: list[Expression] = [expr]
+    seen: set[int] = set()
+
+    while stack:
+        node = stack.pop()
+        node_id = id(node)
+
+        # Avoid processing the same node twice
+        if node_id in seen:
+            continue
+        seen.add(node_id)
+
+        # Leaf: Variable
+        if isinstance(node, Variable):
+            variables.add(node)
+            continue
+
+        # Leaf: Constant
+        if isinstance(node, Constant):
+            continue
+
+        # Vector expressions - use their O(1) get_variables methods
+        if isinstance(node, LinearCombination):
+            # LinearCombination stores variables directly
+            variables.update(node.get_variables())
+            continue
+        if isinstance(node, VectorSum):
+            variables.update(node.get_variables())
+            continue
+        if isinstance(node, DotProduct):
+            # DotProduct has get_variables(), use it directly
+            variables.update(node.get_variables())
+            continue
+        if isinstance(node, (L2Norm, L1Norm)):
+            variables.update(node.get_variables())
+            continue
+
+        # Binary operation
+        if isinstance(node, BinaryOp):
+            stack.append(node.left)
+            stack.append(node.right)
+            continue
+
+        # Unary operation
+        if isinstance(node, UnaryOp):
+            stack.append(node.operand)
+            continue
+
+        # Fallback: call get_variables (might recurse for custom expressions)
+        try:
+            variables.update(node.get_variables())
+        except RecursionError:
+            # If recursion fails, we can't process this node
+            pass
+
+    return variables

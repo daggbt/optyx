@@ -1,0 +1,45 @@
+# core.vectors.L1Norm { #optyx.core.vectors.L1Norm }
+
+```python
+core.vectors.L1Norm(vector)
+```
+
+L1 (Manhattan) norm of a vector: ||x||_1 = |x[0]| + |x[1]| + ... + |x[n-1]|.
+
+This is a scalar expression representing the sum of absolute values.
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                                                                               | Description                        | Default    |
+|--------|--------------------------------------------------------------------------------------------------------------------|------------------------------------|------------|
+| vector | [VectorVariable](`optyx.core.vectors.VectorVariable`) \| [VectorExpression](`optyx.core.vectors.VectorExpression`) | The vector to compute the norm of. | _required_ |
+
+## Example {.doc-section .doc-section-example}
+
+>>> x = VectorVariable("x", 3)
+>>> n = L1Norm(x)
+>>> n.evaluate({"x[0]": 1, "x[1]": -2, "x[2]": 3})
+6.0
+
+## Methods
+
+| Name | Description |
+| --- | --- |
+| [evaluate](#optyx.core.vectors.L1Norm.evaluate) | Evaluate the L1 norm given variable values. |
+| [get_variables](#optyx.core.vectors.L1Norm.get_variables) | Return all variables this expression depends on. |
+
+### evaluate { #optyx.core.vectors.L1Norm.evaluate }
+
+```python
+core.vectors.L1Norm.evaluate(values)
+```
+
+Evaluate the L1 norm given variable values.
+
+### get_variables { #optyx.core.vectors.L1Norm.get_variables }
+
+```python
+core.vectors.L1Norm.get_variables()
+```
+
+Return all variables this expression depends on.
