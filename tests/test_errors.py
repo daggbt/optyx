@@ -741,9 +741,9 @@ class TestComprehensiveHierarchy:
         ]
 
         for err in errors:
-            assert isinstance(
-                err, OptyxError
-            ), f"{type(err).__name__} should inherit from OptyxError"
+            assert isinstance(err, OptyxError), (
+                f"{type(err).__name__} should inherit from OptyxError"
+            )
 
     def test_solver_errors_hierarchy(self):
         """Solver errors have correct hierarchy."""
@@ -770,9 +770,9 @@ class TestComprehensiveHierarchy:
         ]
 
         for err in value_errors:
-            assert isinstance(
-                err, ValueError
-            ), f"{type(err).__name__} should be a ValueError"
+            assert isinstance(err, ValueError), (
+                f"{type(err).__name__} should be a ValueError"
+            )
 
     def test_type_errors(self):
         """Type-like errors are catchable as TypeError."""
@@ -782,6 +782,6 @@ class TestComprehensiveHierarchy:
         ]
 
         for err in type_errors:
-            assert isinstance(
-                err, TypeError
-            ), f"{type(err).__name__} should be a TypeError"
+            assert isinstance(err, TypeError), (
+                f"{type(err).__name__} should be a TypeError"
+            )

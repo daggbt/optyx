@@ -448,9 +448,9 @@ class TestGradientComplexity:
         elapsed_ms = (time.perf_counter() - start) * 10  # ms per iteration
 
         # Should be very fast (< 1ms per gradient)
-        assert (
-            elapsed_ms < 1.0
-        ), f"LinearCombination gradient too slow: {elapsed_ms:.3f}ms"
+        assert elapsed_ms < 1.0, (
+            f"LinearCombination gradient too slow: {elapsed_ms:.3f}ms"
+        )
 
         # Result should be a constant
         assert isinstance(grad, Constant)
