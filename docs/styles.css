@@ -1,5 +1,25 @@
 /* Optyx Documentation Styles */
 
+/* Center the entire navbar content including brand and nav items */
+.navbar > .container-fluid {
+  display: flex;
+  justify-content: center;
+  flex-wrap: nowrap;
+}
+
+.navbar-collapse {
+  flex-grow: 0;
+}
+
+.navbar-brand {
+  margin-right: 1.5rem;
+}
+
+.navbar-nav {
+  flex-direction: row;
+  gap: 0.5rem;
+}
+
 /* Center the main content body for all pages */
 #quarto-content > #quarto-document-content {
   max-width: 900px;

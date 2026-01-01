@@ -80,14 +80,20 @@ print(f"Constraints created: {machine_time.sense}, {labor.sense}, {materials.sen
 ```{python}
 from optyx import Problem
 
-solution = (
+prob = (
     Problem("production_planning")
     .maximize(profit)
     .subject_to(machine_time)
     .subject_to(labor)
     .subject_to(materials)
-    .solve()
 )
+
+# Inspect the problem before solving
+print(prob.summary())
+```
+
+```{python}
+solution = prob.solve()
 ```
 
 ---

@@ -34,6 +34,11 @@ print(f"Objective = {solution.objective_value:.4f}")
 print(f"Status = {solution.status}")
 ```
 
+::: {.callout-tip}
+## Inspect Your Problem
+Use `print(problem.summary())` to get a quick overview of your problem's structure before solving.
+:::
+
 The optimal solution is $x^* = y^* = 0.5$, which satisfies the constraint $x + y = 1$ at equality.
 
 ## Step-by-Step Breakdown

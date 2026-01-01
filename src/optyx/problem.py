@@ -450,3 +450,42 @@ class Problem:
             f"n_vars={self.n_variables}, "
             f"n_constraints={self.n_constraints})"
         )
+
+    def summary(self) -> str:
+        """Return a human-readable summary of the optimization problem.
+
+        Provides an overview including problem name, variable counts
+        (with breakdown by type), constraint counts, and objective sense.
+
+        Returns:
+            Multi-line string describing the problem structure.
+
+        Example:
+            >>> x = VectorVariable("x", 100, lb=0)
+            >>> prob = Problem("portfolio")
+            >>> prob.minimize(x.dot(x))
+            >>> prob.subject_to(x.sum() == 1)
+            >>> print(prob.summary())
+            Optyx Problem: portfolio
+              Variables: 100
+              Constraints: 1 (0 equality, 1 inequality)
+              Objective: minimize
+        """
+        # Count constraints by type
+        n_eq = sum(1 for c in self._constraints if c.sense == "==")
+        n_ineq = len(self._constraints) - n_eq
+
+        # Build summary lines
+        name_str = self.name or "Unnamed"
+        lines = [
+            f"Optyx Problem: {name_str}",
+            f"  Variables: {self.n_variables}",
+            f"  Constraints: {self.n_constraints} ({n_eq} equality, {n_ineq} inequality)",
+        ]
+
+        if self._objective is not None:
+            lines.append(f"  Objective: {self._sense}")
+        else:
+            lines.append("  Objective: not set")
+
+        return "\n".join(lines)
