@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- Next release changes go here -->
 
+## [1.2.0] - 2026-01-01
+
+### Added
+- **VectorVariable**: Create vectors of decision variables with `VectorVariable("x", 100, lb=0)`. Supports indexing, slicing, and iteration.
+- **MatrixVariable**: Create matrices of decision variables with `MatrixVariable("A", 3, 4)`. Supports 2D indexing, row/column slicing, symmetric matrices, and transpose views.
+- **Vector Operations**: `sum()`, `dot()`, `norm()` (L1 and L2), and `LinearCombination` for efficient vector computations.
+- **Matrix Operations**: `quadratic_form(x, A)`, `trace()`, `diag()`, `diag_matrix()`, `frobenius_norm()`, and matrix-vector multiplication via `@` operator.
+- **Parameter System**: `Parameter`, `VectorParameter`, and `MatrixParameter` for constants that can be updated between solves without rebuilding the problem structure.
+- **Problem.summary()**: Human-readable overview of problem structure (variables, constraints, objective).
+- **Native Gradient Rules**: O(1) gradient computation for vector expressions (`VectorSum`, `LinearCombination`, `DotProduct`), enabling NLP problems with n=10,000+ variables.
+- **Comprehensive Documentation**: New tutorials for vectors, matrices, and parameters. Quartodoc-generated API reference (66 pages).
+- **New Examples**: `portfolio-advanced.qmd` (Markowitz optimization with covariance), `resource-allocation.qmd` (large-scale 100+ variables).
+
+### Changed
+- Auto-solver now checks constraint degrees (not just objective) for more accurate method selection.
+- Solver uses interior initial points (`lb + epsilon`) to avoid singularities at bounds.
+- Constraint tolerance is now scaled: `atol + rtol * max(1, |c_val|)` for better numerical stability.
+- Iterative tree depth estimation prevents stack overflow for deeply nested expressions.
+
+### Fixed
+- Runtime detection and warning for `inf`/`nan` values during optimization.
+- LP solver message handling for unbounded cases.
+
+### Performance
+- NLP with n=1000 variables solves in <1 second.
+- Native gradient rules provide O(1) coefficient lookup vs O(n) tree traversal.
+
 ## [1.1.1] - 2025-12-25
 
 ### Fixed
