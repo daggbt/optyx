@@ -230,6 +230,9 @@ format:
     code-copy: true
     code-overflow: wrap
     highlight-style: github
+    include-in-header:
+      - text: |
+          <meta name="google-site-verification" content="XzjrKrtYlTZZoAOyCVY_ejKHIyLxgcPY1P_7iGHlbGI" />
     include-after-body: assets/js/page-nav.js
     date-format: "MMMM D, YYYY"
 
