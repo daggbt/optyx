@@ -8,6 +8,7 @@ toc: false
 ::: {.hero}
 [Get Started](getting-started/quickstart.qmd){.btn .btn-primary .btn-lg}
 [View on GitHub](https://github.com/daggbt/optyx){.btn .btn-outline-secondary .btn-lg}
+[PyPI](https://pypi.org/project/optyx/){.btn .btn-outline-secondary .btn-lg}
 :::
 
 ## See the Difference
@@ -703,5 +704,5 @@ See the [roadmap](https://github.com/daggbt/optyx/blob/main/optyx-project/ROADMA
 ---
 
 ::: {.text-center}
-**Ready to try it?** [Get Started →](getting-started/quickstart.qmd)
+**Ready to try it?** [Get Started →](getting-started/quickstart.qmd) | [View on PyPI](https://pypi.org/project/optyx/)
 :::
