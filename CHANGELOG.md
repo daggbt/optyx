@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- Next release changes go here -->
 
+## [1.2.1] - 2026-01-05
+
+This patch release completes the v1.2.0 release. Due to an incomplete merge, several features intended for v1.2.0 were missing from the initial release.
+
+### Added
+- PyPI links added to documentation landing page for SEO.
+
+### Fixed
+- **Incomplete v1.2.0 merge**: The following features were intended for v1.2.0 but missed during the initial release:
+  - Vector features: `VectorSum`, `DotProduct`, NumPy integration (PRs #48-51)
+  - `Parameter` class for fast re-solves (PR #54)
+  - Solver integration for vector/matrix variables (PR #55)
+  - `MatrixParameter` class (PR #56)
+  - Comprehensive error module with input validation (PR #57)
+  - Native autodiff gradient rules for `L2Norm`, `L1Norm`, `QuadraticForm` (PR #58)
+  - v1.2.0 documentation and tutorials (PR #59)
+  - `Problem.summary()` method
+- Code formatting fixes for CI compatibility.
+
 ## [1.2.0] - 2026-01-01
 
 ### Added

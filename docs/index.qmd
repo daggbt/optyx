@@ -75,7 +75,7 @@ We believe most optimization code is harder to write than it needs to be. Optyx 
 
 ### Being Honest
 
-Optyx is young (v1.2.0) and opinionated. It's **not** a replacement for specialized tools:
+Optyx is young and opinionated. It's **not** a replacement for specialized tools:
 
 - Need MILP at scale? → Use Pyomo or Gurobi
 - Need convex guarantees? → Use CVXPY  
