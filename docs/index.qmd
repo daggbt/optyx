@@ -550,12 +550,12 @@ print(f"Total cost: ${solution.objective_value:.2f}")
 
 ---
 
-## QuadraticForm: Efficient Covariance
+## Math-like Quadratic Forms
 
-For portfolio variance (w.T @ Σ @ w), use `QuadraticForm` for analytic gradients:
+For portfolio variance (w.T @ Σ @ w), use `w.dot(Σ @ w)` for natural math-like syntax with analytic gradients:
 
 ```{python}
-from optyx import VectorVariable, QuadraticForm, Problem
+from optyx import VectorVariable, Problem
 import numpy as np
 
 np.random.seed(42)
@@ -568,8 +568,8 @@ cov = data @ data.T / 5
 # Decision variables
 w = VectorVariable("w", n, lb=0, ub=1)
 
-# QuadraticForm computes w.T @ cov @ w with analytic gradient
-variance = QuadraticForm(w, cov)
+# Math-like syntax: w · (Σw) = wᵀΣw with analytic gradient
+variance = w.dot(cov @ w)
 
 solution = (
     Problem("min_variance")
@@ -582,8 +582,8 @@ print(f"Min variance: {solution.objective_value:.6f}")
 ```
 
 ::: {.callout-note}
-## Why QuadraticForm?
-A loop-built quadratic form creates n² expression nodes. `QuadraticForm` uses a single node with analytic gradient: ∇(w.T Q w) = 2Qw. This is much faster for large n.
+## Why w.dot(Σ @ w)?
+A loop-built quadratic form creates n² expression nodes. `w.dot(Σ @ w)` uses a single `MatrixVectorProduct` + `DotProduct` node with analytic gradient: ∇(wᵀ Q w) = 2Qw. This is much faster for large n.
 :::
 
 [Advanced Portfolio Tutorial →](examples/portfolio-advanced.qmd)
@@ -628,7 +628,7 @@ The biggest release yet brings **scalable optimization** to Optyx:
 Handle hundreds or thousands of variables with clean syntax:
 
 ```python
-from optyx import VectorVariable, Problem, QuadraticForm
+from optyx import VectorVariable, Problem
 import numpy as np
 
 # 100 decision variables in one line
@@ -638,8 +638,8 @@ weights = VectorVariable("w", 100, lb=0, ub=1)
 cov = np.random.randn(100, 100)
 cov = cov @ cov.T  # Make positive definite
 
-# Portfolio variance as quadratic form
-risk = QuadraticForm(weights, cov)
+# Math-like quadratic form: w · (Σw)
+risk = weights.dot(cov @ weights)
 
 solution = (
     Problem()
@@ -682,7 +682,8 @@ Up to **900x faster** for repeated solves with changing data.
 
 - **VectorVariable** — Create vectors of variables with `VectorVariable("x", 100)`
 - **MatrixVariable** — 2D variable arrays with row/column slicing
-- **Native gradient rules** — L2Norm, L1Norm, QuadraticForm compute gradients without loops
+- **Native gradient rules** — L2Norm, L1Norm, DotProduct compute gradients without loops
+- **Math-like quadratic forms** — `w.dot(Σ @ w)` for portfolio variance
 - **Parameter class** — Updatable constants for fast scenario analysis
 - **VectorParameter** — Array-valued parameters for bulk updates
 

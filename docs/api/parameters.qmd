@@ -62,14 +62,15 @@ prices.set([12, 22, 32])
 `MatrixParameter` holds a 2D array, useful for covariance matrices or cost grids.
 
 ```python
-from optyx import MatrixParameter
+from optyx import MatrixParameter, VectorVariable
 import numpy as np
 
 # Covariance matrix
 cov = MatrixParameter("Sigma", values=np.eye(3), symmetric=True)
+x = VectorVariable("x", 3, lb=0, ub=1)
 
-# Use in quadratic form
-risk = QuadraticForm(x, cov)
+# Math-like quadratic form: x · (Σx)
+risk = x.dot(cov @ x)
 
 # Update matrix
 new_cov = np.array([[1.0, 0.2], [0.2, 1.0]])

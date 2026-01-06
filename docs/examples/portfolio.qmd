@@ -46,7 +46,7 @@ $$
 
 ```{python}
 import numpy as np
-from optyx import VectorVariable, Problem, QuadraticForm
+from optyx import VectorVariable, Problem
 
 # Asset data
 assets = ["Tech", "Energy", "Finance", "Healthcare", "Consumer", "Utilities"]
@@ -82,8 +82,8 @@ weights = VectorVariable("w", n_assets, lb=0, ub=0.4)
 # Portfolio return: vector dot product (returns @ weights)
 portfolio_return = expected_returns @ weights
 
-# Portfolio variance: quadratic form (w^T * Cov * w)
-portfolio_variance = QuadraticForm(weights, cov_matrix)
+# Portfolio variance: math-like w · (Σw) = w.T @ Σ @ w
+portfolio_variance = weights.dot(cov_matrix @ weights)
 
 # Constraints
 total_weight = sum(weights)
@@ -142,7 +142,7 @@ def solve_for_return_target(target):
     w = VectorVariable("w", n_assets, lb=0, ub=0.4)
     
     port_ret = expected_returns @ w
-    port_var = QuadraticForm(w, cov_matrix)
+    port_var = w.dot(cov_matrix @ w)  # Math-like: w · (Σw)
     total = w.sum()
     
     sol = (
@@ -216,7 +216,7 @@ shocked_returns[0] = 0.05  # Tech return drops
 # Re-optimize
 w_shocked = VectorVariable("w_shocked", n_assets, lb=0, ub=0.4)
 port_ret = shocked_returns @ w_shocked
-port_var = QuadraticForm(w_shocked, cov_matrix)
+port_var = w_shocked.dot(cov_matrix @ w_shocked)  # Math-like: w · (Σw)
 
 solution_shocked = (
     Problem()

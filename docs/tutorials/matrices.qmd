@@ -177,7 +177,6 @@ Multiply a **constant NumPy matrix** by a VectorVariable to create linear combin
 
 ```{python}
 from optyx import VectorVariable
-from optyx import matmul
 import numpy as np
 
 # Constant coefficient matrix (3x4)
@@ -190,8 +189,8 @@ A = np.array([
 # Decision variables
 x = VectorVariable("x", 4)
 
-# Matrix-vector product: A @ x
-result = matmul(A, x)  # or just: A @ x
+# Matrix-vector product: A @ x (math-like!)
+result = A @ x
 
 print(f"Result type: {type(result).__name__}")
 print(f"Result length: {len(result)}")
@@ -208,10 +207,10 @@ This creates a VectorExpression where each element is a linear combination of th
 
 ## Quadratic Forms
 
-For portfolio variance (w.T @ Σ @ w), use `QuadraticForm` with a constant covariance matrix:
+For portfolio variance (wᵀΣw), use the math-like syntax `w.dot(Σ @ w)`:
 
 ```{python}
-from optyx import VectorVariable, QuadraticForm
+from optyx import VectorVariable
 import numpy as np
 
 # 5 assets
@@ -223,16 +222,18 @@ np.random.seed(42)
 cov_data = np.random.randn(n, n)
 cov_matrix = cov_data @ cov_data.T / n  # Positive semi-definite
 
-# Quadratic form: w.T @ Sigma @ w
-portfolio_variance = QuadraticForm(weights, cov_matrix)
+# Quadratic form: w · (Σw) = wᵀΣw
+portfolio_variance = weights.dot(cov_matrix @ weights)
 
 print(f"Quadratic form type: {type(portfolio_variance).__name__}")
 ```
 
 ::: {.callout-note}
-## Efficient Gradients
-QuadraticForm computes gradients analytically: `∇(x.T Q x) = 2Qx`.
-This is much faster than differentiating the expanded sum.
+## Math-like Syntax with Optimized Gradients
+The expression `w.dot(Σ @ w)` reads as "w dot (Σ times w)" = wᵀΣw.
+
+Optyx automatically detects this pattern and creates a `QuadraticForm` expression
+with O(1) analytic gradients: `∇(xᵀQx) = (Q + Qᵀ)x`. For symmetric matrices, this simplifies to `2Qx`.
 :::
 
 ---

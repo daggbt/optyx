@@ -895,3 +895,70 @@ class TestNumpyIntegration:
         result = portfolio_return.evaluate(equal_weights)
         expected = np.mean(returns)  # 0.1125
         assert abs(result - expected) < 1e-10
+
+    def test_matrix_vector_product_via_rmatmul(self):
+        """2D array @ vector creates MatrixVectorProduct."""
+        from optyx.core.matrices import MatrixVectorProduct
+
+        A = np.array([[1, 2], [3, 4], [5, 6]])  # 3x2 matrix
+        x = VectorVariable("x", 2)
+        result = A @ x
+
+        assert isinstance(result, MatrixVectorProduct)
+        assert result.size == 3  # Output size matches matrix rows
+
+    def test_matrix_vector_product_evaluates(self):
+        """Matrix @ vector evaluates correctly."""
+        A = np.array([[1, 2], [3, 4]])
+        x = VectorVariable("x", 2)
+        result = A @ x
+
+        vals = {"x[0]": 1.0, "x[1]": 2.0}
+        evaluated = result.evaluate(vals)
+        expected = [5.0, 11.0]  # [1*1+2*2, 3*1+4*2]
+        assert evaluated == expected
+
+    def test_quadratic_form_via_dot_matmul(self):
+        """x.dot(Q @ x) creates QuadraticForm for optimized gradients."""
+        from optyx.core.matrices import QuadraticForm
+
+        Q = np.array([[1, 0.5], [0.5, 2]])
+        x = VectorVariable("x", 2)
+
+        # Math-like syntax: x · (Qx) = xᵀQx
+        qf = x.dot(Q @ x)
+
+        # Should return QuadraticForm for O(1) gradient, not DotProduct
+        assert isinstance(qf, QuadraticForm), f"Expected QuadraticForm, got {type(qf)}"
+
+        vals = {"x[0]": 1.0, "x[1]": 2.0}
+        result = qf.evaluate(vals)
+
+        # NumPy verification
+        xv = np.array([1.0, 2.0])
+        expected = xv @ Q @ xv  # 1 + 2 + 8 = 11
+        assert result == expected
+
+    def test_rmatmul_rejects_3d_array(self):
+        """3D arrays are rejected."""
+        A = np.ones((2, 2, 2))
+        x = VectorVariable("x", 2)
+        with pytest.raises(ValueError, match="1D or 2D"):
+            A @ x
+
+    def test_transpose_raises_helpful_error(self):
+        """VectorVariable.T raises TypeError with helpful message."""
+        x = VectorVariable("x", 3)
+        with pytest.raises(TypeError, match="does not support .T"):
+            x.T
+
+    def test_transpose_error_suggests_alternatives(self):
+        """VectorVariable.T error message suggests alternatives."""
+        x = VectorVariable("x", 3)
+        try:
+            x.T
+        except TypeError as e:
+            msg = str(e)
+            assert "x.dot(y)" in msg
+            assert "x.dot(Q @ x)" in msg
+            assert "c @ x" in msg

@@ -330,5 +330,5 @@ Key takeaways:
 ## Next Steps
 
 - [Vector Variables Tutorial](../tutorials/vectors.qmd) — Complete VectorVariable guide
-- [Advanced Portfolio Optimization](portfolio-advanced.qmd) — Covariance with QuadraticForm
+- [Advanced Portfolio Optimization](portfolio-advanced.qmd) — Covariance with `w.dot(Σ @ w)`
 - [API Reference](../api/reference/index.qmd) — Full documentation

@@ -107,6 +107,24 @@ class MatrixExpression:
     def __repr__(self) -> str:
         return f"MatrixExpression(shape={self.shape})"
 
+    @property
+    def T(self) -> MatrixExpression:
+        """Return the transpose of this matrix expression.
+
+        Returns:
+            MatrixExpression with rows and columns swapped.
+
+        Example:
+            >>> X = MatrixVariable("X", 2, 3)
+            >>> Y = (X + 1).T
+            >>> Y.shape  # (3, 2)
+        """
+        transposed = [
+            [self._expressions[j][i] for j in range(self.rows)]
+            for i in range(self.cols)
+        ]
+        return MatrixExpression(transposed)
+
     # Arithmetic operations - return MatrixExpression
     def __add__(
         self, other: MatrixExpression | MatrixVariable | NDArray | float | int
@@ -740,6 +758,110 @@ class MatrixVariable:
         """Element-wise power: X ** 2."""
         return _matrix_binary_op(self, other, "**")
 
+    def __matmul__(self, other: object) -> VectorExpression:
+        """Matrix-vector multiplication: A @ x.
+
+        MatrixVariable @ VectorVariable returns VectorExpression with
+        bilinear expressions (products of matrix and vector variables).
+        Matrix-matrix multiplication is not yet supported.
+
+        Args:
+            other: VectorVariable or VectorExpression.
+
+        Returns:
+            VectorExpression containing bilinear expressions.
+
+        Raises:
+            TypeError: If other is not a vector or operation is unsupported.
+
+        Example:
+            >>> A = MatrixVariable("A", 3, 2)
+            >>> x = VectorVariable("x", 2)
+            >>> result = A @ x  # VectorExpression with 3 elements
+        """
+        if isinstance(other, (VectorVariable, VectorExpression)):
+            # Convert to numpy and use MatrixVectorProduct
+            # For MatrixVariable, we create a MatrixVectorProduct with expressions
+            return self._matmul_vector(other)
+        elif isinstance(other, MatrixVariable):
+            raise TypeError(
+                "Matrix-matrix multiplication (MatrixVariable @ MatrixVariable) is not "
+                "yet supported.\n"
+                "For element-wise multiplication, use: A * B\n"
+                "For matrix-vector products, use: A @ x where x is a VectorVariable"
+            )
+        else:
+            raise TypeError(
+                f"Unsupported operand type for @: 'MatrixVariable' and '{type(other).__name__}'.\n"
+                "Supported: MatrixVariable @ VectorVariable"
+            )
+
+    def _matmul_vector(
+        self, vector: VectorVariable | VectorExpression
+    ) -> VectorExpression:
+        """Matrix-vector multiplication for MatrixVariable @ VectorVariable.
+
+        Unlike MatrixVectorProduct (constant matrix @ variable vector),
+        this handles the case where both the matrix and vector are variables,
+        resulting in quadratic expressions.
+        """
+        vec_size = vector.size if hasattr(vector, "size") else len(vector)
+        if self.cols != vec_size:
+            raise DimensionMismatchError(
+                operation="matrix-vector product",
+                left_shape=(self.rows, self.cols),
+                right_shape=vec_size,
+                suggestion="Matrix columns must match vector size.",
+            )
+
+        # Create bilinear expressions for each row: sum_j A[i,j] * x[j]
+        result_expressions: list[Expression] = []
+        for i in range(self.rows):
+            row_expr: Expression = Constant(0.0)
+            for j in range(self.cols):
+                vec_elem = (
+                    vector[j] if isinstance(vector, VectorVariable) else vector[j]
+                )
+                term = BinaryOp(self._variables[i][j], vec_elem, "*")
+                row_expr = BinaryOp(row_expr, term, "+")
+            result_expressions.append(row_expr)
+
+        return VectorExpression(result_expressions)
+
+    def __rmatmul__(self, other: object) -> VectorExpression:
+        """Right matrix multiplication: c @ A.
+
+        Raises:
+            TypeError: Always, with guidance on alternatives.
+        """
+        if isinstance(other, (int, float)):
+            raise TypeError(
+                "scalar @ MatrixVariable is not supported.\n"
+                "For scalar multiplication, use: scalar * MatrixVariable"
+            )
+        if isinstance(other, np.ndarray):
+            if other.ndim == 0:
+                raise TypeError(
+                    "scalar @ MatrixVariable is not supported.\n"
+                    "For scalar multiplication, use: scalar * MatrixVariable"
+                )
+            elif other.ndim == 1:
+                raise TypeError(
+                    "1D array @ MatrixVariable is not supported.\n"
+                    "For row vector times matrix, consider:\n"
+                    "  - Transpose: A.T @ x (if A is 2D array, x is VectorVariable)\n"
+                    "  - Element-wise: c * A (broadcasts scalar/array)"
+                )
+            elif other.ndim == 2:
+                raise TypeError(
+                    "2D array @ MatrixVariable (matrix-matrix) is not supported.\n"
+                    "For constant @ variable matrix, use element-wise operations."
+                )
+        raise TypeError(
+            f"Unsupported operand type for @: '{type(other).__name__}' and 'MatrixVariable'.\n"
+            "Supported: MatrixVariable @ VectorVariable"
+        )
+
     def __repr__(self) -> str:
         bounds = ""
         if self.lb is not None or self.ub is not None:
@@ -909,6 +1031,41 @@ class QuadraticForm(Expression):
         if isinstance(self.vector, VectorVariable):
             return set(self.vector._variables)
         return self.vector.get_variables()
+
+    def jacobian_row(self, variables: list[Variable]) -> list[Expression] | None:
+        """Return Jacobian row using O(1) gradient rule.
+
+        For QuadraticForm(x, Q), gradient is (Q + Q.T) @ x.
+        This computes the gradient vector in O(n²) but avoids n separate
+        gradient() calls which each do O(n²) work.
+
+        Returns:
+            List of expressions, or None if optimization not applicable.
+        """
+        # Only optimize for VectorVariable case
+        if not isinstance(self.vector, VectorVariable):
+            return None
+
+        vec_vars = self.vector._variables
+
+        # Gradient of x'Qx w.r.t. x is (Q + Q.T) @ x
+        # For each variable x[i], the gradient is sum_j (Q[i,j] + Q[j,i]) * x[j]
+        Q_plus_QT = self.matrix + self.matrix.T
+
+        # Build mapping from our vector's variables to their indices
+        var_to_idx: dict[Variable, int] = {v: i for i, v in enumerate(vec_vars)}
+
+        result: list[Expression] = []
+        for var in variables:
+            if var in var_to_idx:
+                i = var_to_idx[var]
+                # Gradient w.r.t. x[i] is row i of (Q + Q.T) @ x
+                # = sum_j (Q + Q.T)[i,j] * x[j]
+                coeffs = Q_plus_QT[i, :]
+                result.append(LinearCombination(coeffs, self.vector))
+            else:
+                result.append(Constant(0.0))
+        return result
 
     def __repr__(self) -> str:
         vec_name = (
