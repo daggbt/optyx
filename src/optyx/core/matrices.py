@@ -9,8 +9,8 @@ trace, and diagonal extraction.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Iterator, overload
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Iterator, Literal, overload
 
 import numpy as np
 
@@ -25,6 +25,243 @@ from optyx.core.errors import DimensionMismatchError
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray, ArrayLike
+
+
+# =============================================================================
+# MatrixExpression - Result of element-wise operations on matrices
+# =============================================================================
+
+
+class MatrixExpression:
+    """A matrix of expressions resulting from element-wise operations.
+
+    MatrixExpression is created when arithmetic operations are performed on
+    MatrixVariable objects, similar to how VectorExpression is created from
+    VectorVariable operations.
+
+    Args:
+        expressions: 2D list of Expression objects [rows][cols].
+
+    Example:
+        >>> X = MatrixVariable("X", 2, 2)
+        >>> C = np.array([[1, 2], [3, 4]])
+        >>> Y = X + C  # Returns MatrixExpression
+        >>> Y.shape    # (2, 2)
+        >>> Y[0, 0]    # BinaryOp(X[0,0], 1, "+")
+    """
+
+    __slots__ = ("_expressions", "rows", "cols")
+
+    # Tell NumPy to defer to our operators
+    __array_ufunc__ = None
+
+    def __init__(self, expressions: Sequence[Sequence[Expression]]) -> None:
+        if not expressions or not expressions[0]:
+            raise ValueError("Expressions cannot be empty")
+        self._expressions = [list(row) for row in expressions]
+        self.rows = len(self._expressions)
+        self.cols = len(self._expressions[0])
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        """Return the shape as (rows, cols)."""
+        return (self.rows, self.cols)
+
+    def __getitem__(self, key: tuple[int, int]) -> Expression:
+        """Get a single expression by index."""
+        i, j = key
+        if i < 0:
+            i = self.rows + i
+        if j < 0:
+            j = self.cols + j
+        if i < 0 or i >= self.rows:
+            raise IndexError(
+                f"Row index {i} out of range for matrix with {self.rows} rows"
+            )
+        if j < 0 or j >= self.cols:
+            raise IndexError(
+                f"Column index {j} out of range for matrix with {self.cols} cols"
+            )
+        return self._expressions[i][j]
+
+    def evaluate(self, values: Mapping[str, float]) -> NDArray[np.floating]:
+        """Evaluate all elements with given variable values."""
+        result = np.empty((self.rows, self.cols), dtype=np.float64)
+        for i in range(self.rows):
+            for j in range(self.cols):
+                result[i, j] = self._expressions[i][j].evaluate(values)
+        return result
+
+    def flatten(self) -> list[Expression]:
+        """Return all expressions in row-major order."""
+        return [expr for row in self._expressions for expr in row]
+
+    def get_variables(self) -> set[Variable]:
+        """Return all variables these expressions depend on."""
+        result: set[Variable] = set()
+        for row in self._expressions:
+            for expr in row:
+                result.update(expr.get_variables())
+        return result
+
+    def __repr__(self) -> str:
+        return f"MatrixExpression(shape={self.shape})"
+
+    # Arithmetic operations - return MatrixExpression
+    def __add__(
+        self, other: MatrixExpression | MatrixVariable | NDArray | float | int
+    ) -> MatrixExpression:
+        """Element-wise addition."""
+        return _matrix_binary_op(self, other, "+")
+
+    def __radd__(self, other: float | int | NDArray) -> MatrixExpression:
+        """Right addition."""
+        return _matrix_binary_op(self, other, "+")
+
+    def __sub__(
+        self, other: MatrixExpression | MatrixVariable | NDArray | float | int
+    ) -> MatrixExpression:
+        """Element-wise subtraction."""
+        return _matrix_binary_op(self, other, "-")
+
+    def __rsub__(self, other: float | int | NDArray) -> MatrixExpression:
+        """Right subtraction: other - self."""
+        rows, cols = self.shape
+        if isinstance(other, (int, float)):
+            const = Constant(other)
+            result_exprs = [
+                [BinaryOp(const, self._expressions[i][j], "-") for j in range(cols)]
+                for i in range(rows)
+            ]
+        elif isinstance(other, np.ndarray):
+            if other.shape != (rows, cols):
+                raise DimensionMismatchError(
+                    operation="subtraction",
+                    left_shape=other.shape,
+                    right_shape=(rows, cols),
+                )
+            result_exprs = [
+                [
+                    BinaryOp(Constant(other[i, j]), self._expressions[i][j], "-")
+                    for j in range(cols)
+                ]
+                for i in range(rows)
+            ]
+        else:
+            raise TypeError(f"Unsupported operand type: {type(other)}")
+        return MatrixExpression(result_exprs)
+
+    def __mul__(self, other: float | int) -> MatrixExpression:
+        """Scalar multiplication."""
+        return _matrix_binary_op(self, other, "*")
+
+    def __rmul__(self, other: float | int) -> MatrixExpression:
+        """Right scalar multiplication."""
+        return _matrix_binary_op(self, other, "*")
+
+    def __truediv__(self, other: float | int) -> MatrixExpression:
+        """Scalar division."""
+        return _matrix_binary_op(self, other, "/")
+
+    def __rtruediv__(self, other: float | int) -> MatrixExpression:
+        """Right scalar division: other / self."""
+        rows, cols = self.shape
+        const = Constant(other)
+        result_exprs = [
+            [BinaryOp(const, self._expressions[i][j], "/") for j in range(cols)]
+            for i in range(rows)
+        ]
+        return MatrixExpression(result_exprs)
+
+    def __neg__(self) -> MatrixExpression:
+        """Negate all elements."""
+        result_exprs = [[-expr for expr in row] for row in self._expressions]
+        return MatrixExpression(result_exprs)
+
+    def __pow__(self, other: float | int) -> MatrixExpression:
+        """Element-wise power."""
+        return _matrix_binary_op(self, other, "**")
+
+
+def _matrix_binary_op(
+    left: MatrixVariable | MatrixExpression,
+    right: MatrixVariable | MatrixExpression | NDArray | float | int,
+    op: Literal["+", "-", "*", "/", "**"],
+) -> MatrixExpression:
+    """Perform element-wise binary operation between matrices.
+
+    Args:
+        left: Left operand (MatrixVariable or MatrixExpression).
+        right: Right operand.
+        op: Binary operator.
+
+    Returns:
+        MatrixExpression with element-wise results.
+
+    Raises:
+        DimensionMismatchError: If matrix shapes don't match.
+        TypeError: If operand types are unsupported.
+    """
+    rows, cols = left.shape
+
+    # Extract left expressions as 2D list
+    if isinstance(left, MatrixVariable):
+        left_exprs = [[left._variables[i][j] for j in range(cols)] for i in range(rows)]
+    else:  # MatrixExpression
+        left_exprs = left._expressions
+
+    # Handle right operand
+    if isinstance(right, (int, float)):
+        # Scalar broadcast to all elements
+        const = Constant(right)
+        right_exprs = [[const for _ in range(cols)] for _ in range(rows)]
+
+    elif isinstance(right, MatrixVariable):
+        if right.shape != (rows, cols):
+            raise DimensionMismatchError(
+                operation=f"element-wise {op}",
+                left_shape=(rows, cols),
+                right_shape=right.shape,
+            )
+        right_exprs = [
+            [right._variables[i][j] for j in range(cols)] for i in range(rows)
+        ]
+
+    elif isinstance(right, MatrixExpression):
+        if right.shape != (rows, cols):
+            raise DimensionMismatchError(
+                operation=f"element-wise {op}",
+                left_shape=(rows, cols),
+                right_shape=right.shape,
+            )
+        right_exprs = right._expressions
+
+    elif isinstance(right, np.ndarray):
+        if right.shape != (rows, cols):
+            raise DimensionMismatchError(
+                operation=f"element-wise {op}",
+                left_shape=(rows, cols),
+                right_shape=right.shape,
+            )
+        right_exprs = [
+            [Constant(right[i, j]) for j in range(cols)] for i in range(rows)
+        ]
+
+    elif isinstance(right, (list, tuple)):
+        # Convert list to numpy array and recurse
+        arr = np.asarray(right)
+        return _matrix_binary_op(left, arr, op)
+
+    else:
+        raise TypeError(f"Unsupported operand type for matrix operation: {type(right)}")
+
+    # Create element-wise operations
+    result_exprs = [
+        [BinaryOp(left_exprs[i][j], right_exprs[i][j], op) for j in range(cols)]
+        for i in range(rows)
+    ]
+
+    return MatrixExpression(result_exprs)
 
 
 class MatrixVariable:
@@ -421,6 +658,87 @@ class MatrixVariable:
             for j in range(self.cols):
                 result[i, j] = solution[self._variables[i][j].name]
         return result
+
+    # =========================================================================
+    # Arithmetic operations - return MatrixExpression
+    # =========================================================================
+
+    def __add__(
+        self, other: MatrixVariable | MatrixExpression | NDArray | float | int
+    ) -> MatrixExpression:
+        """Element-wise addition: X + Y or X + scalar or X + array."""
+        return _matrix_binary_op(self, other, "+")
+
+    def __radd__(self, other: float | int | NDArray) -> MatrixExpression:
+        """Right addition: scalar + X or array + X."""
+        return _matrix_binary_op(self, other, "+")
+
+    def __sub__(
+        self, other: MatrixVariable | MatrixExpression | NDArray | float | int
+    ) -> MatrixExpression:
+        """Element-wise subtraction: X - Y or X - scalar or X - array."""
+        return _matrix_binary_op(self, other, "-")
+
+    def __rsub__(self, other: float | int | NDArray) -> MatrixExpression:
+        """Right subtraction: scalar - X or array - X."""
+        rows, cols = self.shape
+        if isinstance(other, (int, float)):
+            const = Constant(other)
+            result_exprs = [
+                [BinaryOp(const, self._variables[i][j], "-") for j in range(cols)]
+                for i in range(rows)
+            ]
+        elif isinstance(other, np.ndarray):
+            if other.shape != (rows, cols):
+                raise DimensionMismatchError(
+                    operation="subtraction",
+                    left_shape=other.shape,
+                    right_shape=(rows, cols),
+                )
+            result_exprs = [
+                [
+                    BinaryOp(Constant(other[i, j]), self._variables[i][j], "-")
+                    for j in range(cols)
+                ]
+                for i in range(rows)
+            ]
+        else:
+            raise TypeError(f"Unsupported operand type: {type(other)}")
+        return MatrixExpression(result_exprs)
+
+    def __mul__(self, other: float | int) -> MatrixExpression:
+        """Scalar multiplication: X * 2 (element-wise)."""
+        return _matrix_binary_op(self, other, "*")
+
+    def __rmul__(self, other: float | int) -> MatrixExpression:
+        """Right scalar multiplication: 2 * X."""
+        return _matrix_binary_op(self, other, "*")
+
+    def __truediv__(self, other: float | int) -> MatrixExpression:
+        """Scalar division: X / 2."""
+        return _matrix_binary_op(self, other, "/")
+
+    def __rtruediv__(self, other: float | int) -> MatrixExpression:
+        """Right division: scalar / X."""
+        rows, cols = self.shape
+        const = Constant(other)
+        result_exprs = [
+            [BinaryOp(const, self._variables[i][j], "/") for j in range(cols)]
+            for i in range(rows)
+        ]
+        return MatrixExpression(result_exprs)
+
+    def __neg__(self) -> MatrixExpression:
+        """Negate all elements: -X."""
+        rows, cols = self.shape
+        result_exprs = [
+            [-self._variables[i][j] for j in range(cols)] for i in range(rows)
+        ]
+        return MatrixExpression(result_exprs)
+
+    def __pow__(self, other: float | int) -> MatrixExpression:
+        """Element-wise power: X ** 2."""
+        return _matrix_binary_op(self, other, "**")
 
     def __repr__(self) -> str:
         bounds = ""
