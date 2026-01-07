@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from optyx.core.errors import InvalidSizeError, ShapeMismatchError
 from optyx.core.parameters import Parameter, VectorParameter
 from optyx.core.expressions import Variable, Expression
 from optyx.core.vectors import VectorVariable
@@ -68,13 +69,13 @@ class TestParameterSet:
     def test_set_array_shape_mismatch(self):
         """set() raises on shape mismatch."""
         p = Parameter("p", value=[1, 2, 3])
-        with pytest.raises(ValueError, match="Shape mismatch"):
+        with pytest.raises(ValueError, match="(?i)shape mismatch"):
             p.set([1, 2])
 
     def test_set_scalar_to_array_raises(self):
         """Cannot change scalar to array."""
         p = Parameter("p", value=10)
-        with pytest.raises(ValueError, match="Cannot change scalar"):
+        with pytest.raises(ValueError, match="(?i)cannot change scalar"):
             p.set([1, 2, 3])
 
 
@@ -291,18 +292,18 @@ class TestVectorParameterCreation:
         np.testing.assert_array_equal(vp.get_values(), [0, 0, 0])
 
     def test_zero_size_raises(self):
-        """Zero size raises ValueError."""
-        with pytest.raises(ValueError, match="positive"):
+        """Zero size raises InvalidSizeError."""
+        with pytest.raises(InvalidSizeError, match="positive"):
             VectorParameter("p", 0)
 
     def test_negative_size_raises(self):
-        """Negative size raises ValueError."""
-        with pytest.raises(ValueError, match="positive"):
+        """Negative size raises InvalidSizeError."""
+        with pytest.raises(InvalidSizeError, match="positive"):
             VectorParameter("p", -1)
 
     def test_values_shape_mismatch_raises(self):
-        """Values shape mismatch raises ValueError."""
-        with pytest.raises(ValueError, match="doesn't match"):
+        """Values shape mismatch raises ShapeMismatchError."""
+        with pytest.raises(ShapeMismatchError, match="(?i)shape mismatch"):
             VectorParameter("p", 3, values=[1, 2])
 
 
@@ -352,9 +353,9 @@ class TestVectorParameterSet:
         np.testing.assert_array_equal(vp.get_values(), [10, 20, 30])
 
     def test_set_wrong_size_raises(self):
-        """set() with wrong size raises ValueError."""
+        """set() with wrong size raises ShapeMismatchError."""
         vp = VectorParameter("p", 3)
-        with pytest.raises(ValueError, match="doesn't match"):
+        with pytest.raises(ShapeMismatchError, match="(?i)shape mismatch"):
             vp.set([1, 2])
 
     def test_individual_element_set(self):

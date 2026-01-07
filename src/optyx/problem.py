@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Literal
 
-from optyx.core.errors import InvalidOperationError, ConstraintError
+from optyx.core.errors import InvalidOperationError, ConstraintError, NoObjectiveError
 
 if TYPE_CHECKING:
     from optyx.analysis import LPData
@@ -420,7 +420,9 @@ class Problem:
                 the problem contains unsupported features.
         """
         if self._objective is None:
-            raise ValueError("No objective set. Call minimize() or maximize() first.")
+            raise NoObjectiveError(
+                suggestion="Call minimize() or maximize() on the problem first.",
+            )
 
         # Handle automatic method selection
         if method == "auto":

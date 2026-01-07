@@ -21,7 +21,14 @@ from optyx.core.vectors import (
     DomainType,
     LinearCombination,
 )
-from optyx.core.errors import DimensionMismatchError
+from optyx.core.errors import (
+    DimensionMismatchError,
+    EmptyContainerError,
+    InvalidSizeError,
+    InvalidOperationError,
+    SquareMatrixError,
+    WrongDimensionalityError,
+)
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray, ArrayLike
@@ -57,7 +64,10 @@ class MatrixExpression:
 
     def __init__(self, expressions: Sequence[Sequence[Expression]]) -> None:
         if not expressions or not expressions[0]:
-            raise ValueError("Expressions cannot be empty")
+            raise EmptyContainerError(
+                container_type="MatrixExpression",
+                operation="initialization",
+            )
         self._expressions = [list(row) for row in expressions]
         self.rows = len(self._expressions)
         self.cols = len(self._expressions[0])
@@ -166,7 +176,11 @@ class MatrixExpression:
                 for i in range(rows)
             ]
         else:
-            raise TypeError(f"Unsupported operand type: {type(other)}")
+            raise InvalidOperationError(
+                operation="subtraction",
+                operand_types=("MatrixExpression", type(other).__name__),
+                suggestion=f"Use numeric types (int, float) or numpy arrays. Got {type(other).__name__}.",
+            )
         return MatrixExpression(result_exprs)
 
     def __mul__(self, other: float | int) -> MatrixExpression:
@@ -271,7 +285,10 @@ def _matrix_binary_op(
         return _matrix_binary_op(left, arr, op)
 
     else:
-        raise TypeError(f"Unsupported operand type for matrix operation: {type(right)}")
+        raise InvalidOperationError(
+            operation=f"element-wise {op}",
+            operand_types=("MatrixExpression", type(right).__name__),
+        )
 
     # Create element-wise operations
     result_exprs = [
@@ -342,11 +359,22 @@ class MatrixVariable:
         symmetric: bool = False,
     ) -> None:
         if rows <= 0:
-            raise ValueError(f"Rows must be positive, got {rows}")
+            raise InvalidSizeError(
+                entity=f"MatrixVariable '{name}' rows",
+                size=rows,
+                reason="must be positive",
+            )
         if cols <= 0:
-            raise ValueError(f"Cols must be positive, got {cols}")
+            raise InvalidSizeError(
+                entity=f"MatrixVariable '{name}' cols",
+                size=cols,
+                reason="must be positive",
+            )
         if symmetric and rows != cols:
-            raise ValueError(f"Symmetric matrix must be square, got {rows}x{cols}")
+            raise SquareMatrixError(
+                operation="symmetric matrix creation",
+                shape=(rows, cols),
+            )
 
         self.name = name
         self.rows = rows
@@ -447,7 +475,10 @@ class MatrixVariable:
             >>> A[0:2, 1:3]  # 2x2 submatrix
         """
         if not isinstance(key, tuple) or len(key) != 2:
-            raise TypeError("Matrix indices must be a tuple of (row, col)")
+            raise InvalidOperationError(
+                operation="matrix indexing",
+                operand_types=(type(key).__name__,),
+            )
 
         row_key, col_key = key
 
@@ -514,8 +545,11 @@ class MatrixVariable:
                 domain=self.domain,
             )
 
-        raise TypeError(
-            f"Invalid index types: ({type(row_key).__name__}, {type(col_key).__name__})"
+        raise InvalidOperationError(
+            operation="matrix indexing",
+            operand_types=(type(row_key).__name__, type(col_key).__name__),
+            suggestion="Use integers for single elements or slices for submatrices. "
+            "Examples: A[0, 1], A[0:2, :], A[:, 1:3]",
         )
 
     @classmethod
@@ -596,8 +630,9 @@ class MatrixVariable:
             >>> d[0].name  # 'A[0,0]'
         """
         if self.rows != self.cols:
-            raise ValueError(
-                f"diagonal() requires a square matrix, got {self.rows}x{self.cols}"
+            raise SquareMatrixError(
+                operation="diagonal",
+                shape=(self.rows, self.cols),
             )
 
         diag_vars = [self._variables[i][i] for i in range(self.rows)]
@@ -627,8 +662,9 @@ class MatrixVariable:
         from optyx.core.expressions import BinaryOp
 
         if self.rows != self.cols:
-            raise ValueError(
-                f"trace() requires a square matrix, got {self.rows}x{self.cols}"
+            raise SquareMatrixError(
+                operation="trace",
+                shape=(self.rows, self.cols),
             )
 
         # Sum diagonal elements
@@ -721,7 +757,10 @@ class MatrixVariable:
                 for i in range(rows)
             ]
         else:
-            raise TypeError(f"Unsupported operand type: {type(other)}")
+            raise InvalidOperationError(
+                operation="subtraction",
+                operand_types=(type(other).__name__, "MatrixVariable"),
+            )
         return MatrixExpression(result_exprs)
 
     def __mul__(self, other: float | int) -> MatrixExpression:
@@ -784,16 +823,17 @@ class MatrixVariable:
             # For MatrixVariable, we create a MatrixVectorProduct with expressions
             return self._matmul_vector(other)
         elif isinstance(other, MatrixVariable):
-            raise TypeError(
-                "Matrix-matrix multiplication (MatrixVariable @ MatrixVariable) is not "
-                "yet supported.\n"
-                "For element-wise multiplication, use: A * B\n"
-                "For matrix-vector products, use: A @ x where x is a VectorVariable"
+            raise InvalidOperationError(
+                operation="matrix multiplication",
+                operand_types=("MatrixVariable", "MatrixVariable"),
+                suggestion="Matrix-matrix multiplication is not yet supported. "
+                "For element-wise multiplication, use: A * B. "
+                "For matrix-vector products, use: A @ x where x is a VectorVariable.",
             )
         else:
-            raise TypeError(
-                f"Unsupported operand type for @: 'MatrixVariable' and '{type(other).__name__}'.\n"
-                "Supported: MatrixVariable @ VectorVariable"
+            raise InvalidOperationError(
+                operation="matrix multiplication",
+                operand_types=("MatrixVariable", type(other).__name__),
             )
 
     def _matmul_vector(
@@ -811,7 +851,6 @@ class MatrixVariable:
                 operation="matrix-vector product",
                 left_shape=(self.rows, self.cols),
                 right_shape=vec_size,
-                suggestion="Matrix columns must match vector size.",
             )
 
         # Create bilinear expressions for each row: sum_j A[i,j] * x[j]
@@ -832,34 +871,32 @@ class MatrixVariable:
         """Right matrix multiplication: c @ A.
 
         Raises:
-            TypeError: Always, with guidance on alternatives.
+            InvalidOperationError: Always, with guidance on alternatives.
         """
         if isinstance(other, (int, float)):
-            raise TypeError(
-                "scalar @ MatrixVariable is not supported.\n"
-                "For scalar multiplication, use: scalar * MatrixVariable"
+            raise InvalidOperationError(
+                operation="scalar @ MatrixVariable",
+                operand_types=(type(other).__name__, "MatrixVariable"),
             )
         if isinstance(other, np.ndarray):
             if other.ndim == 0:
-                raise TypeError(
-                    "scalar @ MatrixVariable is not supported.\n"
-                    "For scalar multiplication, use: scalar * MatrixVariable"
+                raise InvalidOperationError(
+                    operation="scalar @ MatrixVariable",
+                    operand_types=("scalar", "MatrixVariable"),
                 )
             elif other.ndim == 1:
-                raise TypeError(
-                    "1D array @ MatrixVariable is not supported.\n"
-                    "For row vector times matrix, consider:\n"
-                    "  - Transpose: A.T @ x (if A is 2D array, x is VectorVariable)\n"
-                    "  - Element-wise: c * A (broadcasts scalar/array)"
+                raise InvalidOperationError(
+                    operation="1D array @ MatrixVariable",
+                    operand_types=("1D array", "MatrixVariable"),
                 )
             elif other.ndim == 2:
-                raise TypeError(
-                    "2D array @ MatrixVariable (matrix-matrix) is not supported.\n"
-                    "For constant @ variable matrix, use element-wise operations."
+                raise InvalidOperationError(
+                    operation="2D array @ MatrixVariable",
+                    operand_types=("2D array", "MatrixVariable"),
                 )
-        raise TypeError(
-            f"Unsupported operand type for @: '{type(other).__name__}' and 'MatrixVariable'.\n"
-            "Supported: MatrixVariable @ VectorVariable"
+        raise InvalidOperationError(
+            operation="@ MatrixVariable",
+            operand_types=(type(other).__name__, "MatrixVariable"),
         )
 
     def __repr__(self) -> str:
@@ -904,7 +941,11 @@ class MatrixVectorProduct(VectorExpression):
     ) -> None:
         matrix = np.asarray(matrix)
         if matrix.ndim != 2:
-            raise ValueError(f"Matrix must be 2D, got {matrix.ndim}D")
+            raise WrongDimensionalityError(
+                context="matrix-vector product",
+                expected_ndim=2,
+                got_ndim=matrix.ndim,
+            )
 
         vec_size = vector.size if hasattr(vector, "size") else len(vector)
         if matrix.shape[1] != vec_size:
@@ -912,7 +953,6 @@ class MatrixVectorProduct(VectorExpression):
                 operation="matrix-vector product",
                 left_shape=matrix.shape,
                 right_shape=vec_size,
-                suggestion="Matrix columns must match vector size.",
             )
 
         self.matrix = matrix
@@ -997,10 +1037,15 @@ class QuadraticForm(Expression):
     ) -> None:
         matrix = np.asarray(matrix)
         if matrix.ndim != 2:
-            raise ValueError(f"Matrix must be 2D, got {matrix.ndim}D")
+            raise WrongDimensionalityError(
+                context="quadratic form",
+                expected_ndim=2,
+                got_ndim=matrix.ndim,
+            )
         if matrix.shape[0] != matrix.shape[1]:
-            raise ValueError(
-                f"Matrix must be square, got {matrix.shape[0]}x{matrix.shape[1]}"
+            raise SquareMatrixError(
+                operation="quadratic form",
+                shape=matrix.shape,
             )
 
         vec_size = vector.size if hasattr(vector, "size") else len(vector)
@@ -1009,7 +1054,6 @@ class QuadraticForm(Expression):
                 operation="quadratic form",
                 left_shape=matrix.shape,
                 right_shape=vec_size,
-                suggestion="Matrix dimensions must match vector size.",
             )
 
         self.vector = vector
@@ -1124,12 +1168,20 @@ def trace(matrix: MatrixVariable | np.ndarray) -> Expression:
     if isinstance(matrix, np.ndarray):
         # For constant matrix, return scalar
         if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
-            raise ValueError("trace requires a square matrix")
+            shape: tuple[int, int] = (
+                matrix.shape[0],
+                matrix.shape[1] if matrix.ndim >= 2 else matrix.shape[0],
+            )
+            raise SquareMatrixError(
+                operation="trace",
+                shape=shape,
+            )
         return Constant(float(np.trace(matrix)))
 
     if matrix.rows != matrix.cols:
-        raise ValueError(
-            f"trace requires a square matrix, got {matrix.rows}x{matrix.cols}"
+        raise SquareMatrixError(
+            operation="trace",
+            shape=(matrix.rows, matrix.cols),
         )
 
     # Sum diagonal elements
@@ -1171,15 +1223,17 @@ def diag(
         return np.diag(matrix_or_vector)
 
     if isinstance(matrix_or_vector, VectorVariable):
-        raise TypeError(
-            "diag() on VectorVariable is ambiguous. Use diag_matrix() to create "
-            "a diagonal matrix from a vector."
+        raise InvalidOperationError(
+            operation="diag",
+            operand_types=("VectorVariable",),
+            suggestion="Use diag_matrix() to create a diagonal matrix from a vector.",
         )
 
     matrix = matrix_or_vector
     if matrix.rows != matrix.cols:
-        raise ValueError(
-            f"diag requires a square matrix, got {matrix.rows}x{matrix.cols}"
+        raise SquareMatrixError(
+            operation="diag",
+            shape=(matrix.rows, matrix.cols),
         )
 
     # Extract diagonal variables

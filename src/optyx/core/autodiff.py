@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator, cast
 import numpy as np
 from numpy.typing import NDArray
 
+from optyx.core.errors import InvalidExpressionError, UnknownOperatorError
+
 if TYPE_CHECKING:
     from optyx.core.expressions import Expression, Variable
 
@@ -122,7 +124,11 @@ def apply_gradient_rule(expr: "Expression", wrt: "Variable") -> "Expression":
     """
     func = _gradient_registry.get(type(expr))
     if func is None:
-        raise ValueError(f"No gradient rule registered for {type(expr).__name__}")
+        raise InvalidExpressionError(
+            expr_type=type(expr),
+            context="gradient computation",
+            suggestion=f"Register a gradient rule using @register_gradient({type(expr).__name__}) or use supported expression types.",
+        )
     return func(expr, wrt)
 
 
@@ -326,7 +332,10 @@ def _gradient_cached(expr: Expression, wrt: Variable) -> Expression:
                 return _simplify_mul(expr, _simplify_add(term1, term2))
 
         else:
-            raise ValueError(f"Unknown binary operator: {expr.op}")
+            raise UnknownOperatorError(
+                operator=expr.op,
+                context="gradient computation",
+            )
 
     # Unary operations
     if isinstance(expr, UnaryOp):
@@ -446,13 +455,18 @@ def _gradient_cached(expr: Expression, wrt: Variable) -> Expression:
             )
 
         else:
-            raise ValueError(f"Unknown unary operator: {expr.op}")
+            raise UnknownOperatorError(
+                operator=expr.op,
+                context="gradient computation (unary)",
+            )
 
-    raise TypeError(f"Unknown expression type: {type(expr)}")
+    raise InvalidExpressionError(
+        expr_type=type(expr),
+        context="gradient computation",
+        suggestion="Use Variable, Constant, BinaryOp, or UnaryOp expressions.",
+    )
 
 
-# =============================================================================
-# Iterative Gradient Computation (for deep trees)
 # =============================================================================
 
 
@@ -579,7 +593,10 @@ def _gradient_iterative(expr: Expression, wrt: Variable) -> Expression:
                         current, _simplify_add(term1, term2)
                     )
             else:
-                raise ValueError(f"Unknown binary operator: {current.op}")
+                raise UnknownOperatorError(
+                    operator=current.op,
+                    context="iterative gradient computation (binary)",
+                )
             continue
 
         # Unary operations
@@ -632,12 +649,17 @@ def _gradient_iterative(expr: Expression, wrt: Variable) -> Expression:
                 results[node_id] = _simplify_mul(sinh(operand), d_operand)
             else:
                 # For other unary ops, fall back to numerical or raise
-                raise ValueError(
-                    f"Iterative gradient not implemented for: {current.op}"
+                raise UnknownOperatorError(
+                    operator=current.op,
+                    context="iterative gradient computation (unary)",
                 )
             continue
 
-        raise TypeError(f"Unknown expression type: {type(current)}")
+        raise InvalidExpressionError(
+            expr_type=type(current),
+            context="iterative gradient computation",
+            suggestion="Use Variable, Constant, BinaryOp, or UnaryOp expressions.",
+        )
 
     return results.get(id(expr), Constant(0.0))
 

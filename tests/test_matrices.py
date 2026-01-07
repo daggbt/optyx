@@ -3,6 +3,13 @@
 import numpy as np
 import pytest
 
+from optyx.core.errors import (
+    DimensionMismatchError,
+    InvalidOperationError,
+    InvalidSizeError,
+    SquareMatrixError,
+    WrongDimensionalityError,
+)
 from optyx.core.matrices import (
     MatrixVariable,
     MatrixVectorProduct,
@@ -49,17 +56,17 @@ class TestMatrixVariableCreation:
 
     def test_zero_rows_raises(self):
         """Rows must be positive."""
-        with pytest.raises(ValueError, match="positive"):
+        with pytest.raises(InvalidSizeError, match="positive"):
             MatrixVariable("A", 0, 5)
 
     def test_zero_cols_raises(self):
         """Cols must be positive."""
-        with pytest.raises(ValueError, match="positive"):
+        with pytest.raises(InvalidSizeError, match="positive"):
             MatrixVariable("A", 5, 0)
 
     def test_negative_size_raises(self):
-        """Negative size raises ValueError."""
-        with pytest.raises(ValueError, match="positive"):
+        """Negative size raises InvalidSizeError."""
+        with pytest.raises(InvalidSizeError, match="positive"):
             MatrixVariable("A", -3, 4)
 
 
@@ -245,7 +252,7 @@ class TestSymmetricMatrix:
 
     def test_symmetric_must_be_square(self):
         """Symmetric matrix must be square."""
-        with pytest.raises(ValueError, match="square"):
+        with pytest.raises(SquareMatrixError, match="square"):
             MatrixVariable("S", 3, 4, symmetric=True)
 
     def test_symmetric_shares_variables(self):
@@ -411,17 +418,17 @@ class TestMatrixVectorProduct:
         assert output == [6.0, 15.0]
 
     def test_matmul_size_mismatch(self):
-        """Size mismatch raises ValueError."""
+        """Size mismatch raises DimensionMismatchError."""
         A = np.array([[1, 2], [3, 4]])  # 2x2
         x = VectorVariable("x", 3)  # 3 elements
-        with pytest.raises(ValueError, match="must match"):
+        with pytest.raises(DimensionMismatchError, match="mismatch"):
             matmul(A, x)
 
     def test_matmul_1d_matrix_raises(self):
-        """1D array raises ValueError."""
+        """1D array raises WrongDimensionalityError."""
         A = np.array([1, 2, 3])
         x = VectorVariable("x", 3)
-        with pytest.raises(ValueError, match="2D"):
+        with pytest.raises(WrongDimensionalityError, match="2"):
             matmul(A, x)
 
     def test_matmul_get_variables(self):
@@ -514,17 +521,17 @@ class TestQuadraticForm:
         assert abs(result - 0.0375) < 1e-10
 
     def test_quadratic_form_non_square_raises(self):
-        """Non-square matrix raises ValueError."""
+        """Non-square matrix raises SquareMatrixError."""
         Q = np.array([[1, 2, 3], [4, 5, 6]])  # 2x3
         x = VectorVariable("x", 2)
-        with pytest.raises(ValueError, match="square"):
+        with pytest.raises(SquareMatrixError, match="square"):
             quadratic_form(x, Q)
 
     def test_quadratic_form_size_mismatch(self):
-        """Size mismatch raises ValueError."""
+        """Size mismatch raises DimensionMismatchError."""
         Q = np.array([[1, 0], [0, 1]])  # 2x2
         x = VectorVariable("x", 3)  # 3 elements
-        with pytest.raises(ValueError, match="must match"):
+        with pytest.raises(DimensionMismatchError, match="mismatch"):
             quadratic_form(x, Q)
 
     def test_quadratic_form_get_variables(self):
@@ -597,9 +604,9 @@ class TestTrace:
         assert tr.evaluate(values) == 50.0  # 10 + 40
 
     def test_trace_non_square_raises(self):
-        """trace of non-square matrix raises ValueError."""
+        """trace of non-square matrix raises SquareMatrixError."""
         A = MatrixVariable("A", 2, 3)
-        with pytest.raises(ValueError, match="square"):
+        with pytest.raises(SquareMatrixError, match="square"):
             trace(A)
 
     def test_trace_numpy_array(self):
@@ -660,9 +667,9 @@ class TestDiag:
         assert d[2] is A[2, 2]
 
     def test_diag_non_square_raises(self):
-        """diag of non-square matrix raises ValueError."""
+        """diag of non-square matrix raises SquareMatrixError."""
         A = MatrixVariable("A", 2, 3)
-        with pytest.raises(ValueError, match="square"):
+        with pytest.raises(SquareMatrixError, match="square"):
             diag(A)
 
     def test_diag_numpy_array(self):
@@ -672,9 +679,9 @@ class TestDiag:
         np.testing.assert_array_equal(d, [1, 4])
 
     def test_diag_vector_raises(self):
-        """diag on VectorVariable raises TypeError."""
+        """diag on VectorVariable raises InvalidOperationError."""
         x = VectorVariable("x", 3)
-        with pytest.raises(TypeError, match="diag_matrix"):
+        with pytest.raises(InvalidOperationError, match="diag_matrix"):
             diag(x)
 
     def test_diag_symmetric(self):

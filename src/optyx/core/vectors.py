@@ -18,7 +18,13 @@ from optyx.core.expressions import (
     BinaryOp,
     _ensure_expr,
 )
-from optyx.core.errors import DimensionMismatchError
+from optyx.core.errors import (
+    DimensionMismatchError,
+    EmptyContainerError,
+    InvalidSizeError,
+    InvalidOperationError,
+    WrongDimensionalityError,
+)
 
 if TYPE_CHECKING:
     from optyx.constraints import Constraint
@@ -409,7 +415,10 @@ class VectorExpression:
 
     def __init__(self, expressions: Sequence[Expression]) -> None:
         if len(expressions) == 0:
-            raise ValueError("VectorExpression cannot be empty")
+            raise EmptyContainerError(
+                container_type="VectorExpression",
+                operation="initialization",
+            )
         self._expressions = list(expressions)
         self.size = len(expressions)
 
@@ -577,7 +586,11 @@ class VectorExpression:
         elif isinstance(other, (np.ndarray, list)):
             arr = np.asarray(other)
             if arr.ndim != 1:
-                raise ValueError(f"Expected 1D array, got shape {arr.shape}")
+                raise WrongDimensionalityError(
+                    context="dot product",
+                    expected_ndim=1,
+                    got_ndim=arr.ndim,
+                )
             return LinearCombination(arr, self)
         else:
             return NotImplemented
@@ -640,7 +653,11 @@ class VectorVariable:
         domain: DomainType = "continuous",
     ) -> None:
         if size <= 0:
-            raise ValueError(f"Size must be positive, got {size}")
+            raise InvalidSizeError(
+                entity=name,
+                size=size,
+                reason="must be positive",
+            )
 
         self.name = name
         self.size = size
@@ -700,8 +717,10 @@ class VectorVariable:
             )
 
         else:
-            raise TypeError(
-                f"Indices must be integers or slices, not {type(key).__name__}"
+            raise InvalidOperationError(
+                operation="vector indexing",
+                operand_types=(type(key).__name__,),
+                suggestion="Use integers for single elements or slices for subvectors.",
             )
 
     @classmethod
@@ -767,14 +786,12 @@ class VectorVariable:
 
         Example:
             >>> x = VectorVariable("x", 3)
-            >>> x.T  # Raises TypeError with helpful message
+            >>> x.T  # Raises InvalidOperationError with helpful message
         """
-        raise TypeError(
-            "VectorVariable does not support .T (transpose).\n"
-            "Use these alternatives instead:\n"
-            "  - Dot product xᵀy:      x.dot(y)\n"
-            "  - Quadratic form xᵀQx:  x.dot(Q @ x)\n"
-            "  - Linear combination cᵀx: c @ x"
+        raise InvalidOperationError(
+            operation="transpose",
+            operand_types=("VectorVariable",),
+            suggestion="Use x.dot(y) for dot products, x.dot(Q @ x) for quadratic forms, or c @ x for linear combinations.",
         )
 
     # Arithmetic operations - return VectorExpression
@@ -926,17 +943,20 @@ class VectorVariable:
         if isinstance(other, (VectorVariable, VectorExpression)):
             return DotProduct(self, other)
         elif isinstance(other, MatrixVariable):
-            raise TypeError(
-                "VectorVariable @ MatrixVariable is not supported.\n"
-                "For vector-matrix multiplication, consider:\n"
-                "  - MatrixVariable @ VectorVariable (returns VectorExpression)\n"
-                "  - x.T @ A for conceptual row vector (not yet supported)"
+            raise InvalidOperationError(
+                operation="matrix multiplication",
+                operand_types=("VectorVariable", "MatrixVariable"),
+                suggestion="Use MatrixVariable @ VectorVariable instead.",
             )
         elif isinstance(other, (np.ndarray, list)):
             # VectorVariable @ array is the same as array @ VectorVariable
             arr = np.asarray(other)
             if arr.ndim != 1:
-                raise ValueError(f"Expected 1D array, got shape {arr.shape}")
+                raise WrongDimensionalityError(
+                    context="dot product",
+                    expected_ndim=1,
+                    got_ndim=arr.ndim,
+                )
             return LinearCombination(arr, self)
         else:
             return NotImplemented
@@ -978,7 +998,11 @@ class VectorVariable:
         elif ord == 1:
             return L1Norm(self)
         else:
-            raise ValueError(f"Unsupported norm order: {ord}. Use 1 or 2.")
+            raise InvalidOperationError(
+                operation="norm",
+                operand_types=(f"ord={ord}",),
+                suggestion="Supported norm orders: 1 (L1/Manhattan) or 2 (L2/Euclidean).",
+            )
 
     def __rmatmul__(self, other: np.ndarray) -> LinearCombination | MatrixVectorProduct:
         """Enable numpy_array @ vector syntax.
@@ -1013,7 +1037,11 @@ class VectorVariable:
 
             return MatrixVectorProduct(arr, self)
         else:
-            raise ValueError(f"Expected 1D or 2D array, got {arr.ndim}D")
+            raise WrongDimensionalityError(
+                context="array @ vector",
+                expected_ndim=2,
+                got_ndim=arr.ndim,
+            )
 
     def to_numpy(self, solution: Mapping[str, float]) -> np.ndarray:
         """Extract solution values as a NumPy array.
@@ -1065,7 +1093,11 @@ class VectorVariable:
         """
         array = np.asarray(array)
         if array.ndim != 1:
-            raise ValueError(f"Expected 1D array, got {array.ndim}D")
+            raise WrongDimensionalityError(
+                context="VectorVariable.from_numpy",
+                expected_ndim=1,
+                got_ndim=array.ndim,
+            )
         return cls(name, len(array), lb=lb, ub=ub, domain=domain)
 
 
@@ -1119,10 +1151,16 @@ def _vector_constraint(
         # Handle numpy arrays and lists
         right_arr = np.asarray(right)
         if right_arr.ndim != 1:
-            raise ValueError(f"Expected 1D array, got shape {right_arr.shape}")
+            raise WrongDimensionalityError(
+                context=f"vector constraint ({sense})",
+                expected_ndim=1,
+                got_ndim=right_arr.ndim,
+            )
         if len(right_arr) != len(left_exprs):
-            raise ValueError(
-                f"Vector size mismatch: {len(left_exprs)} vs {len(right_arr)}"
+            raise DimensionMismatchError(
+                operation=f"vector constraint ({sense})",
+                left_shape=len(left_exprs),
+                right_shape=len(right_arr),
             )
         # Create constraints with scalar values from array
         return [
@@ -1130,7 +1168,11 @@ def _vector_constraint(
             for left_expr, val in zip(left_exprs, right_arr)
         ]
     else:
-        raise TypeError(f"Unsupported operand type: {type(right)}")
+        raise InvalidOperationError(
+            operation=f"vector constraint ({sense})",
+            operand_types=(type(right).__name__,),
+            suggestion="Use VectorVariable, VectorExpression, scalar, numpy array, or list.",
+        )
 
     # Create element-wise constraints
     return [
@@ -1169,21 +1211,41 @@ def _vector_binary_op(
         right_exprs = [Constant(right)] * len(left_exprs)
     elif isinstance(right, VectorVariable):
         if len(right) != len(left_exprs):
-            raise ValueError(f"Vector size mismatch: {len(left_exprs)} vs {len(right)}")
+            raise DimensionMismatchError(
+                operation=f"vector {op}",
+                left_shape=len(left_exprs),
+                right_shape=len(right),
+            )
         right_exprs = list(right._variables)
     elif isinstance(right, VectorExpression):
         if right.size != len(left_exprs):
-            raise ValueError(f"Vector size mismatch: {len(left_exprs)} vs {right.size}")
+            raise DimensionMismatchError(
+                operation=f"vector {op}",
+                left_shape=len(left_exprs),
+                right_shape=right.size,
+            )
         right_exprs = list(right._expressions)
     elif isinstance(right, (np.ndarray, list)):
         arr = np.asarray(right)
         if arr.ndim != 1:
-            raise ValueError(f"Expected 1D array, got shape {arr.shape}")
+            raise WrongDimensionalityError(
+                context=f"vector {op}",
+                expected_ndim=1,
+                got_ndim=arr.ndim,
+            )
         if len(arr) != len(left_exprs):
-            raise ValueError(f"Vector size mismatch: {len(left_exprs)} vs {len(arr)}")
+            raise DimensionMismatchError(
+                operation=f"vector {op}",
+                left_shape=len(left_exprs),
+                right_shape=len(arr),
+            )
         right_exprs = [Constant(val) for val in arr]
     else:
-        raise TypeError(f"Unsupported operand type: {type(right)}")
+        raise InvalidOperationError(
+            operation=f"vector {op}",
+            operand_types=(type(right).__name__,),
+            suggestion="Use VectorVariable, VectorExpression, scalar, numpy array, or list.",
+        )
 
     # Create element-wise operations
     result_exprs = [
@@ -1220,8 +1282,10 @@ def vector_sum(vector: VectorVariable | VectorExpression) -> VectorSum | Express
             result = result + expr
         return result
     else:
-        raise TypeError(
-            f"Expected VectorVariable or VectorExpression, got {type(vector)}"
+        raise InvalidOperationError(
+            operation="vector_sum",
+            operand_types=(type(vector).__name__,),
+            suggestion="Use VectorVariable or VectorExpression.",
         )
 
 
@@ -1249,4 +1313,8 @@ def norm(vector: VectorVariable | VectorExpression, ord: int = 2) -> L2Norm | L1
     elif ord == 1:
         return L1Norm(vector)
     else:
-        raise ValueError(f"Unsupported norm order: {ord}. Use 1 or 2.")
+        raise InvalidOperationError(
+            operation="norm",
+            operand_types=(f"ord={ord}",),
+            suggestion="Supported norm orders: 1 (L1/Manhattan) or 2 (L2/Euclidean).",
+        )

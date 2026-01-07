@@ -6,6 +6,12 @@ import numpy as np
 import pytest
 
 from optyx import MatrixParameter
+from optyx.core.errors import (
+    WrongDimensionalityError,
+    SymmetryError,
+    ShapeMismatchError,
+    InvalidOperationError,
+)
 
 
 class TestMatrixParameterCreation:
@@ -45,24 +51,24 @@ class TestMatrixParameterCreation:
 
     def test_reject_1d_array(self):
         """Reject 1D arrays (use VectorParameter instead)."""
-        with pytest.raises(ValueError, match="2D array"):
+        with pytest.raises(WrongDimensionalityError, match="2D"):
             MatrixParameter("v", np.array([1, 2, 3]))
 
     def test_reject_3d_array(self):
         """Reject 3D arrays."""
-        with pytest.raises(ValueError, match="2D array"):
+        with pytest.raises(WrongDimensionalityError, match="2D"):
             MatrixParameter("T", np.ones((2, 3, 4)))
 
     def test_reject_non_symmetric(self):
         """Reject non-symmetric matrix when symmetric=True."""
         non_sym = np.array([[1, 2], [3, 4]])
-        with pytest.raises(ValueError, match="not symmetric"):
+        with pytest.raises(SymmetryError, match="symmetric"):
             MatrixParameter("M", non_sym, symmetric=True)
 
     def test_reject_non_square_symmetric(self):
         """Reject non-square matrix when symmetric=True."""
         rect = np.array([[1, 2, 3], [4, 5, 6]])
-        with pytest.raises(ValueError, match="must be square"):
+        with pytest.raises(SymmetryError, match="square|symmetric"):
             MatrixParameter("M", rect, symmetric=True)
 
     def test_values_are_copied(self):
@@ -104,7 +110,7 @@ class TestMatrixParameterIndexing:
         """Reject single-index access."""
         M = MatrixParameter("M", [[1, 2], [3, 4]])
 
-        with pytest.raises(TypeError, match="2D indexing"):
+        with pytest.raises(InvalidOperationError, match="2D|indexing"):
             M[0]  # type: ignore
 
     def test_getitem_out_of_bounds(self):
@@ -136,7 +142,7 @@ class TestMatrixParameterUpdate:
         """Cannot change shape on update."""
         M = MatrixParameter("M", [[1, 2], [3, 4]])
 
-        with pytest.raises(ValueError, match="Shape mismatch"):
+        with pytest.raises(ShapeMismatchError, match="Shape mismatch|shape"):
             M.set([[1, 2, 3], [4, 5, 6]])
 
     def test_set_symmetric_valid(self):
@@ -151,7 +157,7 @@ class TestMatrixParameterUpdate:
         """Reject non-symmetric update for symmetric matrix."""
         Sigma = MatrixParameter("Sigma", [[1, 0.5], [0.5, 2]], symmetric=True)
 
-        with pytest.raises(ValueError, match="not symmetric"):
+        with pytest.raises(SymmetryError, match="symmetric"):
             Sigma.set([[1, 0.5], [0.9, 2]])  # Not symmetric
 
     def test_set_copies_values(self):

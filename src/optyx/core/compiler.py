@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
 
+from optyx.core.errors import UnknownOperatorError, InvalidExpressionError
+
 # Large but finite value to replace infinities in gradients.
 # This prevents solver crashes while maintaining gradient direction.
 _LARGE_GRADIENT = 1e16
@@ -229,7 +231,10 @@ def _build_evaluator(
         elif op == "**":
             return lambda x, lf=left_fn, rf=right_fn: lf(x) ** rf(x)
         else:
-            raise ValueError(f"Unknown binary operator: {op}")
+            raise UnknownOperatorError(
+                operator=op,
+                context="expression compilation",
+            )
 
     elif isinstance(expr, UnaryOp):
         operand_fn = _build_evaluator(expr.operand, var_indices)
@@ -237,7 +242,11 @@ def _build_evaluator(
         return lambda x, f=operand_fn, np_f=numpy_func: np_f(f(x))
 
     else:
-        raise TypeError(f"Unknown expression type: {type(expr)}")
+        raise InvalidExpressionError(
+            expr_type=type(expr),
+            context="expression compilation",
+            suggestion="Use Variable, Constant, BinaryOp, or UnaryOp expressions.",
+        )
 
 
 def _build_vector_evaluator(
@@ -254,7 +263,11 @@ def _build_vector_evaluator(
         elem_fns = [_build_evaluator(e, var_indices) for e in vec._expressions]
         return lambda x, fns=elem_fns: np.array([f(x) for f in fns])
     else:
-        raise TypeError(f"Unknown vector type: {type(vec)}")
+        raise InvalidExpressionError(
+            expr_type=type(vec),
+            context="vector expression compilation",
+            suggestion="Use VectorVariable or VectorExpression.",
+        )
 
 
 def _build_evaluator_iterative(
@@ -391,7 +404,10 @@ def _build_evaluator_iterative(
                         lambda x, lf=left_fn, rf=right_fn: lf(x) ** rf(x)
                     )
                 else:
-                    raise ValueError(f"Unknown binary operator: {op}")
+                    raise UnknownOperatorError(
+                        operator=op,
+                        context="iterative expression compilation",
+                    )
             continue
 
         # Unary operation
@@ -406,10 +422,18 @@ def _build_evaluator_iterative(
             continue
 
         # Unknown type - try to evaluate directly
-        raise TypeError(f"Unknown expression type: {type(node)}")
+        raise InvalidExpressionError(
+            expr_type=type(node),
+            context="iterative expression compilation",
+            suggestion="Use Variable, Constant, BinaryOp, or UnaryOp expressions.",
+        )
 
     if not result_stack:
-        raise RuntimeError("Failed to build evaluator - empty result stack")
+        raise InvalidExpressionError(
+            expr_type=type(None),
+            context="iterative expression compilation",
+            suggestion="Check the expression tree structure - result stack was empty.",
+        )
     return result_stack[-1]
 
 

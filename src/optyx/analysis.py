@@ -22,6 +22,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from optyx.core.expressions import Expression, Constant, Variable, BinaryOp, UnaryOp
+from optyx.core.errors import NonLinearError, NoObjectiveError
 
 # Recursion threshold - use iterative algorithm for trees deeper than this
 _RECURSION_THRESHOLD = 400
@@ -96,6 +97,7 @@ def _compute_degree_iterative(expr: Expression) -> Optional[int]:
 
     Handles deep expression trees that would cause RecursionError.
     """
+    from optyx.core.matrices import QuadraticForm
     from optyx.core.vectors import DotProduct, LinearCombination, VectorSum
 
     # Stack: (expression, phase, left_result, right_result)
@@ -124,6 +126,9 @@ def _compute_degree_iterative(expr: Expression) -> Optional[int]:
             result_stack.append(1)
             continue
         if isinstance(node, DotProduct):
+            result_stack.append(2)
+            continue
+        if isinstance(node, QuadraticForm):
             result_stack.append(2)
             continue
 
@@ -219,6 +224,7 @@ def _compute_degree_cached(expr_id: int, expr: Expression) -> Optional[int]:
 
 def _compute_degree_impl(expr: Expression) -> Optional[int]:
     """Core degree computation with early termination."""
+    from optyx.core.matrices import QuadraticForm
     from optyx.core.vectors import DotProduct, LinearCombination, VectorSum
 
     # Fast path: leaf nodes (most common)
@@ -258,6 +264,9 @@ def _compute_degree_impl(expr: Expression) -> Optional[int]:
     if isinstance(expr, DotProduct):
         # x · y could be quadratic if both are variables
         # For now, return 2 (quadratic) as worst case
+        return 2
+    if isinstance(expr, QuadraticForm):
+        # xᵀAx is always quadratic
         return 2
 
     # Binary operations - early termination on None
@@ -468,10 +477,14 @@ def extract_linear_coefficient(expr: Expression, var: Variable) -> float:
         5.0
 
     Raises:
-        ValueError: If the expression is not linear.
+        NonLinearError: If the expression is not linear.
     """
     if not is_linear(expr):
-        raise ValueError("Expression must be linear for coefficient extraction")
+        raise NonLinearError(
+            expression=repr(expr)[:100],
+            context="coefficient extraction",
+            suggestion="Ensure all variables appear linearly (no products of variables, powers, or transcendental functions).",
+        )
     return _extract_coefficient_impl(expr, var)
 
 
@@ -582,10 +595,14 @@ def extract_constant_term(expr: Expression) -> float:
         -3.0
 
     Raises:
-        ValueError: If the expression is not linear.
+        NonLinearError: If the expression is not linear.
     """
     if not is_linear(expr):
-        raise ValueError("Expression must be linear for constant extraction")
+        raise NonLinearError(
+            expression=repr(expr)[:100],
+            context="constant extraction",
+            suggestion="Ensure all variables appear linearly.",
+        )
     return _extract_constant_impl(expr)
 
 
@@ -699,10 +716,16 @@ class LinearProgramExtractor:
         from optyx.core.vectors import LinearCombination, VectorVariable
 
         if problem.objective is None:
-            raise ValueError("Problem has no objective function")
+            raise NoObjectiveError(
+                suggestion="Call minimize() or maximize() on the problem first.",
+            )
 
         if not is_linear(problem.objective):
-            raise ValueError("Objective function is not linear")
+            raise NonLinearError(
+                expression=repr(problem.objective)[:100],
+                context="LP extraction",
+                suggestion="The objective must be linear for LP solvers. Use a QP solver for quadratic objectives.",
+            )
 
         variables = problem.variables
         n = len(variables)
@@ -776,7 +799,11 @@ class LinearProgramExtractor:
 
         for constraint in problem.constraints:
             if not is_linear(constraint.expr):
-                raise ValueError(f"Constraint is not linear: {constraint}")
+                raise NonLinearError(
+                    expression=repr(constraint.expr)[:100],
+                    context="LP constraint extraction",
+                    suggestion="All constraints must be linear for LP solvers.",
+                )
 
             # Extract coefficients for this constraint
             row = np.zeros(n, dtype=np.float64)

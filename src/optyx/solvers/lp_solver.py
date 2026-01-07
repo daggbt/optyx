@@ -12,6 +12,13 @@ from typing import TYPE_CHECKING, Any
 
 import scipy
 
+from optyx.core.errors import (
+    NoObjectiveError,
+    NonLinearError,
+    IntegerVariableError,
+    SolverError,
+)
+
 if TYPE_CHECKING:
     from optyx.problem import Problem
     from optyx.solution import Solution
@@ -65,18 +72,23 @@ def solve_lp(
 
     # Validate that the problem is linear
     if problem.objective is None:
-        raise ValueError("Problem has no objective function")
+        raise NoObjectiveError(
+            suggestion="Call minimize() or maximize() on the problem first.",
+        )
 
     if not is_linear(problem.objective):
-        raise ValueError(
-            "Objective function is not linear. Use solve() with a nonlinear solver."
+        raise NonLinearError(
+            expression=repr(problem.objective)[:100],
+            context="LP solver",
+            suggestion="Use solve() with a nonlinear solver for quadratic or nonlinear objectives.",
         )
 
     for constraint in problem.constraints:
         if not is_linear(constraint.expr):
-            raise ValueError(
-                f"Constraint is not linear: {constraint}. "
-                "Use solve() with a nonlinear solver."
+            raise NonLinearError(
+                expression=repr(constraint.expr)[:100],
+                context="LP solver constraint",
+                suggestion="Use solve() with a nonlinear solver for nonlinear constraints.",
             )
 
     # Check for non-continuous domains
@@ -85,10 +97,9 @@ def solve_lp(
     if non_continuous:
         names = ", ".join(v.name for v in non_continuous)
         if strict:
-            raise ValueError(
-                f"Variables [{names}] have integer/binary domains but the LP "
-                f"solver does not support integer programming. Use strict=False "
-                f"to relax to continuous, or use a MIP solver like PuLP or Pyomo."
+            raise IntegerVariableError(
+                solver_name="linprog",
+                variable_names=[v.name for v in non_continuous],
             )
         else:
             warnings.warn(
@@ -121,8 +132,11 @@ def solve_lp(
         try:
             lp_data = extractor.extract(problem)
             problem._lp_cache = lp_data  # Cache for future solves
-        except ValueError as e:
-            raise ValueError(f"Failed to extract LP coefficients: {e}") from e
+        except Exception as e:
+            raise SolverError(
+                message=f"Failed to extract LP coefficients: {e}",
+                solver_name="linprog",
+            ) from e
 
     # Handle maximization by negating objective
     c = lp_data.c

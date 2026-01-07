@@ -8,6 +8,8 @@ from typing import Mapping
 
 import numpy as np
 
+from optyx.core.errors import MissingValueError, UnknownOperatorError
+
 if TYPE_CHECKING:
     from numpy.typing import ArrayLike, NDArray
     from optyx.constraints import Constraint
@@ -246,7 +248,10 @@ class Variable(Expression):
         self, values: Mapping[str, ArrayLike | float]
     ) -> NDArray[np.floating] | float:
         if self.name not in values:
-            raise KeyError(f"Variable '{self.name}' not found in values")
+            raise MissingValueError(
+                variable_name=self.name,
+                available_keys=list(values.keys()),
+            )
         value = values[self.name]
         # Return as-is, can be array or scalar
         return value  # type: ignore[return-value]
@@ -391,7 +396,10 @@ class UnaryOp(Expression):
 
     def __init__(self, operand: Expression, op: str) -> None:
         if op not in self._OPS:
-            raise ValueError(f"Unknown unary operator: {op}")
+            raise UnknownOperatorError(
+                operator=op,
+                context="unary expression",
+            )
         self.operand = operand
         self.op = op
         self._numpy_func = self._OPS[op]
