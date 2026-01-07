@@ -141,11 +141,16 @@ def time_scipy_constrained_nlp(n: int, n_runs: int = 5) -> float:
         "jac": lambda v: np.ones(n),
     }
 
+    # Bounds to match Optyx: x >= 0
+    bounds = [(0, None) for _ in range(n)]
+
     x0 = np.full(n, 0.1)
     times = []
     for _ in range(n_runs):
         start = time.perf_counter()
-        minimize(obj, x0, jac=grad, method="SLSQP", constraints=constraints)
+        minimize(
+            obj, x0, jac=grad, method="SLSQP", constraints=constraints, bounds=bounds
+        )
         times.append((time.perf_counter() - start) * 1000)
     return np.mean(times)
 

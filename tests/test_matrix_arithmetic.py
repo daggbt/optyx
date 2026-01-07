@@ -280,3 +280,50 @@ class TestHadamardProduct:
         result = Z.evaluate(vals)
         expected = np.array([[2, 6], [12, 20]])
         assert_array_equal(result, expected)
+
+
+class TestMatrixExpressionTranspose:
+    """Test MatrixExpression.T transpose property."""
+
+    def test_transpose_shape(self):
+        X = MatrixVariable("X", 2, 3)
+        expr = X + 1
+        assert expr.shape == (2, 3)
+        assert expr.T.shape == (3, 2)
+
+    def test_transpose_values(self):
+        X = MatrixVariable("X", 2, 3)
+        expr = X + 1
+        vals = {
+            "X[0,0]": 1,
+            "X[0,1]": 2,
+            "X[0,2]": 3,
+            "X[1,0]": 4,
+            "X[1,1]": 5,
+            "X[1,2]": 6,
+        }
+        # Original: [[2,3,4], [5,6,7]]
+        # Transpose: [[2,5], [3,6], [4,7]]
+        result = expr.T.evaluate(vals)
+        expected = np.array([[2, 5], [3, 6], [4, 7]])
+        assert_array_equal(result, expected)
+
+    def test_transpose_element_access(self):
+        X = MatrixVariable("X", 2, 3)
+        expr = X + 1
+        vals = {"X[0,1]": 10}
+        # expr[0,1] = X[0,1] + 1 = 11
+        # expr.T[1,0] should be the same expression
+        assert expr[0, 1].evaluate(vals) == 11
+        assert expr.T[1, 0].evaluate(vals) == 11
+
+    def test_transpose_chaining(self):
+        X = MatrixVariable("X", 2, 2)
+        # (X + 1).T - 1 should work
+        expr = (X + 1).T - 1
+        vals = {"X[0,0]": 5, "X[0,1]": 6, "X[1,0]": 7, "X[1,1]": 8}
+        result = expr.evaluate(vals)
+        # X = [[5,6],[7,8]], X+1 = [[6,7],[8,9]], (X+1).T = [[6,8],[7,9]]
+        # (X+1).T - 1 = [[5,7],[6,8]]
+        expected = np.array([[5, 7], [6, 8]])
+        assert_array_equal(result, expected)

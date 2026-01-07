@@ -24,7 +24,7 @@ try:
 except ImportError:
     CVXPY_AVAILABLE = False
 
-from optyx import Variable, Problem, VectorVariable, QuadraticForm
+from optyx import Variable, Problem, VectorVariable
 
 
 pytestmark = pytest.mark.skipif(not CVXPY_AVAILABLE, reason="cvxpy not installed")
@@ -155,9 +155,9 @@ class TestQPComparison:
         print(f"\nSimple QP - Optyx vs CVXPY:\n{result}")
 
     def test_portfolio_qp(self):
-        """Portfolio optimization QP with QuadraticForm.
+        """Portfolio optimization QP with math-like syntax.
 
-        Uses Optyx's QuadraticForm for efficient w.T @ cov @ w computation
+        Uses Optyx's w.dot(Σ @ w) for efficient wᵀΣw computation
         with analytic gradients, compared against CVXPY's quad_form.
         """
         n = 10  # assets
@@ -167,11 +167,11 @@ class TestQPComparison:
         cov = np.eye(n) * 0.04 + np.random.rand(n, n) * 0.01
         cov = (cov + cov.T) / 2  # Symmetrize
 
-        # Optyx with VectorVariable and QuadraticForm
+        # Optyx with VectorVariable and math-like quadratic form
         w = VectorVariable("w", n, lb=0, ub=1)
         prob = Problem(name="portfolio")
         expected_return = returns @ w  # LinearCombination
-        variance = QuadraticForm(w, cov)  # Efficient w.T @ cov @ w
+        variance = w.dot(cov @ w)  # Math-like: w · (Σw) = wᵀΣw
         prob.maximize(expected_return - 0.5 * variance)
         prob.subject_to(w.sum().eq(1))
 
@@ -201,7 +201,7 @@ class TestQPComparison:
 
         result = compare_timing(optyx_run, cvxpy_run, n_warmup=3, n_runs=10)
         print(
-            f"\nPortfolio QP (n=10) - Optyx QuadraticForm vs CVXPY quad_form:\n{result}"
+            f"\nPortfolio QP (n=10) - Optyx w.dot(Σ @ w) vs CVXPY quad_form:\n{result}"
         )
 
     def test_large_portfolio_qp(self):
@@ -213,11 +213,11 @@ class TestQPComparison:
         cov = np.eye(n) * 0.04 + np.random.rand(n, n) * 0.01
         cov = (cov + cov.T) / 2  # Symmetrize
 
-        # Optyx with VectorVariable and QuadraticForm
+        # Optyx with VectorVariable and math-like quadratic form
         w = VectorVariable("w", n, lb=0, ub=1)
         prob = Problem(name="portfolio_large")
         expected_return = returns @ w
-        variance = QuadraticForm(w, cov)
+        variance = w.dot(cov @ w)  # Math-like: w · (Σw) = wᵀΣw
         prob.maximize(expected_return - 0.5 * variance)
         prob.subject_to(w.sum().eq(1))
 
@@ -247,7 +247,7 @@ class TestQPComparison:
 
         result = compare_timing(optyx_run, cvxpy_run, n_warmup=3, n_runs=10)
         print(
-            f"\nPortfolio QP (n=50) - Optyx QuadraticForm vs CVXPY quad_form:\n{result}"
+            f"\nPortfolio QP (n=50) - Optyx w.dot(Σ @ w) vs CVXPY quad_form:\n{result}"
         )
 
 

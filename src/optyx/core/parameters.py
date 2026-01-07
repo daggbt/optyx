@@ -15,6 +15,14 @@ from typing import TYPE_CHECKING, Mapping
 import numpy as np
 
 from optyx.core.expressions import Expression, Variable
+from optyx.core.errors import (
+    ParameterError,
+    InvalidSizeError,
+    ShapeMismatchError,
+    SymmetryError,
+    WrongDimensionalityError,
+    InvalidOperationError,
+)
 
 if TYPE_CHECKING:
     from numpy.typing import ArrayLike, NDArray
@@ -95,15 +103,20 @@ class Parameter(Expression):
         # Check shape compatibility for arrays
         if isinstance(self._value, np.ndarray) and isinstance(new_value, np.ndarray):
             if self._value.shape != new_value.shape:
-                raise ValueError(
-                    f"Shape mismatch: expected {self._value.shape}, "
-                    f"got {new_value.shape}"
+                raise ParameterError(
+                    parameter_name=self.name,
+                    message="shape mismatch during update",
+                    expected=self._value.shape,
+                    got=new_value.shape,
                 )
         elif isinstance(self._value, np.ndarray) != isinstance(new_value, np.ndarray):
             # One is array, one is scalar - could be ok for 0-d arrays
             if isinstance(new_value, np.ndarray) and new_value.ndim > 0:
-                raise ValueError(
-                    f"Cannot change scalar parameter to array of shape {new_value.shape}"
+                raise ParameterError(
+                    parameter_name=self.name,
+                    message="cannot change scalar parameter to array",
+                    expected="scalar",
+                    got=new_value.shape,
                 )
 
         self._value = new_value
@@ -185,7 +198,11 @@ class VectorParameter:
             values: Initial values (array or scalar, default: 0.0).
         """
         if size <= 0:
-            raise ValueError(f"Size must be positive, got {size}")
+            raise InvalidSizeError(
+                entity=f"VectorParameter '{name}'",
+                size=size,
+                reason="must be positive",
+            )
 
         self.name = name
         self.size = size
@@ -198,8 +215,10 @@ class VectorParameter:
         else:
             val_array = np.asarray(values)
             if val_array.shape != (size,):
-                raise ValueError(
-                    f"Values shape {val_array.shape} doesn't match size ({size},)"
+                raise ShapeMismatchError(
+                    context="VectorParameter initialization",
+                    expected=(size,),
+                    got=val_array.shape,
                 )
 
         # Create individual parameters
@@ -232,8 +251,10 @@ class VectorParameter:
         """
         val_array = np.asarray(values)
         if val_array.shape != (self.size,):
-            raise ValueError(
-                f"Values shape {val_array.shape} doesn't match size ({self.size},)"
+            raise ShapeMismatchError(
+                context="VectorParameter.set",
+                expected=(self.size,),
+                got=val_array.shape,
             )
 
         for i, param in enumerate(self._parameters):
@@ -315,8 +336,10 @@ class MatrixParameter:
         arr = np.asarray(values, dtype=np.float64)
 
         if arr.ndim != 2:
-            raise ValueError(
-                f"MatrixParameter requires 2D array, got shape {arr.shape}"
+            raise WrongDimensionalityError(
+                context="MatrixParameter initialization",
+                expected_ndim=2,
+                got_ndim=arr.ndim,
             )
 
         self._shape = arr.shape
@@ -324,12 +347,16 @@ class MatrixParameter:
 
         if symmetric:
             if arr.shape[0] != arr.shape[1]:
-                raise ValueError(
-                    f"Symmetric matrix must be square, got shape {arr.shape}"
+                raise SymmetryError(
+                    context="MatrixParameter initialization (must be square)",
+                    matrix_name=name,
                 )
             # Check symmetry (with tolerance for floating point)
             if not np.allclose(arr, arr.T, rtol=1e-10, atol=1e-14):
-                raise ValueError("Matrix is not symmetric")
+                raise SymmetryError(
+                    context="MatrixParameter initialization (matrix is not symmetric)",
+                    matrix_name=name,
+                )
             # Store full matrix (could optimize to upper triangle later)
             self._values = arr.copy()
         else:
@@ -373,8 +400,10 @@ class MatrixParameter:
             >>> Sigma[0, 1]  # Element at row 0, column 1
         """
         if not isinstance(key, tuple) or len(key) != 2:
-            raise TypeError(
-                f"MatrixParameter requires 2D indexing (row, col), got {key}"
+            raise InvalidOperationError(
+                operation="MatrixParameter indexing",
+                operand_types=(type(key).__name__,),
+                suggestion="Use 2D indexing with (row, col). Example: Sigma[0, 1]",
             )
         row, col = key
         return float(self._values[row, col])
@@ -394,11 +423,18 @@ class MatrixParameter:
         arr = np.asarray(values, dtype=np.float64)
 
         if arr.shape != self._shape:
-            raise ValueError(f"Shape mismatch: expected {self._shape}, got {arr.shape}")
+            raise ShapeMismatchError(
+                context="MatrixParameter.set",
+                expected=self._shape,
+                got=arr.shape,
+            )
 
         if self._symmetric:
             if not np.allclose(arr, arr.T, rtol=1e-10, atol=1e-14):
-                raise ValueError("New matrix is not symmetric")
+                raise SymmetryError(
+                    context="MatrixParameter.set (new matrix is not symmetric)",
+                    matrix_name=self.name,
+                )
 
         self._values = arr.copy()
 

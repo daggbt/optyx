@@ -10,13 +10,52 @@ scalability to n=10,000+ variables.
 
 from __future__ import annotations
 
+import sys
+from contextlib import contextmanager
 from functools import lru_cache
-from typing import TYPE_CHECKING, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterator, cast
 
 import numpy as np
+from numpy.typing import NDArray
+
+from optyx.core.errors import InvalidExpressionError, UnknownOperatorError
 
 if TYPE_CHECKING:
     from optyx.core.expressions import Expression, Variable
+
+
+# =============================================================================
+# Utilities
+# =============================================================================
+
+
+@contextmanager
+def increased_recursion_limit(limit: int = 5000) -> Iterator[None]:
+    """Temporarily increase Python's recursion limit.
+
+    This context manager can be used as a workaround for deep expression trees
+    when the automatic iterative/recursive switching isn't sufficient.
+
+    .. warning::
+        Use with caution - very high limits can cause stack overflow crashes.
+        The iterative gradient implementation is preferred for deep trees.
+
+    Args:
+        limit: The temporary recursion limit (default: 5000).
+
+    Yields:
+        None. The limit is restored when the context exits.
+
+    Example:
+        >>> with increased_recursion_limit(5000):
+        ...     grad = gradient(deep_expr, x)
+    """
+    old_limit = sys.getrecursionlimit()
+    try:
+        sys.setrecursionlimit(limit)
+        yield
+    finally:
+        sys.setrecursionlimit(old_limit)
 
 
 # =============================================================================
@@ -85,7 +124,11 @@ def apply_gradient_rule(expr: "Expression", wrt: "Variable") -> "Expression":
     """
     func = _gradient_registry.get(type(expr))
     if func is None:
-        raise ValueError(f"No gradient rule registered for {type(expr).__name__}")
+        raise InvalidExpressionError(
+            expr_type=type(expr),
+            context="gradient computation",
+            suggestion=f"Register a gradient rule using @register_gradient({type(expr).__name__}) or use supported expression types.",
+        )
     return func(expr, wrt)
 
 
@@ -130,34 +173,81 @@ def gradient(expr: Expression, wrt: Variable) -> Expression:
     return _gradient_cached(expr, wrt)
 
 
-def _estimate_tree_depth(expr: Expression, max_check: int = 500) -> int:
-    """Estimate expression tree depth by following the left spine.
+def _estimate_tree_depth(
+    expr: Expression, max_check: int = 500, full_traversal: bool = False
+) -> int:
+    """Estimate expression tree depth.
 
-    This is a heuristic that quickly estimates depth without full traversal.
-    For left-skewed trees (common in incremental sum construction), this
-    gives an accurate depth estimate.
+    Two modes available:
+
+    1. **Left-spine heuristic** (default, full_traversal=False):
+       - Time: O(depth) - very fast
+       - Accuracy: Exact for left-skewed trees (e.g., ``obj = obj + x[i]``)
+       - Use case: Default for gradient() auto-switching
+
+    2. **Full traversal** (full_traversal=True):
+       - Time: O(n) where n = total nodes
+       - Accuracy: Exact for ANY tree shape
+       - Use case: Diagnostics, debugging, right-skewed trees
 
     Args:
         expr: The expression to check.
-        max_check: Maximum depth to check before returning.
+        max_check: Maximum depth to check before returning early.
+        full_traversal: If True, explore all branches for exact depth.
 
     Returns:
-        Estimated tree depth.
+        Estimated (or exact) tree depth.
+
+    Example:
+        >>> # Left-skewed tree from loop (common case)
+        >>> x = VectorVariable("x", 1000)
+        >>> obj = x[0]
+        >>> for i in range(1, 1000):
+        ...     obj = obj + x[i]  # Always adds to left
+        >>> _estimate_tree_depth(obj)  # Fast: O(depth)
+        999
+
+        >>> # Right-skewed tree (rare case)
+        >>> obj = x[999]
+        >>> for i in range(998, -1, -1):
+        ...     obj = x[i] + obj  # Always adds to right
+        >>> _estimate_tree_depth(obj)  # Returns 1 (wrong!)
+        1
+        >>> _estimate_tree_depth(obj, full_traversal=True)  # Correct
+        999
     """
     from optyx.core.expressions import BinaryOp, UnaryOp
 
-    depth = 0
-    current = expr
-    while depth < max_check:
-        if isinstance(current, BinaryOp):
-            current = current.left  # Follow left spine
-            depth += 1
-        elif isinstance(current, UnaryOp):
-            current = current.operand
-            depth += 1
-        else:
-            break
-    return depth
+    if full_traversal:
+        # Full traversal: O(n) time, explores ALL branches
+        stack: list[tuple[Expression, int]] = [(expr, 0)]
+        max_seen = 0
+
+        while stack and max_seen < max_check:
+            node, depth = stack.pop()
+            max_seen = max(max_seen, depth)
+
+            if isinstance(node, BinaryOp):
+                stack.append((node.left, depth + 1))
+                stack.append((node.right, depth + 1))
+            elif isinstance(node, UnaryOp):
+                stack.append((node.operand, depth + 1))
+
+        return max_seen
+    else:
+        # Left-spine heuristic: O(depth) time, follows left child only
+        depth = 0
+        current = expr
+        while depth < max_check:
+            if isinstance(current, BinaryOp):
+                current = current.left  # Follow left spine
+                depth += 1
+            elif isinstance(current, UnaryOp):
+                current = current.operand
+                depth += 1
+            else:
+                break
+        return depth
 
 
 @lru_cache(maxsize=4096)
@@ -242,7 +332,10 @@ def _gradient_cached(expr: Expression, wrt: Variable) -> Expression:
                 return _simplify_mul(expr, _simplify_add(term1, term2))
 
         else:
-            raise ValueError(f"Unknown binary operator: {expr.op}")
+            raise UnknownOperatorError(
+                operator=expr.op,
+                context="gradient computation",
+            )
 
     # Unary operations
     if isinstance(expr, UnaryOp):
@@ -362,13 +455,18 @@ def _gradient_cached(expr: Expression, wrt: Variable) -> Expression:
             )
 
         else:
-            raise ValueError(f"Unknown unary operator: {expr.op}")
+            raise UnknownOperatorError(
+                operator=expr.op,
+                context="gradient computation (unary)",
+            )
 
-    raise TypeError(f"Unknown expression type: {type(expr)}")
+    raise InvalidExpressionError(
+        expr_type=type(expr),
+        context="gradient computation",
+        suggestion="Use Variable, Constant, BinaryOp, or UnaryOp expressions.",
+    )
 
 
-# =============================================================================
-# Iterative Gradient Computation (for deep trees)
 # =============================================================================
 
 
@@ -495,7 +593,10 @@ def _gradient_iterative(expr: Expression, wrt: Variable) -> Expression:
                         current, _simplify_add(term1, term2)
                     )
             else:
-                raise ValueError(f"Unknown binary operator: {current.op}")
+                raise UnknownOperatorError(
+                    operator=current.op,
+                    context="iterative gradient computation (binary)",
+                )
             continue
 
         # Unary operations
@@ -548,12 +649,17 @@ def _gradient_iterative(expr: Expression, wrt: Variable) -> Expression:
                 results[node_id] = _simplify_mul(sinh(operand), d_operand)
             else:
                 # For other unary ops, fall back to numerical or raise
-                raise ValueError(
-                    f"Iterative gradient not implemented for: {current.op}"
+                raise UnknownOperatorError(
+                    operator=current.op,
+                    context="iterative gradient computation (unary)",
                 )
             continue
 
-        raise TypeError(f"Unknown expression type: {type(current)}")
+        raise InvalidExpressionError(
+            expr_type=type(current),
+            context="iterative gradient computation",
+            suggestion="Use Variable, Constant, BinaryOp, or UnaryOp expressions.",
+        )
 
     return results.get(id(expr), Constant(0.0))
 
@@ -907,6 +1013,10 @@ def compute_jacobian(
 ) -> list[list[Expression]]:
     """Compute the Jacobian matrix of expressions with respect to variables.
 
+    Uses O(1) vectorized jacobian_row() methods when available for vector
+    expressions (VectorSum, DotProduct, LinearCombination, QuadraticForm).
+    Falls back to individual gradient() calls otherwise.
+
     Args:
         exprs: List of expressions (constraints or objectives).
         variables: List of variables to differentiate with respect to.
@@ -921,7 +1031,17 @@ def compute_jacobian(
         >>> # J[0][0] = 2*x, J[0][1] = 1
         >>> # J[1][0] = y, J[1][1] = x
     """
-    return [[gradient(expr, var) for var in variables] for expr in exprs]
+    result: list[list[Expression]] = []
+    for expr in exprs:
+        # Try vectorized jacobian_row if available
+        if hasattr(expr, "jacobian_row"):
+            row = expr.jacobian_row(variables)
+            if row is not None:
+                result.append(row)
+                continue
+        # Fall back to individual gradient calls
+        result.append([gradient(expr, var) for var in variables])
+    return result
 
 
 def compute_hessian(
@@ -958,6 +1078,44 @@ def compute_hessian(
     return hessian
 
 
+def _is_scaled_variable_pattern(
+    jacobian_row: list[Expression],
+    variables: list[Variable],
+) -> tuple[NDArray[Any] | float | int, bool] | None:
+    """Check if a Jacobian row is c*x[i] for all variables.
+
+    For DotProduct(x, x), gradient is 2*x[i] for each x[i].
+    We can compile this as: lambda x: c * x
+
+    Returns:
+        (scale, match) tuple if all elements are c*var[i], None otherwise.
+    """
+    from optyx.core.expressions import Constant, BinaryOp
+
+    if len(jacobian_row) != len(variables):
+        return None
+
+    scale = None
+    for i, (expr, var) in enumerate(zip(jacobian_row, variables)):
+        # Check for pattern: Constant(c) * Variable(var)
+        if isinstance(expr, BinaryOp) and expr.op == "*":
+            if isinstance(expr.left, Constant) and expr.right is var:
+                c = expr.left.value
+            elif isinstance(expr.right, Constant) and expr.left is var:
+                c = expr.right.value
+            else:
+                return None
+
+            if scale is None:
+                scale = c
+            elif scale != c:
+                return None  # Different scales, not uniform
+        else:
+            return None
+
+    return (scale, True) if scale is not None else None
+
+
 def compile_jacobian(
     exprs: list[Expression],
     variables: list[Variable],
@@ -974,6 +1132,7 @@ def compile_jacobian(
     Performance:
         For linear expressions where all Jacobian elements are constants,
         returns a pre-computed array directly (9.7x speedup vs element-by-element).
+        For DotProduct(x, x) pattern (gradient = c*x), uses vectorized NumPy.
     """
     import numpy as np
     from optyx.core.compiler import compile_expression, _sanitize_derivatives
@@ -983,7 +1142,7 @@ def compile_jacobian(
     m = len(exprs)
     n = len(variables)
 
-    # Fast path: if all Jacobian elements are constants, pre-compute once
+    # Fast path 1: All Jacobian elements are constants - pre-compute once
     all_constant = all(
         isinstance(jacobian_exprs[i][j], Constant) for i in range(m) for j in range(n)
     )
@@ -1002,6 +1161,17 @@ def compile_jacobian(
             return const_jac
 
         return constant_jacobian_fn
+
+    # Fast path 2: Single row with c*x[i] pattern (e.g., gradient of x.dot(x) = 2*x)
+    if m == 1:
+        pattern = _is_scaled_variable_pattern(jacobian_exprs[0], variables)
+        if pattern is not None:
+            scale, _ = pattern
+
+            def scaled_variable_jacobian_fn(x):
+                return (scale * x).reshape(1, -1)
+
+            return scaled_variable_jacobian_fn
 
     # Standard path: compile each element
     compiled_elements = [

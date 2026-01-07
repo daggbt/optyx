@@ -1,12 +1,12 @@
 ---
 title: "Advanced Portfolio Optimization"
-description: "Mean-variance portfolio optimization with covariance using QuadraticForm"
+description: "Mean-variance portfolio optimization with covariance using w.dot(Σ @ w)"
 date: last-modified
 ---
 
 ## Introduction
 
-This tutorial builds a complete **Markowitz mean-variance portfolio optimization** model using Optyx's v1.2.0 features. You'll see how VectorVariable, QuadraticForm, and Parameter work together for realistic portfolio problems.
+This tutorial builds a complete **Markowitz mean-variance portfolio optimization** model using Optyx. You'll see how VectorVariable, math-like `w.dot(Σ @ w)` syntax, and Parameter work together for realistic portfolio problems.
 
 By the end, you'll be able to:
 
@@ -77,25 +77,25 @@ for i in range(n_assets):
 ## Basic Model with VectorVariable
 
 ```{python}
-from optyx import VectorVariable, Problem, QuadraticForm
+from optyx import VectorVariable, Problem
 
 # Portfolio weights
 weights = VectorVariable("w", n_assets, lb=0, ub=1)
 
-# Expected portfolio return: w · μ
+# Expected portfolio return: μᵀw
 portfolio_return = expected_returns @ weights
 
-# Portfolio variance: w.T @ Σ @ w
-portfolio_variance = QuadraticForm(weights, covariance)
+# Portfolio variance: w · (Σw) = wᵀΣw
+portfolio_variance = weights.dot(covariance @ weights)
 
 print(f"Return expression type: {type(portfolio_return).__name__}")
 print(f"Variance expression type: {type(portfolio_variance).__name__}")
 ```
 
 ::: {.callout-note}
-## QuadraticForm Efficiency
-`QuadraticForm(weights, covariance)` computes `w.T @ Σ @ w` with an analytic gradient:
-`∇ variance = 2 Σ w`. No loop over n² terms needed.
+## Math-like Syntax
+`w.dot(Σ @ w)` reads as "w dot (Σ times w)" = wᵀΣw.
+Gradients are computed analytically: `∇ variance = 2Σw`. No loop over n² terms needed.
 :::
 
 ---
@@ -145,13 +145,13 @@ for i in range(n_assets):
 The efficient frontier shows the best risk-return tradeoff. Let's trace it by varying the target return:
 
 ```{python}
-from optyx import VectorVariable, Problem, QuadraticForm
+from optyx import VectorVariable, Problem
 
 def solve_for_target(target_return):
     """Solve minimum variance for a given target return."""
     w = VectorVariable("w", n_assets, lb=0, ub=1)
     port_ret = expected_returns @ w
-    port_var = QuadraticForm(w, covariance)
+    port_var = w.dot(covariance @ w)  # wᵀΣw
     
     sol = (
         Problem()
@@ -194,14 +194,14 @@ for ret, vol, _ in frontier[::3]:  # Show every 3rd point
 When exploring scenarios, rebuilding the problem each time is wasteful. Use **Parameter** to update values without recompilation:
 
 ```{python}
-from optyx import VectorVariable, Parameter, Problem, QuadraticForm
+from optyx import VectorVariable, Parameter, Problem
 
 # Create problem once
 w = VectorVariable("w", n_assets, lb=0, ub=1)
 target_param = Parameter("target", value=0.08)
 
 port_ret = expected_returns @ w
-port_var = QuadraticForm(w, covariance)
+port_var = w.dot(covariance @ w)  # wᵀΣw
 
 problem = (
     Problem("parametric_portfolio")
@@ -256,7 +256,7 @@ sectors = {
 }
 
 w = VectorVariable("w", n_assets, lb=0, ub=1)
-port_var = QuadraticForm(w, covariance)
+port_var = w.dot(covariance @ w)  # wᵀΣw
 port_ret = expected_returns @ w
 
 problem = (
@@ -294,7 +294,7 @@ w = VectorVariable("w", n_assets, lb=0, ub=0.20)
 
 solution = (
     Problem("position_limited")
-    .minimize(QuadraticForm(w, covariance))
+    .minimize(w.dot(covariance @ w))  # wᵀΣw
     .subject_to(w.sum().eq(1))
     .subject_to(expected_returns @ w >= 0.08)
     .solve()
@@ -318,7 +318,7 @@ print(f"Positions > 1%: {np.sum(weights > 0.01)}")
 The tangency portfolio maximizes risk-adjusted return. This is a more complex problem requiring a different formulation:
 
 ```{python}
-from optyx import VectorVariable, Problem, QuadraticForm
+from optyx import VectorVariable, Problem
 
 # Risk-free rate
 rf = 0.02
@@ -333,7 +333,7 @@ port_excess = excess_returns @ w
 
 solution = (
     Problem("max_sharpe")
-    .minimize(QuadraticForm(w, covariance))
+    .minimize(w.dot(covariance @ w))  # wᵀΣw
     .subject_to(port_excess.eq(1))  # Normalize excess return to 1
     .solve()
 )
@@ -378,7 +378,7 @@ portfolios = {
 w_minvar = VectorVariable("w", n_assets, lb=0, ub=1)
 sol_minvar = (
     Problem()
-    .minimize(QuadraticForm(w_minvar, covariance))
+    .minimize(w_minvar.dot(covariance @ w_minvar))  # wᵀΣw
     .subject_to(w_minvar.sum().eq(1))
     .subject_to(expected_returns @ w_minvar >= 0.08)
     .solve()
@@ -438,11 +438,11 @@ def old_style_portfolio(n, returns, cov, target):
 
 def new_style_portfolio(n, returns, cov, target):
     """Build portfolio with VectorVariable."""
-    from optyx import VectorVariable, Problem, QuadraticForm
+    from optyx import VectorVariable, Problem
     
     w = VectorVariable("w", n, lb=0, ub=1)
     port_ret = returns @ w
-    port_var = QuadraticForm(w, cov)
+    port_var = w.dot(cov @ w)  # wᵀΣw
     
     problem = (
         Problem()
@@ -483,13 +483,13 @@ This tutorial demonstrated:
 | Feature | Benefit |
 |---------|---------|
 | `VectorVariable` | Clean syntax for many variables |
-| `QuadraticForm` | O(1) gradient for variance |
+| `w.dot(Σ @ w)` | Math-like quadratic form with O(1) gradient |
 | `Parameter` | Fast re-solves for scenarios |
 | Vector operations | No explicit loops needed |
 
 Key takeaways:
 
-1. **Use QuadraticForm** for portfolio variance—it's much faster than expanding the sum
+1. **Use math-like syntax** `w.dot(Σ @ w)` for variance—reads as wᵀΣw and computes gradients analytically
 2. **Use Parameter** when exploring different target returns or risk tolerances
 3. **Vector syntax** makes constraints like `w.sum().eq(1)` readable and maintainable
 

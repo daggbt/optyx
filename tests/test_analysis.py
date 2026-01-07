@@ -1,4 +1,5 @@
 from optyx.core.expressions import Variable
+from optyx.core.errors import NonLinearError, NoObjectiveError
 from optyx.constraints import Constraint
 from optyx.problem import Problem
 from optyx.analysis import (
@@ -241,9 +242,9 @@ class TestExtractLinearCoefficient:
         assert extract_linear_coefficient(expr2, y) == 2.0
 
     def test_nonlinear_raises(self):
-        """Non-linear expression should raise ValueError."""
+        """Non-linear expression should raise NonLinearError."""
         x = Variable("x")
-        with pytest.raises(ValueError, match="must be linear"):
+        with pytest.raises(NonLinearError, match="linear"):
             extract_linear_coefficient(x**2, x)
 
 
@@ -282,9 +283,9 @@ class TestExtractConstantTerm:
         assert extract_constant_term(expr) == 10.0
 
     def test_nonlinear_raises(self):
-        """Non-linear expression should raise ValueError."""
+        """Non-linear expression should raise NonLinearError."""
         x = Variable("x")
-        with pytest.raises(ValueError, match="must be linear"):
+        with pytest.raises(NonLinearError, match="linear"):
             extract_constant_term(x**2 + 5)
 
 
@@ -433,21 +434,21 @@ class TestLinearProgramExtractor:
         assert lp_data.variables == ["x", "y"]
 
     def test_no_objective_raises(self):
-        """Problem without objective should raise."""
+        """Problem without objective should raise NoObjectiveError."""
         prob = Problem()
 
         extractor = LinearProgramExtractor()
-        with pytest.raises(ValueError, match="no objective"):
+        with pytest.raises(NoObjectiveError, match="No objective"):
             extractor.extract_objective(prob)
 
     def test_nonlinear_objective_raises(self):
-        """Non-linear objective should raise."""
+        """Non-linear objective should raise NonLinearError."""
         x = Variable("x")
         prob = Problem()
         prob.minimize(x**2)
 
         extractor = LinearProgramExtractor()
-        with pytest.raises(ValueError, match="not linear"):
+        with pytest.raises(NonLinearError, match="linear"):
             extractor.extract_objective(prob)
 
 

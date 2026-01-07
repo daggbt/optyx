@@ -5,6 +5,7 @@ import pytest
 import numpy as np
 
 from optyx import Variable
+from optyx.core.errors import IntegerVariableError
 from optyx.problem import Problem
 
 
@@ -61,19 +62,19 @@ class TestStrictMode:
     """Tests for strict mode enforcement of integer/binary variables."""
 
     def test_strict_mode_raises_for_binary(self):
-        """strict=True should raise ValueError for binary variables."""
+        """strict=True should raise IntegerVariableError for binary variables."""
         x = Variable("x", domain="binary")
         prob = Problem().minimize((x - 0.5) ** 2)
 
-        with pytest.raises(ValueError, match="integer/binary domains"):
+        with pytest.raises(IntegerVariableError, match="integer/binary"):
             prob.solve(strict=True)
 
     def test_strict_mode_raises_for_integer(self):
-        """strict=True should raise ValueError for integer variables."""
+        """strict=True should raise IntegerVariableError for integer variables."""
         x = Variable("x", lb=0, ub=10, domain="integer")
         prob = Problem().minimize((x - 3.7) ** 2)
 
-        with pytest.raises(ValueError, match="integer/binary domains"):
+        with pytest.raises(IntegerVariableError, match="integer/binary"):
             prob.solve(strict=True)
 
     def test_strict_mode_ok_for_continuous(self):
@@ -101,7 +102,7 @@ class TestStrictMode:
         b = Variable("b", domain="integer", lb=0, ub=5)
         prob = Problem().minimize(a + b)
 
-        with pytest.raises(ValueError, match=r"\[a, b\]"):
+        with pytest.raises(IntegerVariableError, match=r"\['a', 'b'\]"):
             prob.solve(strict=True)
 
 

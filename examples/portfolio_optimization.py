@@ -1,9 +1,9 @@
 """Example: Commodity Portfolio Optimization
 
-Demonstrates a mean-variance portfolio optimization problem using Optyx v1.2.0.
+Demonstrates a mean-variance portfolio optimization problem using Optyx.
 This is a classic Markowitz-style model adapted for commodity investments.
 
-NEW IN v1.2.0: Uses VectorVariable and QuadraticForm for cleaner, faster code.
+Math-like syntax: Uses `w.dot(Σ @ w)` for variance (reads as wᵀΣw).
 
 Problem:
 - Allocate capital across multiple commodities
@@ -18,7 +18,7 @@ Problem:
 import time
 
 import numpy as np
-from optyx import VectorVariable, Problem, QuadraticForm, Parameter
+from optyx import VectorVariable, Problem, Parameter
 
 print("=" * 70)
 print("OPTYX v1.2.0 - Commodity Portfolio Optimization Demo")
@@ -83,11 +83,11 @@ print(f"Bounds: [{w.lb}, {w.ub}]")
 # Portfolio Expressions (v1.2.0: Vectorized Operations)
 # =============================================================================
 
-# v1.2.0: Portfolio return via dot product (no loops!)
+# Portfolio return: μᵀw via dot product (no loops!)
 portfolio_return = expected_returns @ w  # Clean and efficient
 
-# v1.2.0: Portfolio variance via QuadraticForm (analytic gradient!)
-portfolio_variance = QuadraticForm(w, covariance)
+# Portfolio variance: wᵀΣw via math-like syntax
+portfolio_variance = w.dot(covariance @ w)  # Reads as w · (Σw)
 
 print("\nExpressions created:")
 print(f"  Return: {type(portfolio_return).__name__}")
@@ -165,10 +165,10 @@ print("Objective: Minimize risk subject to return constraint")
 
 target_return = 0.12  # 12% minimum return
 
-# v1.2.0: Fresh VectorVariable for new problem
+# Fresh VectorVariable for new problem
 w2 = VectorVariable("w", n_assets, lb=0, ub=1)
 port_ret2 = expected_returns @ w2
-port_var2 = QuadraticForm(w2, covariance)
+port_var2 = w2.dot(covariance @ w2)  # wᵀΣw
 
 prob2 = (
     Problem("min_variance")
@@ -211,13 +211,13 @@ print("\n" + "=" * 70)
 print("📊 EFFICIENT FRONTIER (with Parameters)")
 print("=" * 70)
 
-# v1.2.0: Use Parameter for efficient frontier computation
+# Use Parameter for efficient frontier computation
 # Build problem once, update parameter for each point
 w_ef = VectorVariable("w", n_assets, lb=0, ub=1)
 target_param = Parameter("target", value=0.08)  # Updatable target return
 
 port_ret_ef = expected_returns @ w_ef
-port_var_ef = QuadraticForm(w_ef, covariance)
+port_var_ef = w_ef.dot(covariance @ w_ef)  # wᵀΣw
 
 prob_ef = (
     Problem("efficient_frontier")
@@ -247,8 +247,8 @@ for i, target_ret in enumerate(target_returns_range):
     frontier_volatilities.append(actual_vol)
 
 total_time = time.perf_counter() - start_time
-print(f"Computed {len(target_returns_range)} points in {total_time*1000:.1f} ms")
-print(f"Average: {total_time/len(target_returns_range)*1000:.2f} ms per point")
+print(f"Computed {len(target_returns_range)} points in {total_time * 1000:.1f} ms")
+print(f"Average: {total_time / len(target_returns_range) * 1000:.2f} ms per point")
 
 # Display frontier as ASCII art
 print("\n  Efficient Frontier (Risk vs Return)")
@@ -301,10 +301,10 @@ print("\nWhat if oil expected return drops from 15% to 5%?")
 expected_returns_shocked = expected_returns.copy()
 expected_returns_shocked[3] = 0.05  # Oil drops to 5%
 
-# v1.2.0: New VectorVariable for shocked scenario
+# New VectorVariable for shocked scenario
 w3 = VectorVariable("w", n_assets, lb=0, ub=1)
 port_ret3 = expected_returns_shocked @ w3
-port_var3 = QuadraticForm(w3, covariance)
+port_var3 = w3.dot(covariance @ w3)  # wᵀΣw
 
 prob3 = (
     Problem("shocked_portfolio")
@@ -344,19 +344,19 @@ print(f"  Volatility: {port_vol * 100:.2f}% → {new_vol * 100:.2f}%")
 # v1.2.0 Highlights
 # =============================================================================
 print("\n" + "=" * 70)
-print("✨ v1.2.0 Features Demonstrated")
+print("✨ Optyx Features Demonstrated")
 print("=" * 70)
 print("""
-This example showcases Optyx v1.2.0 improvements:
+This example showcases Optyx's math-like syntax:
 
 1. VectorVariable - Create many variables in one line:
    w = VectorVariable("w", n_assets, lb=0, ub=1)
 
 2. Vectorized operations - No loops for dot products:
-   portfolio_return = expected_returns @ w
+   portfolio_return = expected_returns @ w  # μᵀw
 
-3. QuadraticForm - Efficient variance with analytic gradients:
-   portfolio_variance = QuadraticForm(w, covariance)
+3. Math-like quadratic form - Reads as w·(Σw) = wᵀΣw:
+   portfolio_variance = w.dot(covariance @ w)
 
 4. Parameter - Fast re-solves for efficient frontier:
    target_param.set(new_value)  # Update without rebuilding

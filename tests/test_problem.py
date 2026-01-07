@@ -4,7 +4,7 @@ import pytest
 
 from optyx import Variable
 from optyx.problem import Problem
-from optyx.core.errors import InvalidOperationError, ConstraintError
+from optyx.core.errors import InvalidOperationError, ConstraintError, NoObjectiveError
 
 
 class TestProblemCreation:
@@ -116,7 +116,7 @@ class TestProblemSolve:
 
     def test_solve_without_objective_raises(self):
         prob = Problem()
-        with pytest.raises(ValueError, match="No objective"):
+        with pytest.raises(NoObjectiveError, match="objective"):
             prob.solve()
 
 

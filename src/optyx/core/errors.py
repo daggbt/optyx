@@ -104,7 +104,7 @@ class InvalidOperationError(OptyxError, TypeError):
     def __init__(
         self,
         operation: str,
-        operand_types: tuple[type, ...] | type,
+        operand_types: tuple[type | str, ...] | type | str,
         reason: str | None = None,
         suggestion: str | None = None,
     ) -> None:
@@ -121,11 +121,13 @@ class InvalidOperationError(OptyxError, TypeError):
         self.reason = reason
         self.suggestion = suggestion
 
-        # Format types nicely
+        # Format types nicely - handle both actual types and strings
         if isinstance(operand_types, tuple):
-            type_str = ", ".join(t.__name__ for t in operand_types)
+            type_str = ", ".join(
+                getattr(t, "__name__", None) or str(t) for t in operand_types
+            )
         else:
-            type_str = operand_types.__name__
+            type_str = getattr(operand_types, "__name__", None) or str(operand_types)
 
         msg = f"Invalid operation '{operation}' for type(s): {type_str}"
 
@@ -359,6 +361,52 @@ class NotSolvedError(OptyxError):
             f"Call problem.solve() first."
         )
 
+        super().__init__(msg)
+
+
+class MissingValueError(OptyxError, KeyError):
+    """Raised when a variable value is not found during evaluation.
+
+    This typically occurs when evaluating an expression but the values
+    dictionary is missing an entry for a required variable.
+
+    Example:
+        >>> x = Variable("x")
+        >>> y = Variable("y")
+        >>> expr = x + y
+        >>> expr.evaluate({"x": 1.0})  # Raises MissingValueError for 'y'
+    """
+
+    def __init__(
+        self,
+        variable_name: str,
+        available_keys: list[str] | None = None,
+        suggestion: str | None = None,
+    ) -> None:
+        """Create a missing value error.
+
+        Args:
+            variable_name: Name of the variable that was not found.
+            available_keys: Keys that were available in the values dict.
+            suggestion: Optional fix suggestion.
+        """
+        self.variable_name = variable_name
+        self.available_keys = available_keys or []
+        self.suggestion = suggestion
+
+        msg = f"Variable '{variable_name}' not found in values"
+
+        if available_keys:
+            msg += f". Available: {sorted(available_keys)}"
+
+        if suggestion:
+            msg += f". {suggestion}"
+        else:
+            msg += (
+                f". Ensure you pass a value for '{variable_name}' in the values dict."
+            )
+
+        # KeyError expects the key as the first argument
         super().__init__(msg)
 
 
@@ -837,6 +885,7 @@ __all__ = [
     "BoundsError",
     "IndexError",
     "EmptyContainerError",
+    "MissingValueError",
     # Parameter errors
     "ParameterError",
     # Problem formulation errors

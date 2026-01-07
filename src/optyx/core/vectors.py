@@ -18,10 +18,17 @@ from optyx.core.expressions import (
     BinaryOp,
     _ensure_expr,
 )
-from optyx.core.errors import DimensionMismatchError
+from optyx.core.errors import (
+    DimensionMismatchError,
+    EmptyContainerError,
+    InvalidSizeError,
+    InvalidOperationError,
+    WrongDimensionalityError,
+)
 
 if TYPE_CHECKING:
     from optyx.constraints import Constraint
+    from optyx.core.matrices import MatrixVectorProduct
     from numpy.typing import ArrayLike, NDArray
 
 # Type alias for variable domain
@@ -57,6 +64,25 @@ class VectorSum(Expression):
     def get_variables(self) -> set[Variable]:
         """Return all variables this expression depends on."""
         return set(self.vector._variables)
+
+    def jacobian_row(self, variables: list[Variable]) -> list[Expression] | None:
+        """Return Jacobian row in O(1) if variables match vector variables.
+
+        For VectorSum(x), the gradient is 1 for each x[i], 0 otherwise.
+        This is O(1) to construct vs O(n) individual gradient calls.
+
+        Returns:
+            List of Constant expressions, or None if optimization not applicable.
+        """
+        # Build a lookup for fast variable matching
+        my_vars = set(self.vector._variables)
+        result: list[Expression] = []
+        for var in variables:
+            if var in my_vars:
+                result.append(Constant(1.0))
+            else:
+                result.append(Constant(0.0))
+        return result
 
     def __repr__(self) -> str:
         return f"VectorSum({self.vector.name})"
@@ -137,6 +163,46 @@ class DotProduct(Expression):
             result.update(self.right._variables)
         else:
             result.update(self.right.get_variables())
+        return result
+
+    def jacobian_row(self, variables: list[Variable]) -> list[Expression] | None:
+        """Return Jacobian row in O(n) for special cases.
+
+        For DotProduct(x, x) (same VectorVariable), gradient is 2*x[i].
+        For DotProduct(x, y) with two different VectorVariables, gradient
+        is y[i] for x[i] and x[i] for y[i].
+
+        Returns:
+            List of expressions, or None if optimization not applicable.
+        """
+        # Only optimize for VectorVariable cases
+        if not isinstance(self.left, VectorVariable):
+            return None
+        if not isinstance(self.right, VectorVariable):
+            return None
+
+        left_vars = self.left._variables
+        right_vars = self.right._variables
+
+        # Case 1: x.dot(x) -> gradient is 2*x[i]
+        if self.left is self.right:
+            var_to_elem: dict[Variable, Expression] = {
+                v: BinaryOp(Constant(2.0), v, "*") for v in left_vars
+            }
+            return [var_to_elem.get(v, Constant(0.0)) for v in variables]
+
+        # Case 2: x.dot(y) -> gradient is y[i] w.r.t. x[i], x[i] w.r.t. y[i]
+        left_lookup = {left_vars[i]: right_vars[i] for i in range(len(left_vars))}
+        right_lookup = {right_vars[i]: left_vars[i] for i in range(len(right_vars))}
+
+        result: list[Expression] = []
+        for var in variables:
+            if var in left_lookup:
+                result.append(left_lookup[var])
+            elif var in right_lookup:
+                result.append(right_lookup[var])
+            else:
+                result.append(Constant(0.0))
         return result
 
     def __repr__(self) -> str:
@@ -298,6 +364,26 @@ class LinearCombination(Expression):
             return set(self.vector._variables)
         return self.vector.get_variables()
 
+    def jacobian_row(self, variables: list[Variable]) -> list[Expression] | None:
+        """Return Jacobian row in O(n) - coefficients are the gradients.
+
+        For LinearCombination(c, x), gradient is c[i] for x[i], 0 otherwise.
+        This is O(n) but avoids n separate gradient() calls.
+
+        Returns:
+            List of Constant expressions, or None if optimization not applicable.
+        """
+        # Only optimize for VectorVariable case
+        if not isinstance(self.vector, VectorVariable):
+            return None
+
+        # Map each variable to its coefficient
+        var_to_coeff: dict[Variable, float] = {}
+        for i, var in enumerate(self.vector._variables):
+            var_to_coeff[var] = float(self.coefficients[i])
+
+        return [Constant(var_to_coeff.get(v, 0.0)) for v in variables]
+
     def __repr__(self) -> str:
         vec_name = (
             self.vector.name if isinstance(self.vector, VectorVariable) else "expr"
@@ -329,7 +415,10 @@ class VectorExpression:
 
     def __init__(self, expressions: Sequence[Expression]) -> None:
         if len(expressions) == 0:
-            raise ValueError("VectorExpression cannot be empty")
+            raise EmptyContainerError(
+                container_type="VectorExpression",
+                operation="initialization",
+            )
         self._expressions = list(expressions)
         self.size = len(expressions)
 
@@ -497,7 +586,11 @@ class VectorExpression:
         elif isinstance(other, (np.ndarray, list)):
             arr = np.asarray(other)
             if arr.ndim != 1:
-                raise ValueError(f"Expected 1D array, got shape {arr.shape}")
+                raise WrongDimensionalityError(
+                    context="dot product",
+                    expected_ndim=1,
+                    got_ndim=arr.ndim,
+                )
             return LinearCombination(arr, self)
         else:
             return NotImplemented
@@ -560,7 +653,11 @@ class VectorVariable:
         domain: DomainType = "continuous",
     ) -> None:
         if size <= 0:
-            raise ValueError(f"Size must be positive, got {size}")
+            raise InvalidSizeError(
+                entity=name,
+                size=size,
+                reason="must be positive",
+            )
 
         self.name = name
         self.size = size
@@ -620,8 +717,10 @@ class VectorVariable:
             )
 
         else:
-            raise TypeError(
-                f"Indices must be integers or slices, not {type(key).__name__}"
+            raise InvalidOperationError(
+                operation="vector indexing",
+                operand_types=(type(key).__name__,),
+                suggestion="Use integers for single elements or slices for subvectors.",
             )
 
     @classmethod
@@ -669,6 +768,31 @@ class VectorVariable:
             bounds = f", lb={self.lb}, ub={self.ub}"
         domain_str = "" if self.domain == "continuous" else f", domain='{self.domain}'"
         return f"VectorVariable('{self.name}', {self.size}{bounds}{domain_str})"
+
+    @property
+    def T(self) -> None:
+        """Transpose is not supported for vectors.
+
+        Raises:
+            TypeError: Always, with guidance on alternatives.
+
+        Note:
+            Unlike NumPy where 1D arrays have a trivial transpose,
+            Optyx vectors don't support .T because:
+
+            1. For dot products, use: ``x.dot(y)``
+            2. For quadratic forms xᵀQx, use: ``x.dot(Q @ x)``
+            3. For linear combinations cᵀx, use: ``c @ x``
+
+        Example:
+            >>> x = VectorVariable("x", 3)
+            >>> x.T  # Raises InvalidOperationError with helpful message
+        """
+        raise InvalidOperationError(
+            operation="transpose",
+            operand_types=("VectorVariable",),
+            suggestion="Use x.dot(y) for dot products, x.dot(Q @ x) for quadratic forms, or c @ x for linear combinations.",
+        )
 
     # Arithmetic operations - return VectorExpression
     def __add__(
@@ -754,14 +878,19 @@ class VectorVariable:
         """
         return _vector_constraint(self, other, "==")
 
-    def dot(self, other: VectorVariable | VectorExpression) -> DotProduct:
+    def dot(self, other: VectorVariable | VectorExpression) -> DotProduct | Expression:
         """Compute dot product with another vector.
+
+        Special case: if ``other`` is a ``MatrixVectorProduct`` of ``A @ self``,
+        this returns a ``QuadraticForm`` for optimized gradient computation.
+        That is, ``x.dot(A @ x)`` returns ``QuadraticForm(x, A)`` which has an
+        O(1) gradient rule instead of the general O(n) DotProduct gradient.
 
         Args:
             other: Vector to compute dot product with.
 
         Returns:
-            DotProduct expression (scalar).
+            DotProduct expression (scalar), or QuadraticForm if other is A @ self.
 
         Example:
             >>> x = VectorVariable("x", 3)
@@ -769,7 +898,22 @@ class VectorVariable:
             >>> d = x.dot(y)
             >>> d.evaluate({"x[0]": 1, "x[1]": 2, "x[2]": 3, "y[0]": 4, "y[1]": 5, "y[2]": 6})
             32.0
+
+            >>> # Quadratic form optimization: x.dot(Q @ x) -> QuadraticForm
+            >>> import numpy as np
+            >>> Q = np.eye(3)
+            >>> qf = x.dot(Q @ x)  # Returns QuadraticForm, not DotProduct
         """
+        # Check for quadratic form pattern: x.dot(A @ x)
+        from optyx.core.matrices import MatrixVectorProduct, QuadraticForm
+
+        if isinstance(other, MatrixVectorProduct):
+            # Check if the MatrixVectorProduct's vector is self
+            if isinstance(other.vector, VectorVariable):
+                if other.vector is self or other.vector.name == self.name:
+                    # This is x.dot(A @ x) - return QuadraticForm for O(1) gradient
+                    return QuadraticForm(self, other.matrix)
+
         return DotProduct(self, other)
 
     def __matmul__(
@@ -793,13 +937,26 @@ class VectorVariable:
             >>> coeffs = np.array([1, 2, 3])
             >>> lc = x @ coeffs  # Same as coeffs @ x
         """
+        # Import here to avoid circular import
+        from optyx.core.matrices import MatrixVariable
+
         if isinstance(other, (VectorVariable, VectorExpression)):
             return DotProduct(self, other)
+        elif isinstance(other, MatrixVariable):
+            raise InvalidOperationError(
+                operation="matrix multiplication",
+                operand_types=("VectorVariable", "MatrixVariable"),
+                suggestion="Use MatrixVariable @ VectorVariable instead.",
+            )
         elif isinstance(other, (np.ndarray, list)):
             # VectorVariable @ array is the same as array @ VectorVariable
             arr = np.asarray(other)
             if arr.ndim != 1:
-                raise ValueError(f"Expected 1D array, got shape {arr.shape}")
+                raise WrongDimensionalityError(
+                    context="dot product",
+                    expected_ndim=1,
+                    got_ndim=arr.ndim,
+                )
             return LinearCombination(arr, self)
         else:
             return NotImplemented
@@ -841,24 +998,50 @@ class VectorVariable:
         elif ord == 1:
             return L1Norm(self)
         else:
-            raise ValueError(f"Unsupported norm order: {ord}. Use 1 or 2.")
+            raise InvalidOperationError(
+                operation="norm",
+                operand_types=(f"ord={ord}",),
+                suggestion="Supported norm orders: 1 (L1/Manhattan) or 2 (L2/Euclidean).",
+            )
 
-    def __rmatmul__(self, other: np.ndarray) -> LinearCombination:
-        """Enable numpy_array @ vector syntax for linear combinations.
+    def __rmatmul__(self, other: np.ndarray) -> LinearCombination | MatrixVectorProduct:
+        """Enable numpy_array @ vector syntax.
+
+        For 1D arrays: returns LinearCombination (dot product with coefficients).
+        For 2D arrays: returns MatrixVectorProduct (matrix-vector multiplication).
 
         Args:
-            other: NumPy array of coefficients.
+            other: NumPy array (1D for linear combination, 2D for matrix-vector).
 
         Returns:
-            LinearCombination expression.
+            LinearCombination for 1D arrays, MatrixVectorProduct for 2D arrays.
 
         Example:
             >>> import numpy as np
-            >>> returns = np.array([0.12, 0.08, 0.10])
-            >>> weights = VectorVariable("w", 3, lb=0, ub=1)
-            >>> portfolio_return = returns @ weights
+            >>> # 1D: Linear combination (scalar result)
+            >>> c = np.array([0.12, 0.08, 0.10])
+            >>> x = VectorVariable("x", 3)
+            >>> expr = c @ x  # LinearCombination
+
+            >>> # 2D: Matrix-vector product (vector result)
+            >>> Q = np.array([[1, 2], [3, 4]])
+            >>> y = VectorVariable("y", 2)
+            >>> Qy = Q @ y  # MatrixVectorProduct
+            >>> x.dot(Q @ x)  # Quadratic form: x · (Qx) = xᵀQx
         """
-        return LinearCombination(np.asarray(other), self)
+        arr = np.asarray(other)
+        if arr.ndim == 1:
+            return LinearCombination(arr, self)
+        elif arr.ndim == 2:
+            from optyx.core.matrices import MatrixVectorProduct
+
+            return MatrixVectorProduct(arr, self)
+        else:
+            raise WrongDimensionalityError(
+                context="array @ vector",
+                expected_ndim=2,
+                got_ndim=arr.ndim,
+            )
 
     def to_numpy(self, solution: Mapping[str, float]) -> np.ndarray:
         """Extract solution values as a NumPy array.
@@ -910,7 +1093,11 @@ class VectorVariable:
         """
         array = np.asarray(array)
         if array.ndim != 1:
-            raise ValueError(f"Expected 1D array, got {array.ndim}D")
+            raise WrongDimensionalityError(
+                context="VectorVariable.from_numpy",
+                expected_ndim=1,
+                got_ndim=array.ndim,
+            )
         return cls(name, len(array), lb=lb, ub=ub, domain=domain)
 
 
@@ -964,10 +1151,16 @@ def _vector_constraint(
         # Handle numpy arrays and lists
         right_arr = np.asarray(right)
         if right_arr.ndim != 1:
-            raise ValueError(f"Expected 1D array, got shape {right_arr.shape}")
+            raise WrongDimensionalityError(
+                context=f"vector constraint ({sense})",
+                expected_ndim=1,
+                got_ndim=right_arr.ndim,
+            )
         if len(right_arr) != len(left_exprs):
-            raise ValueError(
-                f"Vector size mismatch: {len(left_exprs)} vs {len(right_arr)}"
+            raise DimensionMismatchError(
+                operation=f"vector constraint ({sense})",
+                left_shape=len(left_exprs),
+                right_shape=len(right_arr),
             )
         # Create constraints with scalar values from array
         return [
@@ -975,7 +1168,11 @@ def _vector_constraint(
             for left_expr, val in zip(left_exprs, right_arr)
         ]
     else:
-        raise TypeError(f"Unsupported operand type: {type(right)}")
+        raise InvalidOperationError(
+            operation=f"vector constraint ({sense})",
+            operand_types=(type(right).__name__,),
+            suggestion="Use VectorVariable, VectorExpression, scalar, numpy array, or list.",
+        )
 
     # Create element-wise constraints
     return [
@@ -1014,21 +1211,41 @@ def _vector_binary_op(
         right_exprs = [Constant(right)] * len(left_exprs)
     elif isinstance(right, VectorVariable):
         if len(right) != len(left_exprs):
-            raise ValueError(f"Vector size mismatch: {len(left_exprs)} vs {len(right)}")
+            raise DimensionMismatchError(
+                operation=f"vector {op}",
+                left_shape=len(left_exprs),
+                right_shape=len(right),
+            )
         right_exprs = list(right._variables)
     elif isinstance(right, VectorExpression):
         if right.size != len(left_exprs):
-            raise ValueError(f"Vector size mismatch: {len(left_exprs)} vs {right.size}")
+            raise DimensionMismatchError(
+                operation=f"vector {op}",
+                left_shape=len(left_exprs),
+                right_shape=right.size,
+            )
         right_exprs = list(right._expressions)
     elif isinstance(right, (np.ndarray, list)):
         arr = np.asarray(right)
         if arr.ndim != 1:
-            raise ValueError(f"Expected 1D array, got shape {arr.shape}")
+            raise WrongDimensionalityError(
+                context=f"vector {op}",
+                expected_ndim=1,
+                got_ndim=arr.ndim,
+            )
         if len(arr) != len(left_exprs):
-            raise ValueError(f"Vector size mismatch: {len(left_exprs)} vs {len(arr)}")
+            raise DimensionMismatchError(
+                operation=f"vector {op}",
+                left_shape=len(left_exprs),
+                right_shape=len(arr),
+            )
         right_exprs = [Constant(val) for val in arr]
     else:
-        raise TypeError(f"Unsupported operand type: {type(right)}")
+        raise InvalidOperationError(
+            operation=f"vector {op}",
+            operand_types=(type(right).__name__,),
+            suggestion="Use VectorVariable, VectorExpression, scalar, numpy array, or list.",
+        )
 
     # Create element-wise operations
     result_exprs = [
@@ -1065,8 +1282,10 @@ def vector_sum(vector: VectorVariable | VectorExpression) -> VectorSum | Express
             result = result + expr
         return result
     else:
-        raise TypeError(
-            f"Expected VectorVariable or VectorExpression, got {type(vector)}"
+        raise InvalidOperationError(
+            operation="vector_sum",
+            operand_types=(type(vector).__name__,),
+            suggestion="Use VectorVariable or VectorExpression.",
         )
 
 
@@ -1094,4 +1313,8 @@ def norm(vector: VectorVariable | VectorExpression, ord: int = 2) -> L2Norm | L1
     elif ord == 1:
         return L1Norm(vector)
     else:
-        raise ValueError(f"Unsupported norm order: {ord}. Use 1 or 2.")
+        raise InvalidOperationError(
+            operation="norm",
+            operand_types=(f"ord={ord}",),
+            suggestion="Supported norm orders: 1 (L1/Manhattan) or 2 (L2/Euclidean).",
+        )

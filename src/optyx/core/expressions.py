@@ -8,6 +8,8 @@ from typing import Mapping
 
 import numpy as np
 
+from optyx.core.errors import MissingValueError, UnknownOperatorError
+
 if TYPE_CHECKING:
     from numpy.typing import ArrayLike, NDArray
     from optyx.constraints import Constraint
@@ -44,6 +46,18 @@ class Expression(ABC):
     def get_variables(self) -> set[Variable]:
         """Return all variables this expression depends on."""
         pass
+
+    def jacobian_row(self, variables: list[Variable]) -> list[Expression] | None:
+        """Return gradient with respect to each variable in O(1) if possible.
+
+        Args:
+            variables: List of variables to compute gradients for.
+
+        Returns:
+            List of gradient expressions if O(1) computation is possible,
+            None otherwise (fall back to individual gradient calls).
+        """
+        return None
 
     def __hash__(self) -> int:
         if not hasattr(self, "_hash") or self._hash is None:
@@ -234,7 +248,10 @@ class Variable(Expression):
         self, values: Mapping[str, ArrayLike | float]
     ) -> NDArray[np.floating] | float:
         if self.name not in values:
-            raise KeyError(f"Variable '{self.name}' not found in values")
+            raise MissingValueError(
+                variable_name=self.name,
+                available_keys=list(values.keys()),
+            )
         value = values[self.name]
         # Return as-is, can be array or scalar
         return value  # type: ignore[return-value]
@@ -295,6 +312,53 @@ class BinaryOp(Expression):
     def get_variables(self) -> set[Variable]:
         return self.left.get_variables() | self.right.get_variables()
 
+    def jacobian_row(self, variables: list[Variable]) -> list[Expression] | None:
+        """Propagate jacobian_row for simple cases.
+
+        For f(x) + c or f(x) - c where c is constant, Jacobian equals Jacobian of f(x).
+        For c * f(x), Jacobian equals c * Jacobian of f(x).
+
+        Returns:
+            List of expressions, or None if optimization not applicable.
+        """
+        # Case: f(x) + constant or f(x) - constant
+        if self.op in ("+", "-") and isinstance(self.right, Constant):
+            if hasattr(self.left, "jacobian_row"):
+                return self.left.jacobian_row(variables)
+
+        # Case: constant + f(x)
+        if self.op == "+" and isinstance(self.left, Constant):
+            if hasattr(self.right, "jacobian_row"):
+                return self.right.jacobian_row(variables)
+
+        # Case: constant * f(x) - scale the Jacobian
+        if self.op == "*" and isinstance(self.left, Constant):
+            if hasattr(self.right, "jacobian_row"):
+                row = self.right.jacobian_row(variables)
+                if row is not None:
+                    c = self.left.value
+                    return [
+                        Constant(c * e.value)
+                        if isinstance(e, Constant)
+                        else BinaryOp(Constant(c), e, "*")
+                        for e in row
+                    ]
+
+        # Case: f(x) * constant - scale the Jacobian
+        if self.op == "*" and isinstance(self.right, Constant):
+            if hasattr(self.left, "jacobian_row"):
+                row = self.left.jacobian_row(variables)
+                if row is not None:
+                    c = self.right.value
+                    return [
+                        Constant(c * e.value)
+                        if isinstance(e, Constant)
+                        else BinaryOp(e, Constant(c), "*")
+                        for e in row
+                    ]
+
+        return None
+
     def __repr__(self) -> str:
         return f"({self.left!r} {self.op} {self.right!r})"
 
@@ -332,7 +396,10 @@ class UnaryOp(Expression):
 
     def __init__(self, operand: Expression, op: str) -> None:
         if op not in self._OPS:
-            raise ValueError(f"Unknown unary operator: {op}")
+            raise UnknownOperatorError(
+                operator=op,
+                context="unary expression",
+            )
         self.operand = operand
         self.op = op
         self._numpy_func = self._OPS[op]

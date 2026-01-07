@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-<!-- Next release changes go here -->
+### Added
+- **Performance tutorial**: New `docs/tutorials/performance.qmd` explaining loop vs vectorized patterns, with benchmarks showing 50-100x speedups for vector operations.
+- **`full_traversal` option**: `_estimate_tree_depth()` now supports exact depth calculation for any tree shape (not just left-leaning).
+- **`increased_recursion_limit()` context manager**: Utility for safely increasing Python's recursion limit when processing deep expression trees.
+
+### Changed
+- **Error handling audit**: Replaced generic `ValueError`/`TypeError` with descriptive custom exceptions throughout the codebase. Error messages now include context, expected values, and actionable suggestions.
+
+### Fixed
+- Corrected error class signatures (`InvalidSizeError`, `ShapeMismatchError`, `InvalidExpressionError`, `IntegerVariableError`) to use consistent parameter names.
+- Fixed type annotations in `InvalidOperationError` to accept both types and string descriptions.
 
 ## [1.2.1] - 2026-01-05
 

@@ -21,6 +21,7 @@ from optyx.core.matrices import (
     frobenius_norm,
 )
 from optyx.core.parameters import Parameter, VectorParameter, MatrixParameter
+from optyx.core.autodiff import increased_recursion_limit
 from optyx.core.functions import (
     sin,
     cos,
@@ -92,4 +93,6 @@ __all__ = [
     "Problem",
     "Solution",
     "SolverStatus",
+    # Utilities
+    "increased_recursion_limit",
 ]
