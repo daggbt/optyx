@@ -18,10 +18,11 @@ Problem:
 import time
 
 import numpy as np
+import optyx
 from optyx import VectorVariable, Problem, Parameter
 
 print("=" * 70)
-print("OPTYX v1.2.0 - Commodity Portfolio Optimization Demo")
+print(f"OPTYX v{optyx.__version__} - Commodity Portfolio Optimization Demo")
 print("=" * 70)
 
 # =============================================================================
@@ -68,19 +69,19 @@ for i in range(n_assets):
     )
 
 # =============================================================================
-# Decision Variables (v1.2.0: VectorVariable)
+# Decision Variables
 # =============================================================================
 print("\n🔧 Creating Decision Variables")
 print("-" * 50)
 
-# v1.2.0: Create all weights in one line with VectorVariable
+# Create all weights in one line with VectorVariable
 w = VectorVariable("w", n_assets, lb=0, ub=1)
 
 print(f"Variables: VectorVariable 'w' with {len(w)} elements")
 print(f"Bounds: [{w.lb}, {w.ub}]")
 
 # =============================================================================
-# Portfolio Expressions (v1.2.0: Vectorized Operations)
+# Portfolio Expressions (Vectorized Operations)
 # =============================================================================
 
 # Portfolio return: μᵀw via dot product (no loops!)
@@ -125,7 +126,8 @@ print(f"{'Commodity':<12} {'Weight':>10} {'Contribution':>14}")
 print("-" * 38)
 
 # Extract weights efficiently
-opt_weights = np.array([solution1[f"w[{i}]"] for i in range(n_assets)])
+# opt_weights = np.array([solution1[f"w[{i}]"] for i in range(n_assets)])
+opt_weights = w.to_numpy(solution1.values)
 total_weight = 0
 
 for i in range(n_assets):
