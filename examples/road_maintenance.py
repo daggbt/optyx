@@ -125,7 +125,7 @@ prob.subject_to(budget.sum() <= total_budget)
 sol = prob.solve()  # method="trust-constr")
 
 print(f"Solver status: {sol.status.value}")
-print(f"Solve time: {sol.solve_time*1000:.1f} ms")
+print(f"Solve time: {sol.solve_time * 1000:.1f} ms")
 
 # =============================================================================
 # 6. Results

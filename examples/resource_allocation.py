@@ -78,11 +78,11 @@ min_allocation = 0.0  # Can't invest negative
 max_allocation = 0.10  # Max 10% per project (diversification)
 
 print(
-    f"  Expected returns: {expected_returns.min()*100:.1f}% - {expected_returns.max()*100:.1f}%"
+    f"  Expected returns: {expected_returns.min() * 100:.1f}% - {expected_returns.max() * 100:.1f}%"
 )
 print(f"  Risk scores: {risk_scores.min():.2f} - {risk_scores.max():.2f}")
-print(f"  Max per project: {max_allocation*100:.0f}%")
-print(f"  Max per sector: {max_sector_exposure*100:.0f}%")
+print(f"  Max per project: {max_allocation * 100:.0f}%")
+print(f"  Max per sector: {max_sector_exposure * 100:.0f}%")
 
 # =============================================================================
 # Build the Model (v1.2.0: VectorVariable)
@@ -120,7 +120,7 @@ for s in range(n_sectors):
     problem = problem.subject_to(sector_exposure <= max_sector_exposure)
 
 build_time = time.perf_counter() - build_start
-print(f"  Model built in {build_time*1000:.1f} ms")
+print(f"  Model built in {build_time * 1000:.1f} ms")
 print(f"  Variables: {n_projects}")
 print(f"  Constraints: {1 + n_resources + n_sectors} (budget + resources + sectors)")
 
@@ -134,7 +134,7 @@ solution = problem.solve(method="SLSQP")
 
 solve_time = time.perf_counter() - solve_start
 print(f"  Status: {solution.status}")
-print(f"  Solve time: {solve_time*1000:.1f} ms")
+print(f"  Solve time: {solve_time * 1000:.1f} ms")
 
 # =============================================================================
 # Analyze Results
@@ -148,10 +148,10 @@ opt_alloc = np.array([solution[f"alloc[{i}]"] for i in range(n_projects)])
 
 # Summary statistics
 print("\n📈 Allocation Summary:")
-print(f"  Total allocated: {opt_alloc.sum()*100:.2f}%")
+print(f"  Total allocated: {opt_alloc.sum() * 100:.2f}%")
 print(f"  Non-zero allocations: {np.sum(opt_alloc > 0.001)}")
-print(f"  Max allocation: {opt_alloc.max()*100:.2f}%")
-print(f"  Mean allocation (non-zero): {opt_alloc[opt_alloc > 0.001].mean()*100:.2f}%")
+print(f"  Max allocation: {opt_alloc.max() * 100:.2f}%")
+print(f"  Mean allocation (non-zero): {opt_alloc[opt_alloc > 0.001].mean() * 100:.2f}%")
 
 # Portfolio metrics
 portfolio_return = opt_alloc @ expected_returns
@@ -159,9 +159,9 @@ portfolio_risk = opt_alloc @ risk_scores
 risk_adj_return = solution.objective_value
 
 print("\n📊 Portfolio Metrics:")
-print(f"  Expected Return: {portfolio_return*100:.2f}%")
+print(f"  Expected Return: {portfolio_return * 100:.2f}%")
 print(f"  Weighted Risk Score: {portfolio_risk:.4f}")
-print(f"  Risk-Adjusted Return: {risk_adj_return*100:.2f}%")
+print(f"  Risk-Adjusted Return: {risk_adj_return * 100:.2f}%")
 
 # Resource utilization
 print("\n📦 Resource Utilization:")
@@ -176,7 +176,7 @@ for r in range(n_resources):
 print("\n🏢 Sector Exposure:")
 for s in range(n_sectors):
     exposure = opt_alloc @ sector_assignments[s]
-    print(f"  {sector_names[s]}: {exposure*100:.1f}%")
+    print(f"  {sector_names[s]}: {exposure * 100:.1f}%")
 
 # Top 10 projects by allocation
 print("\n🏆 Top 10 Projects by Allocation:")
@@ -186,8 +186,8 @@ print("  " + "-" * 50)
 sorted_indices = np.argsort(opt_alloc)[::-1]
 for rank, idx in enumerate(sorted_indices[:10], 1):
     print(
-        f"  {rank:<6} Project {idx:<4} {opt_alloc[idx]*100:>10.2f}% "
-        f"{expected_returns[idx]*100:>8.1f}% {risk_scores[idx]:>10.2f}"
+        f"  {rank:<6} Project {idx:<4} {opt_alloc[idx] * 100:>10.2f}% "
+        f"{expected_returns[idx] * 100:>8.1f}% {risk_scores[idx]:>10.2f}"
     )
 
 # =============================================================================
@@ -217,7 +217,7 @@ for risk_level in risk_levels:
 
     sensitivity_results.append((risk_level, ret, risk, elapsed))
     print(
-        f"{risk_level:>15.1f} {ret*100:>9.2f}% {risk:>10.4f} {elapsed*1000:>10.1f} ms"
+        f"{risk_level:>15.1f} {ret * 100:>9.2f}% {risk:>10.4f} {elapsed * 1000:>10.1f} ms"
     )
 
 # =============================================================================
@@ -285,7 +285,7 @@ for n in scales:
 
     speedup = loop_time / vec_time if vec_time > 0 else float("inf")
     print(
-        f"{n:>8} {loop_time*1000:>13.2f} ms {vec_time*1000:>13.2f} ms {speedup:>9.1f}x"
+        f"{n:>8} {loop_time * 1000:>13.2f} ms {vec_time * 1000:>13.2f} ms {speedup:>9.1f}x"
     )
 
 # =============================================================================
