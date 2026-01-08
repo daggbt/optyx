@@ -55,6 +55,7 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
     from optyx.core.expressions import Expression, Variable
+    from optyx.core.vectors import VectorPowerSum, VectorUnarySum
 
 
 def compile_expression(
@@ -156,6 +157,10 @@ def _build_evaluator(
         LinearCombination,
         VectorSum,
         VectorVariable,
+        ElementwisePower,
+        VectorPowerSum,
+        ElementwiseUnary,
+        VectorUnarySum,
     )
     from optyx.core.matrices import QuadraticForm
 
@@ -214,6 +219,32 @@ def _build_evaluator(
         Q = expr.matrix
         vec_fn = _build_vector_evaluator(expr.vector, var_indices)
         return lambda x, vf=vec_fn, Q=Q: float(vf(x) @ Q @ vf(x))
+
+    elif isinstance(expr, VectorPowerSum):
+        # sum(x ** k) - efficient numpy implementation
+        indices = np.array([var_indices[v.name] for v in expr.vector._variables])
+        power = expr.power
+        return lambda x, idx=indices, k=power: float(np.sum(x[idx] ** k))
+
+    elif isinstance(expr, VectorUnarySum):
+        # sum(f(x)) - efficient numpy implementation
+        indices = np.array([var_indices[v.name] for v in expr.vector._variables])
+        op = expr.op
+        numpy_func = VectorUnarySum._NUMPY_FUNCS[op]
+        return lambda x, idx=indices, f=numpy_func: float(np.sum(f(x[idx])))
+
+    elif isinstance(expr, ElementwisePower):
+        # x ** k element-wise - returns array
+        indices = np.array([var_indices[v.name] for v in expr.vector._variables])
+        power = expr.power
+        return lambda x, idx=indices, k=power: x[idx] ** k
+
+    elif isinstance(expr, ElementwiseUnary):
+        # f(x) element-wise - returns array
+        indices = np.array([var_indices[v.name] for v in expr.vector._variables])
+        op = expr.op
+        numpy_func = ElementwiseUnary._NUMPY_FUNCS[op]
+        return lambda x, idx=indices, f=numpy_func: f(x[idx])
 
     elif isinstance(expr, BinaryOp):
         left_fn = _build_evaluator(expr.left, var_indices)
@@ -477,6 +508,10 @@ def compile_gradient(
     Returns a function that computes the gradient vector at a given point.
     Uses symbolic differentiation via the autodiff module for exact gradients.
 
+    For vectorized expression types (VectorPowerSum, VectorUnarySum),
+    generates O(1) numpy-based gradient functions instead of n separate
+    compiled expressions.
+
     Args:
         expr: The expression to differentiate.
         variables: Ordered list of variables.
@@ -491,6 +526,17 @@ def compile_gradient(
         >>> grad_fn = compile_gradient(expr, [x, y])
         >>> grad_fn(np.array([3.0, 4.0]))  # Returns [6.0, 8.0]
     """
+    from optyx.core.vectors import VectorPowerSum, VectorUnarySum
+
+    # Fast path for VectorPowerSum: gradient is k * x^(k-1), vectorized
+    if isinstance(expr, VectorPowerSum):
+        return _compile_vectorized_power_gradient(expr, variables)
+
+    # Fast path for VectorUnarySum: gradient is f'(x), vectorized
+    if isinstance(expr, VectorUnarySum):
+        return _compile_vectorized_unary_gradient(expr, variables)
+
+    # General path: symbolic differentiation
     from optyx.core.autodiff import gradient
 
     # Compute symbolic gradient for each variable
@@ -505,6 +551,264 @@ def compile_gradient(
         return _sanitize_derivatives(raw)
 
     return symbolic_gradient
+
+
+def _compile_vectorized_power_gradient(
+    expr: "VectorPowerSum",
+    variables: list["Variable"],
+) -> Callable[[NDArray[np.floating]], NDArray[np.floating]]:
+    """Compile O(1) gradient for VectorPowerSum.
+
+    For sum(x**k), gradient w.r.t. x[i] is k * x[i] ** (k-1).
+    This generates a single numpy operation instead of n separate functions.
+    """
+    k = expr.power
+    n = len(variables)
+
+    # Build index mapping: which positions in the gradient correspond to vector vars
+    var_name_to_idx = {v.name: i for i, v in enumerate(variables)}
+    vector_vars = expr.vector._variables
+    indices = np.array([var_name_to_idx[v.name] for v in vector_vars], dtype=np.intp)
+
+    # Check if vector variables form a contiguous block starting at 0
+    if len(indices) == n and np.array_equal(indices, np.arange(n)):
+        # All variables are the vector - simple case
+        if k == 1:
+            ones = np.ones(n)
+
+            def grad_power_k1(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                return ones
+
+            return grad_power_k1
+        elif k == 2:
+
+            def grad_power_k2(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                return 2.0 * x
+
+            return grad_power_k2
+        else:
+
+            def grad_power_general(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                raw = k * np.power(x, k - 1)
+                return _sanitize_derivatives(raw)
+
+            return grad_power_general
+    else:
+        # Sparse case: only some variables are in the vector
+        def grad_power_sparse(x: NDArray[np.floating]) -> NDArray[np.floating]:
+            result = np.zeros(n)
+            result[indices] = k * np.power(x[indices], k - 1)
+            return _sanitize_derivatives(result)
+
+        return grad_power_sparse
+
+
+def _compile_vectorized_unary_gradient(
+    expr: "VectorUnarySum",
+    variables: list["Variable"],
+) -> Callable[[NDArray[np.floating]], NDArray[np.floating]]:
+    """Compile O(1) gradient for VectorUnarySum.
+
+    For sum(f(x)), gradient w.r.t. x[i] is f'(x[i]).
+    This generates vectorized numpy operations instead of n separate functions.
+    """
+    op = expr.op
+    n = len(variables)
+
+    # Build index mapping
+    var_name_to_idx = {v.name: i for i, v in enumerate(variables)}
+    vector_vars = expr.vector._variables
+    indices = np.array([var_name_to_idx[v.name] for v in vector_vars], dtype=np.intp)
+
+    # Check if all variables are in the vector
+    is_full = len(indices) == n and np.array_equal(indices, np.arange(n))
+
+    # Select derivative function based on operation
+    if op == "sin":
+        # d/dx sin(x) = cos(x)
+        if is_full:
+
+            def grad_sin(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                return np.cos(x)
+
+            return grad_sin
+        else:
+
+            def grad_sin_sparse(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                result = np.zeros(n)
+                result[indices] = np.cos(x[indices])
+                return result
+
+            return grad_sin_sparse
+
+    elif op == "cos":
+        # d/dx cos(x) = -sin(x)
+        if is_full:
+
+            def grad_cos(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                return -np.sin(x)
+
+            return grad_cos
+        else:
+
+            def grad_cos_sparse(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                result = np.zeros(n)
+                result[indices] = -np.sin(x[indices])
+                return result
+
+            return grad_cos_sparse
+
+    elif op == "exp":
+        # d/dx exp(x) = exp(x)
+        if is_full:
+
+            def grad_exp(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                return np.exp(x)
+
+            return grad_exp
+        else:
+
+            def grad_exp_sparse(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                result = np.zeros(n)
+                result[indices] = np.exp(x[indices])
+                return result
+
+            return grad_exp_sparse
+
+    elif op == "log":
+        # d/dx log(x) = 1/x
+        if is_full:
+
+            def grad_log(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                raw = 1.0 / x
+                return _sanitize_derivatives(raw)
+
+            return grad_log
+        else:
+
+            def grad_log_sparse(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                result = np.zeros(n)
+                result[indices] = 1.0 / x[indices]
+                return _sanitize_derivatives(result)
+
+            return grad_log_sparse
+
+    elif op == "sqrt":
+        # d/dx sqrt(x) = 1 / (2 * sqrt(x))
+        if is_full:
+
+            def grad_sqrt(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                raw = 0.5 / np.sqrt(x)
+                return _sanitize_derivatives(raw)
+
+            return grad_sqrt
+        else:
+
+            def grad_sqrt_sparse(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                result = np.zeros(n)
+                result[indices] = 0.5 / np.sqrt(x[indices])
+                return _sanitize_derivatives(result)
+
+            return grad_sqrt_sparse
+
+    elif op == "sinh":
+        # d/dx sinh(x) = cosh(x)
+        if is_full:
+
+            def grad_sinh(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                return np.cosh(x)
+
+            return grad_sinh
+        else:
+
+            def grad_sinh_sparse(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                result = np.zeros(n)
+                result[indices] = np.cosh(x[indices])
+                return result
+
+            return grad_sinh_sparse
+
+    elif op == "cosh":
+        # d/dx cosh(x) = sinh(x)
+        if is_full:
+
+            def grad_cosh(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                return np.sinh(x)
+
+            return grad_cosh
+        else:
+
+            def grad_cosh_sparse(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                result = np.zeros(n)
+                result[indices] = np.sinh(x[indices])
+                return result
+
+            return grad_cosh_sparse
+
+    elif op == "tanh":
+        # d/dx tanh(x) = 1 - tanh(x)^2
+        if is_full:
+
+            def grad_tanh(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                return 1.0 - np.tanh(x) ** 2
+
+            return grad_tanh
+        else:
+
+            def grad_tanh_sparse(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                result = np.zeros(n)
+                result[indices] = 1.0 - np.tanh(x[indices]) ** 2
+                return result
+
+            return grad_tanh_sparse
+
+    elif op == "tan":
+        # d/dx tan(x) = 1 / cos(x)^2
+        if is_full:
+
+            def grad_tan(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                raw = 1.0 / np.cos(x) ** 2
+                return _sanitize_derivatives(raw)
+
+            return grad_tan
+        else:
+
+            def grad_tan_sparse(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                result = np.zeros(n)
+                result[indices] = 1.0 / np.cos(x[indices]) ** 2
+                return _sanitize_derivatives(result)
+
+            return grad_tan_sparse
+
+    elif op == "abs":
+        # d/dx |x| = sign(x)
+        if is_full:
+
+            def grad_abs(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                return np.sign(x)
+
+            return grad_abs
+        else:
+
+            def grad_abs_sparse(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                result = np.zeros(n)
+                result[indices] = np.sign(x[indices])
+                return result
+
+            return grad_abs_sparse
+
+    else:
+        # Fallback to general symbolic differentiation
+        from optyx.core.autodiff import gradient
+
+        grad_exprs = [gradient(expr, var) for var in variables]
+        grad_fns = [compile_expression(g, variables) for g in grad_exprs]
+
+        def fallback_gradient(x: NDArray[np.floating]) -> NDArray[np.floating]:
+            raw = np.array([fn(x) for fn in grad_fns])
+            return _sanitize_derivatives(raw)
+
+        return fallback_gradient
 
 
 class CompiledExpression:

@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from optyx.analysis import LPData
     from optyx.constraints import Constraint
     from optyx.core.expressions import Expression, Variable
+    from optyx.core.vectors import VectorVariable
     from optyx.solution import Solution
 
 
@@ -47,6 +48,44 @@ def _natural_sort_key(var: Variable) -> tuple:
     parts = re.split(r"(\d+)", name)
     # Convert number parts to integers for proper numeric sorting
     return tuple(int(p) if p.isdigit() else p for p in parts)
+
+
+def _try_get_single_vector_source(expr: "Expression") -> "VectorVariable | None":
+    """Try to extract the single VectorVariable that an expression depends on.
+
+    Returns the VectorVariable if the expression only uses variables from one
+    VectorVariable, otherwise None. This enables O(1) variable extraction
+    for common single-VectorVariable problems.
+    """
+    from optyx.core.vectors import VectorVariable, LinearCombination, VectorSum
+    from optyx.core.expressions import BinaryOp, Constant
+
+    # Direct VectorSum
+    if isinstance(expr, VectorSum):
+        if isinstance(expr.vector, VectorVariable):
+            return expr.vector
+        return None
+
+    # LinearCombination (e.g., c @ x)
+    if isinstance(expr, LinearCombination):
+        if isinstance(expr.vector, VectorVariable):
+            return expr.vector
+        return None
+
+    # BinaryOp - check if one side is Constant and other is vector expression
+    if isinstance(expr, BinaryOp):
+        if isinstance(expr.left, Constant):
+            return _try_get_single_vector_source(expr.right)
+        if isinstance(expr.right, Constant):
+            return _try_get_single_vector_source(expr.left)
+        # Both sides could be same vector
+        left_src = _try_get_single_vector_source(expr.left)
+        right_src = _try_get_single_vector_source(expr.right)
+        if left_src is not None and left_src is right_src:
+            return left_src
+        return None
+
+    return None
 
 
 class Problem:
@@ -266,6 +305,28 @@ class Problem:
 
         from optyx.core.expressions import get_all_variables
 
+        # Fast path: check if objective is based on a single VectorVariable
+        # In this case, we can skip the expensive set operations and sorting
+        if self._objective is not None:
+            source_vector = _try_get_single_vector_source(self._objective)
+            if source_vector is not None:
+                # Check if all constraints use the same VectorVariable
+                all_same = True
+                for constraint in self._constraints:
+                    constraint_source = _try_get_single_vector_source(constraint.expr)
+                    if (
+                        constraint_source is None
+                        or constraint_source is not source_vector
+                    ):
+                        all_same = False
+                        break
+
+                if all_same:
+                    # All variables from one VectorVariable - already in order!
+                    self._variables = list(source_vector._variables)
+                    return self._variables
+
+        # General case: collect from all expressions and sort
         all_vars: set[Variable] = set()
 
         if self._objective is not None:

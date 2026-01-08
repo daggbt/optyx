@@ -18,6 +18,7 @@ Problem:
 import time
 
 import numpy as np
+import optyx
 from optyx import VectorVariable, Problem, Parameter
 
 print("=" * 70)
