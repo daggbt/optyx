@@ -2054,9 +2054,9 @@ dev = [
 requires-dist = [
     { name = "cvxpy", marker = "extra == 'benchmarks'", specifier = ">=1.4.0" },
     { name = "matplotlib", marker = "extra == 'benchmarks'", specifier = ">=3.10.0" },
-    { name = "numpy", specifier = ">=1.21" },
+    { name = "numpy", specifier = ">=1.22" },
     { name = "pyomo", marker = "extra == 'benchmarks'", specifier = ">=6.7.0" },
-    { name = "scipy", specifier = ">=1.7" },
+    { name = "scipy", specifier = ">=1.8" },
 ]
 provides-extras = ["benchmarks"]
 

@@ -40,7 +40,7 @@ jobs:
       - name: Install minimum dependency versions
         if: matrix.deps == 'min'
         run: |
-          uv pip install numpy==1.21.0 scipy==1.7.0
+          uv pip install numpy==1.22.0 scipy==1.8.0
       
       - name: Run ruff linting
         run: uv run ruff check src tests
