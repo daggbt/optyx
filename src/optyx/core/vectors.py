@@ -1545,6 +1545,8 @@ def _vector_binary_op(
     # Get expressions from left
     if isinstance(left, VectorVariable):
         left_exprs = list(left._variables)
+    elif isinstance(left, ElementwisePower):
+        left_exprs = list(left)  # ElementwisePower is iterable
     else:
         left_exprs = list(left._expressions)
 
@@ -1568,6 +1570,14 @@ def _vector_binary_op(
                 right_shape=right.size,
             )
         right_exprs = list(right._expressions)
+    elif isinstance(right, ElementwisePower):
+        if right.size != len(left_exprs):
+            raise DimensionMismatchError(
+                operation=f"vector {op}",
+                left_shape=len(left_exprs),
+                right_shape=right.size,
+            )
+        right_exprs = list(right)  # ElementwisePower is iterable
     elif isinstance(right, (np.ndarray, list)):
         arr = np.asarray(right)
         if arr.ndim != 1:
