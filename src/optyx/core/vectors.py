@@ -391,6 +391,346 @@ class LinearCombination(Expression):
         return f"LinearCombination({len(self.coefficients)} coeffs, {vec_name})"
 
 
+# =============================================================================
+# Vectorized NLP Expression Types
+# =============================================================================
+# These expression types enable O(1) numpy-based evaluation and gradient
+# computation for common non-linear patterns, avoiding O(n) expression tree
+# traversal.
+
+
+class ElementwisePower(Expression):
+    """Element-wise power of a vector: x[i] ** k for each element.
+
+    This is a vector expression representing x ** k element-wise.
+    Enables O(1) evaluation using numpy instead of n separate BinaryOp nodes.
+
+    Args:
+        vector: The VectorVariable to raise to power.
+        power: The exponent (constant).
+
+    Example:
+        >>> x = VectorVariable("x", 3)
+        >>> x_sq = ElementwisePower(x, 2)
+        >>> x_sq.evaluate({"x[0]": 1, "x[1]": 2, "x[2]": 3})
+        array([1., 4., 9.])
+    """
+
+    __slots__ = ("vector", "power")
+
+    def __init__(self, vector: VectorVariable, power: float | int) -> None:
+        self.vector = vector
+        self.power = float(power)
+
+    @property
+    def size(self) -> int:
+        """Number of elements."""
+        return self.vector.size
+
+    def evaluate(self, values: Mapping[str, ArrayLike | float]) -> NDArray[np.floating]:
+        """Evaluate element-wise power using numpy."""
+        vals = np.array([v.evaluate(values) for v in self.vector._variables])
+        return vals**self.power
+
+    def get_variables(self) -> set[Variable]:
+        """Return all variables this expression depends on."""
+        return set(self.vector._variables)
+
+    def sum(self) -> "VectorPowerSum":
+        """Sum of all powered elements: sum(x ** k).
+
+        Returns VectorPowerSum for O(1) evaluation instead of nested BinaryOps.
+        """
+        return VectorPowerSum(self.vector, self.power)
+
+    def __iter__(self) -> Iterator[Expression]:
+        """Iterate over element-wise power expressions."""
+        for var in self.vector._variables:
+            yield BinaryOp(var, Constant(self.power), "**")
+
+    def __getitem__(self, idx: int) -> Expression:
+        """Get single element: x[i] ** k."""
+        return BinaryOp(self.vector._variables[idx], Constant(self.power), "**")
+
+    def __repr__(self) -> str:
+        return f"ElementwisePower({self.vector.name}, {self.power})"
+
+
+class VectorPowerSum(Expression):
+    """Sum of element-wise powers: sum(x ** k) = x[0]**k + x[1]**k + ... + x[n-1]**k.
+
+    This is a scalar expression representing sum(x ** k).
+    Enables O(1) evaluation and gradient computation using numpy.
+
+    Args:
+        vector: The VectorVariable to raise to power and sum.
+        power: The exponent (constant).
+
+    Example:
+        >>> x = VectorVariable("x", 3)
+        >>> s = VectorPowerSum(x, 2)
+        >>> s.evaluate({"x[0]": 1, "x[1]": 2, "x[2]": 3})
+        14.0  # 1^2 + 2^2 + 3^2
+    """
+
+    __slots__ = ("vector", "power")
+
+    def __init__(self, vector: VectorVariable, power: float | int) -> None:
+        self.vector = vector
+        self.power = float(power)
+
+    def evaluate(self, values: Mapping[str, ArrayLike | float]) -> float:
+        """Evaluate sum of powers using numpy."""
+        vals = np.array([v.evaluate(values) for v in self.vector._variables])
+        return float(np.sum(vals**self.power))
+
+    def get_variables(self) -> set[Variable]:
+        """Return all variables this expression depends on."""
+        return set(self.vector._variables)
+
+    def jacobian_row(self, variables: list[Variable]) -> list[Expression] | None:
+        """Return Jacobian row in O(n).
+
+        For VectorPowerSum(x, k), gradient w.r.t. x[i] is k * x[i] ** (k-1).
+
+        Returns:
+            List of expressions, or None if optimization not applicable.
+        """
+        k = self.power
+        my_vars = set(self.vector._variables)
+        result: list[Expression] = []
+
+        for var in variables:
+            if var in my_vars:
+                # Gradient: k * x[i] ** (k-1)
+                if k == 1:
+                    result.append(Constant(1.0))
+                elif k == 2:
+                    # 2 * x[i]
+                    result.append(BinaryOp(Constant(2.0), var, "*"))
+                else:
+                    # k * x[i] ** (k-1)
+                    power_term = BinaryOp(var, Constant(k - 1), "**")
+                    result.append(BinaryOp(Constant(k), power_term, "*"))
+            else:
+                result.append(Constant(0.0))
+
+        return result
+
+    def __repr__(self) -> str:
+        return f"VectorPowerSum({self.vector.name}, {self.power})"
+
+
+class ElementwiseUnary(Expression):
+    """Element-wise unary operation on a vector: f(x[i]) for each element.
+
+    This is a vector expression representing f(x) element-wise.
+    Enables O(1) evaluation using numpy instead of n separate UnaryOp nodes.
+
+    Args:
+        vector: The VectorVariable to apply function to.
+        op: The operation name ('sin', 'cos', 'exp', 'log', 'abs', 'sqrt').
+
+    Example:
+        >>> x = VectorVariable("x", 3)
+        >>> sin_x = ElementwiseUnary(x, "sin")
+        >>> sin_x.evaluate({"x[0]": 0, "x[1]": np.pi/2, "x[2]": np.pi})
+        array([0., 1., 0.])
+    """
+
+    __slots__ = ("vector", "op")
+
+    # Mapping from op name to numpy function
+    _NUMPY_FUNCS = {
+        "sin": np.sin,
+        "cos": np.cos,
+        "tan": np.tan,
+        "exp": np.exp,
+        "log": np.log,
+        "abs": np.abs,
+        "sqrt": np.sqrt,
+        "sinh": np.sinh,
+        "cosh": np.cosh,
+        "tanh": np.tanh,
+    }
+
+    def __init__(self, vector: VectorVariable, op: str) -> None:
+        if op not in self._NUMPY_FUNCS:
+            raise InvalidOperationError(
+                operation=op,
+                operand_types="VectorVariable",
+                reason=f"Unsupported operation. Supported: {list(self._NUMPY_FUNCS.keys())}",
+            )
+        self.vector = vector
+        self.op = op
+
+    @property
+    def size(self) -> int:
+        """Number of elements."""
+        return self.vector.size
+
+    def evaluate(self, values: Mapping[str, ArrayLike | float]) -> NDArray[np.floating]:
+        """Evaluate element-wise function using numpy."""
+        vals = np.array([v.evaluate(values) for v in self.vector._variables])
+        return self._NUMPY_FUNCS[self.op](vals)
+
+    def get_variables(self) -> set[Variable]:
+        """Return all variables this expression depends on."""
+        return set(self.vector._variables)
+
+    def sum(self) -> "VectorUnarySum":
+        """Sum of all function values: sum(f(x)).
+
+        Returns VectorUnarySum for O(1) evaluation.
+        """
+        return VectorUnarySum(self.vector, self.op)
+
+    def __iter__(self) -> Iterator[Expression]:
+        """Iterate over element-wise unary expressions."""
+        from optyx.core.expressions import UnaryOp
+
+        for var in self.vector._variables:
+            yield UnaryOp(var, self.op)
+
+    def __getitem__(self, idx: int) -> Expression:
+        """Get single element: f(x[i])."""
+        from optyx.core.expressions import UnaryOp
+
+        return UnaryOp(self.vector._variables[idx], self.op)
+
+    def __repr__(self) -> str:
+        return f"ElementwiseUnary({self.op}, {self.vector.name})"
+
+
+class VectorUnarySum(Expression):
+    """Sum of element-wise unary function: sum(f(x)) = f(x[0]) + f(x[1]) + ... + f(x[n-1]).
+
+    This is a scalar expression representing sum(f(x)).
+    Enables O(1) evaluation and gradient computation using numpy.
+
+    Args:
+        vector: The VectorVariable to apply function to and sum.
+        op: The operation name ('sin', 'cos', 'exp', 'log', etc.).
+
+    Example:
+        >>> x = VectorVariable("x", 3)
+        >>> s = VectorUnarySum(x, "sin")
+        >>> s.evaluate({"x[0]": 0, "x[1]": np.pi/2, "x[2]": np.pi})
+        1.0  # sin(0) + sin(pi/2) + sin(pi) ≈ 0 + 1 + 0
+    """
+
+    __slots__ = ("vector", "op")
+
+    # Mapping from op name to numpy function
+    _NUMPY_FUNCS = {
+        "sin": np.sin,
+        "cos": np.cos,
+        "tan": np.tan,
+        "exp": np.exp,
+        "log": np.log,
+        "abs": np.abs,
+        "sqrt": np.sqrt,
+        "sinh": np.sinh,
+        "cosh": np.cosh,
+        "tanh": np.tanh,
+    }
+
+    # Mapping from op to derivative op
+    _DERIVATIVE_OPS = {
+        "sin": "cos",  # d/dx sin(x) = cos(x)
+        "cos": "-sin",  # d/dx cos(x) = -sin(x)
+        "exp": "exp",  # d/dx exp(x) = exp(x)
+        "log": "1/x",  # d/dx log(x) = 1/x
+        "sqrt": "1/2sqrt",  # d/dx sqrt(x) = 1/(2*sqrt(x))
+        "sinh": "cosh",  # d/dx sinh(x) = cosh(x)
+        "cosh": "sinh",  # d/dx cosh(x) = sinh(x)
+        "tanh": "1-tanh2",  # d/dx tanh(x) = 1 - tanh(x)^2
+    }
+
+    def __init__(self, vector: VectorVariable, op: str) -> None:
+        if op not in self._NUMPY_FUNCS:
+            raise InvalidOperationError(
+                operation=op,
+                operand_types="VectorVariable",
+                reason=f"Unsupported operation. Supported: {list(self._NUMPY_FUNCS.keys())}",
+            )
+        self.vector = vector
+        self.op = op
+
+    def evaluate(self, values: Mapping[str, ArrayLike | float]) -> float:
+        """Evaluate sum of function values using numpy."""
+        vals = np.array([v.evaluate(values) for v in self.vector._variables])
+        return float(np.sum(self._NUMPY_FUNCS[self.op](vals)))
+
+    def get_variables(self) -> set[Variable]:
+        """Return all variables this expression depends on."""
+        return set(self.vector._variables)
+
+    def jacobian_row(self, variables: list[Variable]) -> list[Expression] | None:
+        """Return Jacobian row in O(n).
+
+        Returns gradient expressions based on the function's derivative.
+
+        Returns:
+            List of expressions, or None if optimization not applicable.
+        """
+        from optyx.core.expressions import UnaryOp
+
+        my_vars = set(self.vector._variables)
+        result: list[Expression] = []
+
+        for var in variables:
+            if var in my_vars:
+                # Compute derivative based on op
+                if self.op == "sin":
+                    # d/dx sin(x) = cos(x)
+                    result.append(UnaryOp(var, "cos"))
+                elif self.op == "cos":
+                    # d/dx cos(x) = -sin(x)
+                    result.append(BinaryOp(Constant(-1.0), UnaryOp(var, "sin"), "*"))
+                elif self.op == "exp":
+                    # d/dx exp(x) = exp(x)
+                    result.append(UnaryOp(var, "exp"))
+                elif self.op == "log":
+                    # d/dx log(x) = 1/x
+                    result.append(BinaryOp(Constant(1.0), var, "/"))
+                elif self.op == "sqrt":
+                    # d/dx sqrt(x) = 1/(2*sqrt(x))
+                    sqrt_x = UnaryOp(var, "sqrt")
+                    two_sqrt = BinaryOp(Constant(2.0), sqrt_x, "*")
+                    result.append(BinaryOp(Constant(1.0), two_sqrt, "/"))
+                elif self.op == "sinh":
+                    # d/dx sinh(x) = cosh(x)
+                    result.append(UnaryOp(var, "cosh"))
+                elif self.op == "cosh":
+                    # d/dx cosh(x) = sinh(x)
+                    result.append(UnaryOp(var, "sinh"))
+                elif self.op == "tanh":
+                    # d/dx tanh(x) = 1 - tanh(x)^2
+                    tanh_x = UnaryOp(var, "tanh")
+                    tanh_sq = BinaryOp(tanh_x, Constant(2.0), "**")
+                    result.append(BinaryOp(Constant(1.0), tanh_sq, "-"))
+                elif self.op == "tan":
+                    # d/dx tan(x) = 1/cos(x)^2 = sec(x)^2
+                    cos_x = UnaryOp(var, "cos")
+                    cos_sq = BinaryOp(cos_x, Constant(2.0), "**")
+                    result.append(BinaryOp(Constant(1.0), cos_sq, "/"))
+                elif self.op == "abs":
+                    # d/dx |x| = sign(x) - not smooth, approximate as x/|x|
+                    abs_x = UnaryOp(var, "abs")
+                    result.append(BinaryOp(var, abs_x, "/"))
+                else:
+                    # Fallback: return None to use general autodiff
+                    return None
+            else:
+                result.append(Constant(0.0))
+
+        return result
+
+    def __repr__(self) -> str:
+        return f"VectorUnarySum({self.op}, {self.vector.name})"
+
+
 class VectorExpression:
     """A vector of expressions (result of vector arithmetic).
 
@@ -839,9 +1179,12 @@ class VectorVariable:
         """Negate all elements: -x."""
         return VectorExpression([-v for v in self._variables])
 
-    def __pow__(self, other: float | int) -> VectorExpression:
-        """Element-wise power: x ** 2."""
-        return _vector_binary_op(self, other, "**")
+    def __pow__(self, other: float | int) -> ElementwisePower:
+        """Element-wise power: x ** 2.
+
+        Returns ElementwisePower for O(1) numpy-based evaluation.
+        """
+        return ElementwisePower(self, other)
 
     # Comparison operators - create lists of constraints
     def __le__(

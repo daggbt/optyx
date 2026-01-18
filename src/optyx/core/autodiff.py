@@ -685,6 +685,8 @@ def _register_vector_gradient_rules() -> None:
         LinearCombination,
         VectorSum,
         VectorVariable,
+        VectorPowerSum,
+        VectorUnarySum,
     )
     from optyx.core.matrices import QuadraticForm
 
@@ -917,6 +919,87 @@ def _register_vector_gradient_rules() -> None:
                 result = _simplify_add(result, term)
             return result
 
+    @register_gradient(VectorPowerSum)
+    def gradient_vector_power_sum(expr: VectorPowerSum, wrt: Variable) -> Expression:
+        """O(1) gradient for vector power sum: ∂(Σx_i^k)/∂x_j = k * x_j^(k-1).
+
+        For sum(x ** k) = x_0^k + x_1^k + ... + x_{n-1}^k:
+        - If wrt is x_j for some j, gradient is k * x_j^(k-1)
+        - If wrt is not in x, gradient is 0
+        """
+        from optyx.core.expressions import BinaryOp
+
+        vec = expr.vector
+        k = expr.power
+
+        for var in vec._variables:
+            if var.name == wrt.name:
+                if k == 1:
+                    return Constant(1.0)
+                elif k == 2:
+                    return BinaryOp(Constant(2.0), var, "*")
+                else:
+                    # k * x^(k-1)
+                    power_term = BinaryOp(var, Constant(k - 1), "**")
+                    return BinaryOp(Constant(k), power_term, "*")
+        return Constant(0.0)
+
+    @register_gradient(VectorUnarySum)
+    def gradient_vector_unary_sum(expr: VectorUnarySum, wrt: Variable) -> Expression:
+        """O(1) gradient for vector unary sum: ∂(Σf(x_i))/∂x_j = f'(x_j).
+
+        For sum(f(x)) = f(x_0) + f(x_1) + ... + f(x_{n-1}):
+        - If wrt is x_j for some j, gradient is f'(x_j)
+        - If wrt is not in x, gradient is 0
+
+        Derivative formulas:
+        - sin(x) -> cos(x)
+        - cos(x) -> -sin(x)
+        - exp(x) -> exp(x)
+        - log(x) -> 1/x
+        - sqrt(x) -> 1/(2*sqrt(x))
+        - tanh(x) -> 1 - tanh(x)^2
+        """
+        from optyx.core.expressions import BinaryOp, UnaryOp
+
+        vec = expr.vector
+        op = expr.op
+
+        for var in vec._variables:
+            if var.name == wrt.name:
+                # Return derivative based on op
+                if op == "sin":
+                    return UnaryOp(var, "cos")
+                elif op == "cos":
+                    return BinaryOp(Constant(-1.0), UnaryOp(var, "sin"), "*")
+                elif op == "exp":
+                    return UnaryOp(var, "exp")
+                elif op == "log":
+                    return BinaryOp(Constant(1.0), var, "/")
+                elif op == "sqrt":
+                    sqrt_x = UnaryOp(var, "sqrt")
+                    two_sqrt = BinaryOp(Constant(2.0), sqrt_x, "*")
+                    return BinaryOp(Constant(1.0), two_sqrt, "/")
+                elif op == "sinh":
+                    return UnaryOp(var, "cosh")
+                elif op == "cosh":
+                    return UnaryOp(var, "sinh")
+                elif op == "tanh":
+                    tanh_x = UnaryOp(var, "tanh")
+                    tanh_sq = BinaryOp(tanh_x, Constant(2.0), "**")
+                    return BinaryOp(Constant(1.0), tanh_sq, "-")
+                elif op == "tan":
+                    cos_x = UnaryOp(var, "cos")
+                    cos_sq = BinaryOp(cos_x, Constant(2.0), "**")
+                    return BinaryOp(Constant(1.0), cos_sq, "/")
+                elif op == "abs":
+                    abs_x = UnaryOp(var, "abs")
+                    return BinaryOp(var, abs_x, "/")
+                else:
+                    # Fallback - shouldn't happen for supported ops
+                    raise NotImplementedError(f"Gradient not implemented for op: {op}")
+        return Constant(0.0)
+
 
 # Register vector gradient rules at module load time
 _register_vector_gradient_rules()
@@ -1130,17 +1213,44 @@ def compile_jacobian(
         A callable that takes a 1D array and returns the Jacobian as a 2D array.
 
     Performance:
-        For linear expressions where all Jacobian elements are constants,
-        returns a pre-computed array directly (9.7x speedup vs element-by-element).
-        For DotProduct(x, x) pattern (gradient = c*x), uses vectorized NumPy.
+        - For VectorPowerSum/VectorUnarySum, uses O(1) numpy vectorized gradients.
+        - For linear expressions where all Jacobian elements are constants,
+          returns a pre-computed array directly (9.7x speedup vs element-by-element).
+        - For DotProduct(x, x) pattern (gradient = c*x), uses vectorized NumPy.
     """
     import numpy as np
-    from optyx.core.compiler import compile_expression, _sanitize_derivatives
+    from optyx.core.compiler import (
+        compile_expression,
+        _sanitize_derivatives,
+        _compile_vectorized_power_gradient,
+        _compile_vectorized_unary_gradient,
+    )
     from optyx.core.expressions import Constant
+    from optyx.core.vectors import VectorPowerSum, VectorUnarySum
 
-    jacobian_exprs = compute_jacobian(exprs, variables)
     m = len(exprs)
     n = len(variables)
+
+    # Fast path 0: Single VectorPowerSum or VectorUnarySum - use vectorized gradient
+    if m == 1:
+        expr = exprs[0]
+        if isinstance(expr, VectorPowerSum):
+            grad_fn = _compile_vectorized_power_gradient(expr, variables)
+
+            def power_jacobian_fn(x):
+                return grad_fn(x).reshape(1, -1)
+
+            return power_jacobian_fn
+
+        if isinstance(expr, VectorUnarySum):
+            grad_fn = _compile_vectorized_unary_gradient(expr, variables)
+
+            def unary_jacobian_fn(x):
+                return grad_fn(x).reshape(1, -1)
+
+            return unary_jacobian_fn
+
+    jacobian_exprs = compute_jacobian(exprs, variables)
 
     # Fast path 1: All Jacobian elements are constants - pre-compute once
     all_constant = all(
@@ -1201,12 +1311,157 @@ def compile_hessian(
 
     Returns:
         A callable that takes a 1D array and returns the Hessian as a 2D array.
+
+    Performance:
+        For VectorPowerSum and VectorUnarySum, the Hessian is diagonal,
+        so we use O(n) vectorized computation instead of O(n²).
     """
     import numpy as np
     from optyx.core.compiler import compile_expression, _sanitize_derivatives
+    from optyx.core.vectors import VectorPowerSum, VectorUnarySum
+
+    n = len(variables)
+
+    # Fast path: VectorPowerSum has diagonal Hessian
+    # For sum(x**k), H[i,i] = k*(k-1)*x[i]^(k-2), H[i,j] = 0 for i != j
+    if isinstance(expr, VectorPowerSum):
+        k = expr.power
+        var_name_to_idx = {v.name: i for i, v in enumerate(variables)}
+        vector_vars = expr.vector._variables
+        indices = np.array(
+            [var_name_to_idx[v.name] for v in vector_vars], dtype=np.intp
+        )
+        is_full = len(indices) == n and np.array_equal(indices, np.arange(n))
+
+        if k == 1:
+            # d²/dx² (sum x) = 0
+            zeros = np.zeros((n, n))
+
+            def hess_power_k1(x):
+                return zeros
+
+            return hess_power_k1
+        elif k == 2:
+            # d²/dx² (sum x²) = 2 on diagonal
+            hess = np.diag(np.full(n, 2.0)) if is_full else np.zeros((n, n))
+            if not is_full:
+                for idx in indices:
+                    hess[idx, idx] = 2.0
+
+            def hess_power_k2(x):
+                return hess
+
+            return hess_power_k2
+        else:
+            # d²/dx² (sum x^k) = k*(k-1)*x^(k-2) on diagonal
+            coeff = k * (k - 1)
+            exp = k - 2
+
+            if is_full:
+
+                def hess_power_general(x):
+                    diag = coeff * np.power(x, exp)
+                    return np.diag(_sanitize_derivatives(diag))
+
+                return hess_power_general
+            else:
+
+                def hess_power_sparse(x):
+                    result = np.zeros((n, n))
+                    diag_vals = coeff * np.power(x[indices], exp)
+                    for i, idx in enumerate(indices):
+                        result[idx, idx] = diag_vals[i]
+                    return _sanitize_derivatives(result)
+
+                return hess_power_sparse
+
+    # Fast path: VectorUnarySum has diagonal Hessian
+    # For sum(f(x)), H[i,i] = f''(x[i]), H[i,j] = 0 for i != j
+    if isinstance(expr, VectorUnarySum):
+        op = expr.op
+        var_name_to_idx = {v.name: i for i, v in enumerate(variables)}
+        vector_vars = expr.vector._variables
+        indices = np.array(
+            [var_name_to_idx[v.name] for v in vector_vars], dtype=np.intp
+        )
+        is_full = len(indices) == n and np.array_equal(indices, np.arange(n))
+
+        # Second derivatives
+        if op == "sin":
+            # d²/dx² sin(x) = -sin(x)
+            if is_full:
+
+                def hess_sin(x):
+                    return np.diag(-np.sin(x))
+
+                return hess_sin
+            else:
+
+                def hess_sin_sparse(x):
+                    result = np.zeros((n, n))
+                    for i, idx in enumerate(indices):
+                        result[idx, idx] = -np.sin(x[idx])
+                    return result
+
+                return hess_sin_sparse
+
+        elif op == "cos":
+            # d²/dx² cos(x) = -cos(x)
+            if is_full:
+
+                def hess_cos(x):
+                    return np.diag(-np.cos(x))
+
+                return hess_cos
+            else:
+
+                def hess_cos_sparse(x):
+                    result = np.zeros((n, n))
+                    for i, idx in enumerate(indices):
+                        result[idx, idx] = -np.cos(x[idx])
+                    return result
+
+                return hess_cos_sparse
+
+        elif op == "exp":
+            # d²/dx² exp(x) = exp(x)
+            if is_full:
+
+                def hess_exp(x):
+                    return np.diag(np.exp(x))
+
+                return hess_exp
+            else:
+
+                def hess_exp_sparse(x):
+                    result = np.zeros((n, n))
+                    for i, idx in enumerate(indices):
+                        result[idx, idx] = np.exp(x[idx])
+                    return result
+
+                return hess_exp_sparse
+
+        elif op == "log":
+            # d²/dx² log(x) = -1/x²
+            if is_full:
+
+                def hess_log(x):
+                    return np.diag(_sanitize_derivatives(-1.0 / (x**2)))
+
+                return hess_log
+            else:
+
+                def hess_log_sparse(x):
+                    result = np.zeros((n, n))
+                    for i, idx in enumerate(indices):
+                        result[idx, idx] = -1.0 / (x[idx] ** 2)
+                    return _sanitize_derivatives(result)
+
+                return hess_log_sparse
+
+        # Fall through to general path for other ops
 
     hessian_exprs = compute_hessian(expr, variables)
-    n = len(variables)
 
     # Compile each element (exploiting symmetry - only upper triangle)
     compiled_elements = {}
