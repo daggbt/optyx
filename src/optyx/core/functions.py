@@ -24,9 +24,11 @@ def sin(x: Expression | float) -> UnaryOp:
         Expression representing sin(x).
     """
     # Handle vector inputs element-wise
-    from optyx.core.vectors import VectorExpression, VectorVariable
+    from optyx.core.vectors import VectorExpression, VectorVariable, ElementwiseUnary
 
-    if isinstance(x, (VectorExpression, VectorVariable)):
+    if isinstance(x, VectorVariable):
+        return ElementwiseUnary(x, "sin")  # type: ignore
+    if isinstance(x, VectorExpression):
         return VectorExpression([sin(xi) for xi in x])  # type: ignore
 
     return UnaryOp(_ensure_expr(x), "sin")
@@ -42,9 +44,11 @@ def cos(x: Expression | float) -> UnaryOp:
         Expression representing cos(x).
     """
     # Handle vector inputs element-wise
-    from optyx.core.vectors import VectorExpression, VectorVariable
+    from optyx.core.vectors import VectorExpression, VectorVariable, ElementwiseUnary
 
-    if isinstance(x, (VectorExpression, VectorVariable)):
+    if isinstance(x, VectorVariable):
+        return ElementwiseUnary(x, "cos")  # type: ignore
+    if isinstance(x, VectorExpression):
         return VectorExpression([cos(xi) for xi in x])  # type: ignore
 
     return UnaryOp(_ensure_expr(x), "cos")
@@ -60,9 +64,11 @@ def tan(x: Expression | float) -> UnaryOp:
         Expression representing tan(x).
     """
     # Handle vector inputs element-wise
-    from optyx.core.vectors import VectorExpression, VectorVariable
+    from optyx.core.vectors import VectorExpression, VectorVariable, ElementwiseUnary
 
-    if isinstance(x, (VectorExpression, VectorVariable)):
+    if isinstance(x, VectorVariable):
+        return ElementwiseUnary(x, "tan")  # type: ignore
+    if isinstance(x, VectorExpression):
         return VectorExpression([tan(xi) for xi in x])  # type: ignore
 
     return UnaryOp(_ensure_expr(x), "tan")
@@ -78,9 +84,11 @@ def exp(x: Expression | float) -> UnaryOp:
         Expression representing exp(x).
     """
     # Handle vector inputs element-wise
-    from optyx.core.vectors import VectorExpression, VectorVariable
+    from optyx.core.vectors import VectorExpression, VectorVariable, ElementwiseUnary
 
-    if isinstance(x, (VectorExpression, VectorVariable)):
+    if isinstance(x, VectorVariable):
+        return ElementwiseUnary(x, "exp")  # type: ignore
+    if isinstance(x, VectorExpression):
         return VectorExpression([exp(xi) for xi in x])  # type: ignore
 
     return UnaryOp(_ensure_expr(x), "exp")
@@ -96,9 +104,11 @@ def log(x: Expression | float) -> UnaryOp:
         Expression representing log(x).
     """
     # Handle vector inputs element-wise
-    from optyx.core.vectors import VectorExpression, VectorVariable
+    from optyx.core.vectors import VectorExpression, VectorVariable, ElementwiseUnary
 
-    if isinstance(x, (VectorExpression, VectorVariable)):
+    if isinstance(x, VectorVariable):
+        return ElementwiseUnary(x, "log")  # type: ignore
+    if isinstance(x, VectorExpression):
         return VectorExpression([log(xi) for xi in x])  # type: ignore
 
     return UnaryOp(_ensure_expr(x), "log")
@@ -114,9 +124,11 @@ def sqrt(x: Expression | float) -> UnaryOp:
         Expression representing sqrt(x).
     """
     # Handle vector inputs element-wise
-    from optyx.core.vectors import VectorExpression, VectorVariable
+    from optyx.core.vectors import VectorExpression, VectorVariable, ElementwiseUnary
 
-    if isinstance(x, (VectorExpression, VectorVariable)):
+    if isinstance(x, VectorVariable):
+        return ElementwiseUnary(x, "sqrt")  # type: ignore
+    if isinstance(x, VectorExpression):
         return VectorExpression([sqrt(xi) for xi in x])  # type: ignore
 
     return UnaryOp(_ensure_expr(x), "sqrt")
@@ -134,9 +146,11 @@ def abs_(x: Expression | float) -> UnaryOp:
         Expression representing |x|.
     """
     # Handle vector inputs element-wise
-    from optyx.core.vectors import VectorExpression, VectorVariable
+    from optyx.core.vectors import VectorExpression, VectorVariable, ElementwiseUnary
 
-    if isinstance(x, (VectorExpression, VectorVariable)):
+    if isinstance(x, VectorVariable):
+        return ElementwiseUnary(x, "abs")  # type: ignore
+    if isinstance(x, VectorExpression):
         return VectorExpression([abs_(xi) for xi in x])  # type: ignore
 
     return UnaryOp(_ensure_expr(x), "abs")
@@ -151,6 +165,14 @@ def tanh(x: Expression | float) -> UnaryOp:
     Returns:
         Expression representing tanh(x).
     """
+    # Handle vector inputs element-wise
+    from optyx.core.vectors import VectorExpression, VectorVariable, ElementwiseUnary
+
+    if isinstance(x, VectorVariable):
+        return ElementwiseUnary(x, "tanh")  # type: ignore
+    if isinstance(x, VectorExpression):
+        return VectorExpression([tanh(xi) for xi in x])  # type: ignore
+
     return UnaryOp(_ensure_expr(x), "tanh")
 
 
@@ -163,6 +185,14 @@ def sinh(x: Expression | float) -> UnaryOp:
     Returns:
         Expression representing sinh(x).
     """
+    # Handle vector inputs element-wise
+    from optyx.core.vectors import VectorExpression, VectorVariable, ElementwiseUnary
+
+    if isinstance(x, VectorVariable):
+        return ElementwiseUnary(x, "sinh")  # type: ignore
+    if isinstance(x, VectorExpression):
+        return VectorExpression([sinh(xi) for xi in x])  # type: ignore
+
     return UnaryOp(_ensure_expr(x), "sinh")
 
 
@@ -175,6 +205,14 @@ def cosh(x: Expression | float) -> UnaryOp:
     Returns:
         Expression representing cosh(x).
     """
+    # Handle vector inputs element-wise
+    from optyx.core.vectors import VectorExpression, VectorVariable, ElementwiseUnary
+
+    if isinstance(x, VectorVariable):
+        return ElementwiseUnary(x, "cosh")  # type: ignore
+    if isinstance(x, VectorExpression):
+        return VectorExpression([cosh(xi) for xi in x])  # type: ignore
+
     return UnaryOp(_ensure_expr(x), "cosh")
 
 

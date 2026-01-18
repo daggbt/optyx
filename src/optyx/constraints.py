@@ -12,6 +12,8 @@ import numpy as np
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Mapping
 
+from optyx.core.errors import ConstraintError
+
 if TYPE_CHECKING:
     from optyx.core.expressions import Expression, Variable
 
@@ -44,8 +46,9 @@ class Constraint:
 
     def __post_init__(self):
         if self.sense not in ("<=", ">=", "=="):
-            raise ValueError(
-                f"Invalid constraint sense: {self.sense}. Must be <=, >=, or =="
+            raise ConstraintError(
+                message=f"Invalid constraint sense: {self.sense}. Use <=, >=, or == for constraint comparisons.",
+                constraint_type=self.sense,
             )
 
     def evaluate(self, point: Mapping[str, float]) -> float:

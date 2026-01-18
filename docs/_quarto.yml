@@ -113,6 +113,8 @@ website:
             href: tutorials/vectors.qmd
           - text: "Matrix Variables"
             href: tutorials/matrices.qmd
+          - text: "Performance Guide"
+            href: tutorials/performance.qmd
       - text: "Examples"
         menu:
           - text: "Portfolio Optimization"

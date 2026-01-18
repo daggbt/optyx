@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from optyx.core.expressions import Variable
+from optyx.core.errors import NonLinearError
 from optyx.constraints import Constraint
 from optyx.problem import Problem
 from optyx.solution import SolverStatus
@@ -124,17 +125,17 @@ class TestSolveLPEdgeCases:
         assert np.isclose(solution["y"], 0.0, atol=1e-6)
 
     def test_nonlinear_objective_raises(self):
-        """Non-linear objective should raise ValueError."""
+        """Non-linear objective should raise NonLinearError."""
         x = Variable("x", lb=0)
 
         prob = Problem()
         prob.minimize(x**2)
 
-        with pytest.raises(ValueError, match="not linear"):
+        with pytest.raises(NonLinearError, match="linear"):
             solve_lp(prob)
 
     def test_nonlinear_constraint_raises(self):
-        """Non-linear constraint should raise ValueError."""
+        """Non-linear constraint should raise NonLinearError."""
         x = Variable("x", lb=0)
         y = Variable("y", lb=0)
 
@@ -143,7 +144,7 @@ class TestSolveLPEdgeCases:
         # Manually create a nonlinear constraint
         prob._constraints.append(Constraint(x**2 + y**2 - 1, "<="))
 
-        with pytest.raises(ValueError, match="not linear"):
+        with pytest.raises(NonLinearError, match="linear"):
             solve_lp(prob)
 
 

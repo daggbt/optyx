@@ -22,6 +22,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from optyx.core.expressions import Expression, Constant, Variable, BinaryOp, UnaryOp
+from optyx.core.errors import NonLinearError, NoObjectiveError
 
 # Recursion threshold - use iterative algorithm for trees deeper than this
 _RECURSION_THRESHOLD = 400
@@ -96,7 +97,16 @@ def _compute_degree_iterative(expr: Expression) -> Optional[int]:
 
     Handles deep expression trees that would cause RecursionError.
     """
-    from optyx.core.vectors import DotProduct, LinearCombination, VectorSum
+    from optyx.core.matrices import QuadraticForm
+    from optyx.core.vectors import (
+        DotProduct,
+        LinearCombination,
+        VectorSum,
+        VectorPowerSum,
+        VectorUnarySum,
+        ElementwisePower,
+        ElementwiseUnary,
+    )
 
     # Stack: (expression, phase, left_result, right_result)
     # phase 0: first visit, phase 1: left done, phase 2: both done
@@ -125,6 +135,25 @@ def _compute_degree_iterative(expr: Expression) -> Optional[int]:
             continue
         if isinstance(node, DotProduct):
             result_stack.append(2)
+            continue
+        if isinstance(node, QuadraticForm):
+            result_stack.append(2)
+            continue
+        if isinstance(node, VectorPowerSum):
+            # sum(x ** k) has degree k
+            result_stack.append(int(node.power))
+            continue
+        if isinstance(node, VectorUnarySum):
+            # sum(sin(x)), sum(exp(x)) etc. are non-polynomial
+            result_stack.append(None)
+            continue
+        if isinstance(node, ElementwisePower):
+            # x ** k has degree k
+            result_stack.append(int(node.power))
+            continue
+        if isinstance(node, ElementwiseUnary):
+            # sin(x), exp(x) etc. are non-polynomial
+            result_stack.append(None)
             continue
 
         # Unary operations
@@ -219,7 +248,16 @@ def _compute_degree_cached(expr_id: int, expr: Expression) -> Optional[int]:
 
 def _compute_degree_impl(expr: Expression) -> Optional[int]:
     """Core degree computation with early termination."""
-    from optyx.core.vectors import DotProduct, LinearCombination, VectorSum
+    from optyx.core.matrices import QuadraticForm
+    from optyx.core.vectors import (
+        DotProduct,
+        LinearCombination,
+        VectorSum,
+        VectorPowerSum,
+        VectorUnarySum,
+        ElementwisePower,
+        ElementwiseUnary,
+    )
 
     # Fast path: leaf nodes (most common)
     if isinstance(expr, Constant):
@@ -259,6 +297,21 @@ def _compute_degree_impl(expr: Expression) -> Optional[int]:
         # x · y could be quadratic if both are variables
         # For now, return 2 (quadratic) as worst case
         return 2
+    if isinstance(expr, QuadraticForm):
+        # xᵀAx is always quadratic
+        return 2
+    if isinstance(expr, VectorPowerSum):
+        # sum(x ** k) has degree k
+        return int(expr.power)
+    if isinstance(expr, VectorUnarySum):
+        # sum(sin(x)), sum(exp(x)) etc. are non-polynomial
+        return None
+    if isinstance(expr, ElementwisePower):
+        # x ** k has degree k
+        return int(expr.power)
+    if isinstance(expr, ElementwiseUnary):
+        # sin(x), exp(x) etc. are non-polynomial
+        return None
 
     # Binary operations - early termination on None
     if isinstance(expr, BinaryOp):
@@ -468,10 +521,14 @@ def extract_linear_coefficient(expr: Expression, var: Variable) -> float:
         5.0
 
     Raises:
-        ValueError: If the expression is not linear.
+        NonLinearError: If the expression is not linear.
     """
     if not is_linear(expr):
-        raise ValueError("Expression must be linear for coefficient extraction")
+        raise NonLinearError(
+            expression=repr(expr)[:100],
+            context="coefficient extraction",
+            suggestion="Ensure all variables appear linearly (no products of variables, powers, or transcendental functions).",
+        )
     return _extract_coefficient_impl(expr, var)
 
 
@@ -582,10 +639,14 @@ def extract_constant_term(expr: Expression) -> float:
         -3.0
 
     Raises:
-        ValueError: If the expression is not linear.
+        NonLinearError: If the expression is not linear.
     """
     if not is_linear(expr):
-        raise ValueError("Expression must be linear for constant extraction")
+        raise NonLinearError(
+            expression=repr(expr)[:100],
+            context="constant extraction",
+            suggestion="Ensure all variables appear linearly.",
+        )
     return _extract_constant_impl(expr)
 
 
@@ -667,6 +728,237 @@ class LPData:
     variables: list[str]
 
 
+def extract_all_linear_coefficients(
+    expr: Expression,
+    var_index: dict[str, int],
+    n: int,
+) -> NDArray[np.floating]:
+    """Extract all linear coefficients from an expression in a single pass.
+
+    This is an O(n) operation that extracts coefficients for all variables
+    at once, avoiding the O(n²) cost of calling extract_linear_coefficient
+    n times.
+
+    For common patterns like VectorSum(x) where x covers all variables,
+    this uses O(1) numpy operations instead of Python loops.
+
+    Args:
+        expr: A linear expression.
+        var_index: Mapping from variable name to index.
+        n: Number of variables.
+
+    Returns:
+        Array of coefficients, one per variable.
+
+    Raises:
+        NonLinearError: If the expression is not linear.
+    """
+    from optyx.core.vectors import LinearCombination, VectorSum, VectorVariable
+
+    if not is_linear(expr):
+        raise NonLinearError(
+            expression=repr(expr)[:100],
+            context="batch coefficient extraction",
+            suggestion="Ensure all variables appear linearly.",
+        )
+
+    # Fast path: VectorSum over VectorVariable covering all variables
+    # This is O(1) using numpy instead of O(n) Python loop
+    if isinstance(expr, VectorSum) and isinstance(expr.vector, VectorVariable):
+        vec_n = len(expr.vector._variables)
+        if vec_n == n:
+            # Check if variables are in order (common case)
+            first_var = expr.vector._variables[0]
+            first_idx = var_index.get(first_var.name, -1)
+            if first_idx == 0:
+                # All variables in order, return ones directly
+                return np.ones(n, dtype=np.float64)
+
+    # Fast path: LinearCombination over VectorVariable covering all variables
+    if isinstance(expr, LinearCombination) and isinstance(expr.vector, VectorVariable):
+        vec_n = len(expr.vector._variables)
+        if vec_n == n:
+            first_var = expr.vector._variables[0]
+            first_idx = var_index.get(first_var.name, -1)
+            if first_idx == 0:
+                # Variables in order, return coefficients directly
+                return np.asarray(expr.coefficients, dtype=np.float64).copy()
+
+    # Fast path: BinaryOp with VectorSum/LinearCombination (e.g., x.sum() - k)
+    if isinstance(expr, BinaryOp):
+        result = _try_extract_fast_binop(expr, var_index, n)
+        if result is not None:
+            return result
+
+    # General case: O(n) recursive extraction
+    result = np.zeros(n, dtype=np.float64)
+    _extract_all_coefficients_impl(expr, var_index, result, 1.0)
+    return result
+
+
+def _try_extract_fast_binop(
+    expr: BinaryOp,
+    var_index: dict[str, int],
+    n: int,
+) -> NDArray[np.floating] | None:
+    """Try to extract coefficients from BinaryOp using fast numpy paths.
+
+    Returns None if fast path not applicable.
+    """
+    from optyx.core.vectors import LinearCombination, VectorSum, VectorVariable
+
+    # Handle: VectorSum <= constant, VectorSum - constant, etc.
+    if expr.op in ("+", "-", "<=", ">=", "=="):
+        # Try left side as VectorSum
+        if isinstance(expr.left, VectorSum) and isinstance(
+            expr.left.vector, VectorVariable
+        ):
+            vec_n = len(expr.left.vector._variables)
+            if vec_n == n:
+                first_var = expr.left.vector._variables[0]
+                first_idx = var_index.get(first_var.name, -1)
+                if first_idx == 0 and isinstance(expr.right, (Constant, int, float)):
+                    return np.ones(n, dtype=np.float64)
+
+        # Try left side as LinearCombination
+        if isinstance(expr.left, LinearCombination) and isinstance(
+            expr.left.vector, VectorVariable
+        ):
+            vec_n = len(expr.left.vector._variables)
+            if vec_n == n:
+                first_var = expr.left.vector._variables[0]
+                first_idx = var_index.get(first_var.name, -1)
+                if first_idx == 0 and isinstance(expr.right, (Constant, int, float)):
+                    return np.asarray(expr.left.coefficients, dtype=np.float64).copy()
+
+    # Handle: constant * VectorSum, VectorSum * constant
+    if expr.op == "*":
+        if isinstance(expr.left, Constant):
+            if isinstance(expr.right, VectorSum) and isinstance(
+                expr.right.vector, VectorVariable
+            ):
+                vec_n = len(expr.right.vector._variables)
+                if vec_n == n:
+                    first_var = expr.right.vector._variables[0]
+                    first_idx = var_index.get(first_var.name, -1)
+                    if first_idx == 0:
+                        return np.full(n, float(expr.left.value), dtype=np.float64)
+
+        if isinstance(expr.right, Constant):
+            if isinstance(expr.left, VectorSum) and isinstance(
+                expr.left.vector, VectorVariable
+            ):
+                vec_n = len(expr.left.vector._variables)
+                if vec_n == n:
+                    first_var = expr.left.vector._variables[0]
+                    first_idx = var_index.get(first_var.name, -1)
+                    if first_idx == 0:
+                        return np.full(n, float(expr.right.value), dtype=np.float64)
+
+    return None
+
+
+def _extract_all_coefficients_impl(
+    expr: Expression,
+    var_index: dict[str, int],
+    result: NDArray[np.floating],
+    multiplier: float,
+) -> None:
+    """Recursively extract all coefficients into result array.
+
+    Args:
+        expr: Expression to extract from.
+        var_index: Mapping from variable name to index.
+        result: Output array to accumulate coefficients into.
+        multiplier: Current coefficient multiplier from parent expressions.
+    """
+    from optyx.core.vectors import LinearCombination, VectorSum, VectorVariable
+
+    # Constant - no variable coefficients
+    if isinstance(expr, Constant):
+        return
+
+    # Variable - add coefficient at this variable's index
+    if isinstance(expr, Variable):
+        idx = var_index.get(expr.name)
+        if idx is not None:
+            result[idx] += multiplier
+        return
+
+    # VectorSum: sum(x) - each variable has coefficient 1 * multiplier
+    if isinstance(expr, VectorSum):
+        for var in expr.vector._variables:
+            idx = var_index.get(var.name)
+            if idx is not None:
+                result[idx] += multiplier
+        return
+
+    # LinearCombination: c @ x - coefficient is c[i] * multiplier
+    if isinstance(expr, LinearCombination):
+        if isinstance(expr.vector, VectorVariable):
+            for i, var in enumerate(expr.vector._variables):
+                idx = var_index.get(var.name)
+                if idx is not None:
+                    result[idx] += float(expr.coefficients[i]) * multiplier
+        else:
+            # VectorExpression - recurse into each element
+            for i, elem in enumerate(expr.vector._expressions):
+                coeff = float(expr.coefficients[i]) * multiplier
+                _extract_all_coefficients_impl(elem, var_index, result, coeff)
+        return
+
+    # Binary operations
+    if isinstance(expr, BinaryOp):
+        if expr.op == "+":
+            _extract_all_coefficients_impl(expr.left, var_index, result, multiplier)
+            _extract_all_coefficients_impl(expr.right, var_index, result, multiplier)
+            return
+
+        if expr.op == "-":
+            _extract_all_coefficients_impl(expr.left, var_index, result, multiplier)
+            _extract_all_coefficients_impl(expr.right, var_index, result, -multiplier)
+            return
+
+        if expr.op == "*":
+            # One side must be constant for linear expressions
+            if isinstance(expr.left, Constant):
+                _extract_all_coefficients_impl(
+                    expr.right, var_index, result, multiplier * float(expr.left.value)
+                )
+                return
+            if isinstance(expr.right, Constant):
+                _extract_all_coefficients_impl(
+                    expr.left, var_index, result, multiplier * float(expr.right.value)
+                )
+                return
+            # Both sides non-constant - no linear contribution
+            return
+
+        if expr.op == "/":
+            # Division by constant
+            if isinstance(expr.right, Constant):
+                _extract_all_coefficients_impl(
+                    expr.left, var_index, result, multiplier / float(expr.right.value)
+                )
+            return
+
+        if expr.op == "**":
+            # x**1 = x, x**0 = constant
+            if isinstance(expr.right, Constant):
+                exp = int(expr.right.value)
+                if exp == 1:
+                    _extract_all_coefficients_impl(
+                        expr.left, var_index, result, multiplier
+                    )
+            return
+
+    # Unary operations
+    if isinstance(expr, UnaryOp):
+        if expr.op == "neg":
+            _extract_all_coefficients_impl(expr.operand, var_index, result, -multiplier)
+        return
+
+
 class LinearProgramExtractor:
     """Extracts LP coefficients from a Problem for use with scipy.optimize.linprog.
 
@@ -696,34 +988,26 @@ class LinearProgramExtractor:
         Raises:
             ValueError: If objective is not set or not linear.
         """
-        from optyx.core.vectors import LinearCombination, VectorVariable
-
         if problem.objective is None:
-            raise ValueError("Problem has no objective function")
+            raise NoObjectiveError(
+                suggestion="Call minimize() or maximize() on the problem first.",
+            )
 
         if not is_linear(problem.objective):
-            raise ValueError("Objective function is not linear")
+            raise NonLinearError(
+                expression=repr(problem.objective)[:100],
+                context="LP extraction",
+                suggestion="The objective must be linear for LP solvers. Use a QP solver for quadratic objectives.",
+            )
 
         variables = problem.variables
         n = len(variables)
-        c = np.zeros(n, dtype=np.float64)
 
         # Build variable name to index mapping
         var_index = {var.name: i for i, var in enumerate(variables)}
 
-        # Fast path for LinearCombination (from VectorVariable @ array)
-        obj = problem.objective
-        if isinstance(obj, LinearCombination) and isinstance(
-            obj.vector, VectorVariable
-        ):
-            for i, var in enumerate(obj.vector._variables):
-                idx = var_index.get(var.name)
-                if idx is not None:
-                    c[idx] = float(obj.coefficients[i])
-        else:
-            # Standard path for other expression types
-            for i, var in enumerate(variables):
-                c[i] = extract_linear_coefficient(obj, var)
+        # Use batch extraction - O(n) instead of O(n²)
+        c = extract_all_linear_coefficients(problem.objective, var_index, n)
 
         sense = "min" if problem.sense == "minimize" else "max"
         return c, sense, variables
@@ -753,8 +1037,6 @@ class LinearProgramExtractor:
         Raises:
             ValueError: If any constraint is not linear.
         """
-        from optyx.core.vectors import LinearCombination, VectorVariable
-
         n = len(variables)
         ub_rows: list[NDArray[np.floating]] = []
         ub_rhs: list[float] = []
@@ -764,44 +1046,16 @@ class LinearProgramExtractor:
         # Build variable name to index mapping for fast lookup
         var_index = {var.name: i for i, var in enumerate(variables)}
 
-        def _extract_lc_fast(lc: LinearCombination, row: np.ndarray) -> bool:
-            """Fast extraction for LinearCombination. Returns True if successful."""
-            if isinstance(lc.vector, VectorVariable):
-                for i, var in enumerate(lc.vector._variables):
-                    idx = var_index.get(var.name)
-                    if idx is not None:
-                        row[idx] += float(lc.coefficients[i])
-                return True
-            return False
-
         for constraint in problem.constraints:
             if not is_linear(constraint.expr):
-                raise ValueError(f"Constraint is not linear: {constraint}")
+                raise NonLinearError(
+                    expression=repr(constraint.expr)[:100],
+                    context="LP constraint extraction",
+                    suggestion="All constraints must be linear for LP solvers.",
+                )
 
-            # Extract coefficients for this constraint
-            row = np.zeros(n, dtype=np.float64)
-            expr = constraint.expr
-            used_fast_path = False
-
-            # Fast path for pure LinearCombination
-            if isinstance(expr, LinearCombination):
-                used_fast_path = _extract_lc_fast(expr, row)
-
-            # Fast path for LinearCombination +/- Constant (common pattern)
-            elif isinstance(expr, BinaryOp) and expr.op in ("+", "-"):
-                if isinstance(expr.left, LinearCombination):
-                    used_fast_path = _extract_lc_fast(expr.left, row)
-                elif isinstance(expr.right, LinearCombination) and expr.op == "+":
-                    used_fast_path = _extract_lc_fast(expr.right, row)
-                elif isinstance(expr.right, LinearCombination) and expr.op == "-":
-                    if _extract_lc_fast(expr.right, row):
-                        row *= -1  # Negate since it's subtracted
-                        used_fast_path = True
-
-            if not used_fast_path:
-                # Standard path for other expression types
-                for i, var in enumerate(variables):
-                    row[i] = extract_linear_coefficient(expr, var)
+            # Use batch extraction - O(n) instead of O(n²)
+            row = extract_all_linear_coefficients(constraint.expr, var_index, n)
 
             # RHS is the negative of the constant term
             # Constraint form: expr sense 0, where expr = Ax - b

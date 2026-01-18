@@ -3,6 +3,13 @@
 import numpy as np
 import pytest
 
+from optyx.core.errors import (
+    DimensionMismatchError,
+    EmptyContainerError,
+    InvalidSizeError,
+    InvalidOperationError,
+    WrongDimensionalityError,
+)
 from optyx.core.vectors import (
     VectorVariable,
     VectorExpression,
@@ -41,12 +48,12 @@ class TestVectorVariableCreation:
 
     def test_zero_size_raises(self):
         """Size must be positive."""
-        with pytest.raises(ValueError, match="positive"):
+        with pytest.raises(InvalidSizeError, match="positive"):
             VectorVariable("x", 0)
 
     def test_negative_size_raises(self):
-        """Negative size raises ValueError."""
-        with pytest.raises(ValueError, match="positive"):
+        """Negative size raises InvalidSizeError."""
+        with pytest.raises(InvalidSizeError, match="positive"):
             VectorVariable("x", -5)
 
 
@@ -304,8 +311,8 @@ class TestVectorExpression:
         assert result == [1, 2, 3]
 
     def test_empty_vector_expression_raises(self):
-        """Empty VectorExpression raises ValueError."""
-        with pytest.raises(ValueError, match="empty"):
+        """Empty VectorExpression raises EmptyContainerError."""
+        with pytest.raises(EmptyContainerError, match="empty"):
             VectorExpression([])
 
 
@@ -392,10 +399,10 @@ class TestVectorArithmetic:
         assert result == [-1, 2, -3]
 
     def test_size_mismatch_raises(self):
-        """Adding vectors of different sizes raises ValueError."""
+        """Adding vectors of different sizes raises DimensionMismatchError."""
         x = VectorVariable("x", 3)
         y = VectorVariable("y", 5)
-        with pytest.raises(ValueError, match="size mismatch"):
+        with pytest.raises(DimensionMismatchError, match="mismatch"):
             x + y
 
     def test_chained_operations(self):
@@ -503,10 +510,10 @@ class TestVectorConstraints:
         assert len(constraints) == 100
 
     def test_vector_constraint_size_mismatch(self):
-        """Constraint between differently sized vectors raises ValueError."""
+        """Constraint between differently sized vectors raises DimensionMismatchError."""
         x = VectorVariable("x", 3)
         y = VectorVariable("y", 5)
-        with pytest.raises(ValueError, match="Dimension mismatch"):
+        with pytest.raises(DimensionMismatchError, match="mismatch"):
             x <= y
 
     def test_vector_expression_constraints(self):
@@ -643,10 +650,10 @@ class TestDotProduct:
         assert names == {"x[0]", "x[1]", "x[2]", "y[0]", "y[1]", "y[2]"}
 
     def test_dot_product_size_mismatch(self):
-        """Dot product with different sizes raises ValueError."""
+        """Dot product with different sizes raises DimensionMismatchError."""
         x = VectorVariable("x", 3)
         y = VectorVariable("y", 5)
-        with pytest.raises(ValueError, match="Dimension mismatch"):
+        with pytest.raises(DimensionMismatchError, match="mismatch"):
             x.dot(y)
 
     def test_dot_product_repr(self):
@@ -751,9 +758,9 @@ class TestNormFunction:
     """Tests for the norm() function."""
 
     def test_norm_unsupported_order(self):
-        """norm with unsupported order raises ValueError."""
+        """norm with unsupported order raises InvalidOperationError."""
         x = VectorVariable("x", 3)
-        with pytest.raises(ValueError, match="Unsupported norm order"):
+        with pytest.raises(InvalidOperationError, match="norm|ord"):
             norm(x, ord=3)
 
     def test_norm_default_is_l2(self):
@@ -805,7 +812,7 @@ class TestLinearCombination:
         """LinearCombination raises on size mismatch."""
         coeffs = np.array([1.0, 2.0])
         x = VectorVariable("x", 3)
-        with pytest.raises(ValueError, match="Dimension mismatch"):
+        with pytest.raises(DimensionMismatchError, match="mismatch"):
             LinearCombination(coeffs, x)
 
     def test_linear_combination_repr(self):
@@ -870,7 +877,7 @@ class TestNumpyIntegration:
     def test_from_numpy_rejects_2d(self):
         """from_numpy rejects 2D arrays."""
         data = np.array([[1, 2], [3, 4]])
-        with pytest.raises(ValueError, match="1D array"):
+        with pytest.raises(WrongDimensionalityError, match="1D|2D"):
             VectorVariable.from_numpy("x", data)
 
     def test_from_numpy_with_list(self):
@@ -895,3 +902,69 @@ class TestNumpyIntegration:
         result = portfolio_return.evaluate(equal_weights)
         expected = np.mean(returns)  # 0.1125
         assert abs(result - expected) < 1e-10
+
+    def test_matrix_vector_product_via_rmatmul(self):
+        """2D array @ vector creates MatrixVectorProduct."""
+        from optyx.core.matrices import MatrixVectorProduct
+
+        A = np.array([[1, 2], [3, 4], [5, 6]])  # 3x2 matrix
+        x = VectorVariable("x", 2)
+        result = A @ x
+
+        assert isinstance(result, MatrixVectorProduct)
+        assert result.size == 3  # Output size matches matrix rows
+
+    def test_matrix_vector_product_evaluates(self):
+        """Matrix @ vector evaluates correctly."""
+        A = np.array([[1, 2], [3, 4]])
+        x = VectorVariable("x", 2)
+        result = A @ x
+
+        vals = {"x[0]": 1.0, "x[1]": 2.0}
+        evaluated = result.evaluate(vals)
+        expected = [5.0, 11.0]  # [1*1+2*2, 3*1+4*2]
+        assert evaluated == expected
+
+    def test_quadratic_form_via_dot_matmul(self):
+        """x.dot(Q @ x) creates QuadraticForm for optimized gradients."""
+        from optyx.core.matrices import QuadraticForm
+
+        Q = np.array([[1, 0.5], [0.5, 2]])
+        x = VectorVariable("x", 2)
+
+        # Math-like syntax: x · (Qx) = xᵀQx
+        qf = x.dot(Q @ x)
+
+        # Should return QuadraticForm for O(1) gradient, not DotProduct
+        assert isinstance(qf, QuadraticForm), f"Expected QuadraticForm, got {type(qf)}"
+
+        vals = {"x[0]": 1.0, "x[1]": 2.0}
+        result = qf.evaluate(vals)
+
+        # NumPy verification
+        xv = np.array([1.0, 2.0])
+        expected = xv @ Q @ xv  # 1 + 2 + 8 = 11
+        assert result == expected
+
+    def test_rmatmul_rejects_3d_array(self):
+        """3D arrays are rejected."""
+        A = np.ones((2, 2, 2))
+        x = VectorVariable("x", 2)
+        with pytest.raises(WrongDimensionalityError, match="2D|3D"):
+            A @ x
+
+    def test_transpose_raises_helpful_error(self):
+        """VectorVariable.T raises InvalidOperationError with helpful message."""
+        x = VectorVariable("x", 3)
+        with pytest.raises(InvalidOperationError, match="transpose"):
+            x.T
+
+    def test_transpose_error_suggests_alternatives(self):
+        """VectorVariable.T error message suggests alternatives."""
+        x = VectorVariable("x", 3)
+        try:
+            x.T
+        except (TypeError, ValueError) as e:
+            msg = str(e)
+            # Check that some alternative suggestions are present
+            assert "dot" in msg.lower() or "x.dot" in msg

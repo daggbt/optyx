@@ -9,14 +9,25 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+        include:
+          # Test with minimum supported versions
+          - python-version: '3.10'
+            deps: 'min'
+          # Test with latest versions
+          - python-version: '3.12'
+            deps: 'latest'
     
     steps:
       - uses: actions/checkout@v4
       
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python-version }}
       
       - name: Install uv
         uses: astral-sh/setup-uv@v4
@@ -24,7 +35,12 @@ jobs:
           enable-cache: true
       
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --python ${{ matrix.python-version }}
+      
+      - name: Install minimum dependency versions
+        if: matrix.deps == 'min'
+        run: |
+          uv pip install numpy==1.21.0 scipy==1.7.0
       
       - name: Run ruff linting
         run: uv run ruff check src tests
@@ -39,6 +55,7 @@ jobs:
         run: uv run pytest --cov=optyx --cov-report=xml --cov-report=term
       
       - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.12'
         uses: codecov/codecov-action@v4
         with:
           file: ./coverage.xml

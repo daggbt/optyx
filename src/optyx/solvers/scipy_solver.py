@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any, Callable
 import numpy as np
 from scipy.optimize import minimize
 
+from optyx.core.errors import IntegerVariableError, NoObjectiveError
+
 if TYPE_CHECKING:
     from optyx.problem import Problem
     from optyx.solution import Solution
@@ -95,10 +97,9 @@ def solve_scipy(
     if non_continuous:
         names = ", ".join(v.name for v in non_continuous)
         if strict:
-            raise ValueError(
-                f"Variables [{names}] have integer/binary domains but the SciPy "
-                f"solver does not support integer programming. Use strict=False "
-                f"to relax to continuous, or use a MIP solver like PuLP or Pyomo."
+            raise IntegerVariableError(
+                solver_name="SciPy",
+                variable_names=[v.name for v in non_continuous],
             )
         else:
             warnings.warn(
@@ -368,7 +369,9 @@ def _build_solver_cache(problem: Problem, variables: list) -> dict[str, Any]:
     # Build objective function
     obj_expr = problem.objective
     if obj_expr is None:
-        raise ValueError("Problem has no objective to optimize")
+        raise NoObjectiveError(
+            suggestion="Call minimize() or maximize() on the problem first.",
+        )
     if problem.sense == "maximize":
         obj_expr = -obj_expr  # Negate for maximization
 

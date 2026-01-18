@@ -79,11 +79,11 @@ print("-" * 50)
 # Productivity (t/h per truck)
 productivity = truck_payload * 60 / cycle_times
 
-# Decision variables: trucks per shovel (continuous relaxation)
+# Decision variables: trucks per shovel (integer allocation)
 # We set lb=1 to ensure minimum trucks per active shovel
-x = VectorVariable("trucks", n_shovels, lb=1, ub=n_trucks)
+x = VectorVariable("trucks", n_shovels, lb=1, ub=n_trucks, domain="integer")
 
-print(f"Variables: {n_shovels} (trucks per shovel)")
+print(f"Variables: {n_shovels} (trucks per shovel, integer)")
 
 # =============================================================================
 # Objective: Maximize Throughput
@@ -117,7 +117,7 @@ print(f"  2. Total throughput <= {crusher_capacity} t/h")
 # Each shovel's throughput must not exceed its dig rate
 for i in range(n_shovels):
     prob.subject_to(x[i] * productivity[i] <= shovel_dig_rates[i])
-    print(f"  3.{i+1} {shovel_names[i]} throughput <= {shovel_dig_rates[i]} t/h")
+    print(f"  3.{i + 1} {shovel_names[i]} throughput <= {shovel_dig_rates[i]} t/h")
 
 # =============================================================================
 # Solve
