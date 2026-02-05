@@ -88,6 +88,56 @@ class VectorSum(Expression):
         return f"VectorSum({self.vector.name})"
 
 
+class VectorExpressionSum(Expression):
+    """Sum of all elements in a VectorExpression.
+
+    This is a scalar expression representing sum(expr) for a VectorExpression.
+    Unlike the nested BinaryOp approach, this stores a flat reference to avoid
+    RecursionError on large vectors.
+
+    Args:
+        expression: The VectorExpression to sum.
+
+    Example:
+        >>> x = VectorVariable("x", 3)
+        >>> y = VectorVariable("y", 3)
+        >>> s = VectorExpressionSum(x - y)
+        >>> s.evaluate({"x[0]": 4, "x[1]": 5, "x[2]": 6, "y[0]": 1, "y[1]": 2, "y[2]": 3})
+        9.0
+    """
+
+    __slots__ = ("expression",)
+
+    def __init__(self, expression: VectorExpression) -> None:
+        self.expression = expression
+
+    @property
+    def size(self) -> int:
+        """Size of the underlying vector expression."""
+        return self.expression.size
+
+    def evaluate(
+        self, values: Mapping[str, ArrayLike | float]
+    ) -> NDArray[np.floating] | float:
+        """Evaluate the sum given variable values."""
+        return sum(e.evaluate(values) for e in self.expression._expressions)  # type: ignore[return-value]
+
+    def get_variables(self) -> set[Variable]:
+        """Return all variables this expression depends on."""
+        return self.expression.get_variables()
+
+    def jacobian_row(self, variables: list[Variable]) -> list[Expression] | None:
+        """Return Jacobian row.
+
+        For VectorExpressionSum, gradient w.r.t. each variable depends on
+        the underlying expressions. We delegate to the autodiff system.
+        """
+        return None  # Let autodiff handle the general case
+
+    def __repr__(self) -> str:
+        return f"VectorExpressionSum(size={self.expression.size})"
+
+
 class DotProduct(Expression):
     """Dot product of two vectors: x · y = x[0]*y[0] + x[1]*y[1] + ... + x[n-1]*y[n-1].
 
@@ -782,14 +832,18 @@ class VectorExpression:
         """Evaluate all expressions and return as list."""
         return [expr.evaluate(values) for expr in self._expressions]  # type: ignore[misc]
 
-    def sum(self) -> Expression:
-        """Sum of all elements."""
-        if not self._expressions:
-            return Constant(0.0)
-        result: Expression = self._expressions[0]
-        for expr in self._expressions[1:]:
-            result = result + expr
-        return result
+    def sum(self) -> VectorExpressionSum:
+        """Sum of all elements.
+
+        Returns:
+            VectorExpressionSum expression (scalar).
+
+        Example:
+            >>> x = VectorVariable("x", 3)
+            >>> y = VectorVariable("y", 3)
+            >>> s = (x - y).sum()  # VectorExpressionSum, not nested BinaryOps
+        """
+        return VectorExpressionSum(self)
 
     def get_variables(self) -> set[Variable]:
         """Return all variables these expressions depend on."""
