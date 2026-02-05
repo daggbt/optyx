@@ -56,36 +56,94 @@ def _try_get_single_vector_source(expr: "Expression") -> "VectorVariable | None"
     Returns the VectorVariable if the expression only uses variables from one
     VectorVariable, otherwise None. This enables O(1) variable extraction
     for common single-VectorVariable problems.
+
+    Uses iterative traversal to handle deep expression trees without hitting
+    Python's recursion limit.
     """
-    from optyx.core.vectors import VectorVariable, LinearCombination, VectorSum
-    from optyx.core.expressions import BinaryOp, Constant
+    from optyx.core.vectors import (
+        VectorVariable,
+        LinearCombination,
+        VectorSum,
+        VectorPowerSum,
+        VectorUnarySum,
+        VectorExpressionSum,
+    )
+    from optyx.core.expressions import BinaryOp, UnaryOp, Constant
+    from optyx.core.parameters import Parameter
 
-    # Direct VectorSum
-    if isinstance(expr, VectorSum):
-        if isinstance(expr.vector, VectorVariable):
-            return expr.vector
+    # Iterative traversal using explicit stack
+    stack: list[Expression] = [expr]
+    found_source: VectorVariable | None = None
+
+    while stack:
+        current = stack.pop()
+
+        # Skip constants and parameters - they don't contribute variables
+        if isinstance(current, (Constant, Parameter)):
+            continue
+
+        # VectorSum - vector might be VectorVariable
+        if isinstance(current, VectorSum):
+            if isinstance(current.vector, VectorVariable):
+                candidate = current.vector
+                if found_source is None:
+                    found_source = candidate
+                elif found_source is not candidate:
+                    return None  # Multiple different sources
+            else:
+                return None  # VectorExpression, not simple VectorVariable
+            continue
+
+        # LinearCombination (e.g., c @ x)
+        if isinstance(current, LinearCombination):
+            if isinstance(current.vector, VectorVariable):
+                candidate = current.vector
+                if found_source is None:
+                    found_source = candidate
+                elif found_source is not candidate:
+                    return None
+            else:
+                return None  # VectorExpression
+            continue
+
+        # VectorPowerSum (sum(x ** k)) - vector is always VectorVariable
+        if isinstance(current, VectorPowerSum):
+            candidate = current.vector
+            if found_source is None:
+                found_source = candidate
+            elif found_source is not candidate:
+                return None
+            continue
+
+        # VectorUnarySum (sum(f(x))) - vector is always VectorVariable
+        if isinstance(current, VectorUnarySum):
+            candidate = current.vector
+            if found_source is None:
+                found_source = candidate
+            elif found_source is not candidate:
+                return None
+            continue
+
+        # VectorExpressionSum - push all element expressions to stack
+        if isinstance(current, VectorExpressionSum):
+            stack.extend(current.expression._expressions)
+            continue
+
+        # BinaryOp - push both children to stack
+        if isinstance(current, BinaryOp):
+            stack.append(current.left)
+            stack.append(current.right)
+            continue
+
+        # UnaryOp - push operand to stack
+        if isinstance(current, UnaryOp):
+            stack.append(current.operand)
+            continue
+
+        # Any other type (e.g., scalar Variable) - not a vector source
         return None
 
-    # LinearCombination (e.g., c @ x)
-    if isinstance(expr, LinearCombination):
-        if isinstance(expr.vector, VectorVariable):
-            return expr.vector
-        return None
-
-    # BinaryOp - check if one side is Constant and other is vector expression
-    if isinstance(expr, BinaryOp):
-        if isinstance(expr.left, Constant):
-            return _try_get_single_vector_source(expr.right)
-        if isinstance(expr.right, Constant):
-            return _try_get_single_vector_source(expr.left)
-        # Both sides could be same vector
-        left_src = _try_get_single_vector_source(expr.left)
-        right_src = _try_get_single_vector_source(expr.right)
-        if left_src is not None and left_src is right_src:
-            return left_src
-        return None
-
-    return None
+    return found_source
 
 
 class Problem:
