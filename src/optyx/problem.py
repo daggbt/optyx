@@ -67,6 +67,7 @@ def _try_get_single_vector_source(expr: "Expression") -> "VectorVariable | None"
         VectorPowerSum,
         VectorUnarySum,
         VectorExpressionSum,
+        DotProduct,
     )
     from optyx.core.expressions import BinaryOp, UnaryOp, Constant
     from optyx.core.parameters import Parameter
@@ -121,6 +122,28 @@ def _try_get_single_vector_source(expr: "Expression") -> "VectorVariable | None"
             if found_source is None:
                 found_source = candidate
             elif found_source is not candidate:
+                return None
+            continue
+
+        # DotProduct (x.dot(y)) - check if both sides are same VectorVariable
+        if isinstance(current, DotProduct):
+            left_is_vec = isinstance(current.left, VectorVariable)
+            right_is_vec = isinstance(current.right, VectorVariable)
+            if left_is_vec and right_is_vec:
+                # Both are VectorVariables - must be the same
+                if current.left is current.right:
+                    candidate = current.left
+                    if found_source is None:
+                        found_source = candidate
+                    elif found_source is not candidate:
+                        return None
+                else:
+                    return None  # Two different VectorVariables
+            elif left_is_vec or right_is_vec:
+                # One is VectorVariable, one is VectorExpression
+                return None  # Complex case, bail out
+            else:
+                # Both are VectorExpressions - too complex
                 return None
             continue
 

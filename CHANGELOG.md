@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.3] - 2026-02-05
+
+### Fixed
+- **DotProduct fast-path**: Added `DotProduct` handler to `_try_get_single_vector_source()`, restoring O(1) variable extraction for `x.dot(x)` expressions. This fixes the CQP performance regression where warm overhead was 17x instead of ~1x.
+
+### Changed
+- **Extended benchmarks**: Benchmark suite now tests problem sizes up to n=5,000 (previously n=2,000).
+- **Updated benchmark documentation**: All performance tables in `docs/benchmarks.qmd` updated with v1.2.3 numbers showing LP/CQP at parity with SciPy and NLP 800x faster at scale.
+
+### Performance
+- CQP warm overhead: 17.2x → 1.0x at n=5,000 (fixed regression)
+- NLP warm overhead: 0.001x at n=5,000 (800x faster than SciPy)
+- LP/CQP: Consistent ~1.0x overhead across all scales
+
 ## [1.2.2] - 2026-01-18
 
 ### Added

@@ -57,7 +57,7 @@ benchmarks/comparison/bench_vector_vs_loop.py
 benchmarks/comparison/bench_matrix_vs_alternatives.py
 compare_*.py
 debug_expr.py 
-debug_fastpath.py
+debug_*.py
 diagnose*.py 
 profile_granular.py
 profile_numpy.py
