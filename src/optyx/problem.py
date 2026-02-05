@@ -462,6 +462,9 @@ class Problem:
                     - Bounds only → L-BFGS-B
                     - General constraints → SLSQP
                 - "linprog": Force LP solver (scipy.optimize.linprog)
+                - "highs": HiGHS LP solver (auto method selection)
+                - "highs-ds": HiGHS dual simplex
+                - "highs-ipm": HiGHS interior point method
                 - "SLSQP": Sequential Least Squares Programming
                 - "trust-constr": Trust-region constrained optimization
                 - "L-BFGS-B": Limited-memory BFGS with bounds
@@ -499,6 +502,12 @@ class Problem:
             from optyx.solvers.lp_solver import solve_lp
 
             return solve_lp(self, strict=strict, **kwargs)
+
+        # Route HiGHS methods to LP solver
+        if method in ("highs", "highs-ds", "highs-ipm"):
+            from optyx.solvers.lp_solver import solve_lp
+
+            return solve_lp(self, method=method, strict=strict, **kwargs)
 
         # Use scipy solver for NLP methods
         from optyx.solvers.scipy_solver import solve_scipy
