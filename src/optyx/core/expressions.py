@@ -195,6 +195,7 @@ class Constant(Expression):
     __slots__ = ("value",)
 
     def __init__(self, value: float | int | ArrayLike) -> None:
+        self._hash = None
         self.value = np.asarray(value) if not isinstance(value, (int, float)) else value
 
     def evaluate(
@@ -298,6 +299,7 @@ class BinaryOp(Expression):
         right: Expression,
         op: Literal["+", "-", "*", "/", "**"],
     ) -> None:
+        self._hash = None
         self.left = left
         self.right = right
         self.op = op
@@ -400,6 +402,7 @@ class UnaryOp(Expression):
                 operator=op,
                 context="unary expression",
             )
+        self._hash = None
         self.operand = operand
         self.op = op
         self._numpy_func = self._OPS[op]
