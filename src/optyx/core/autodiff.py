@@ -1369,8 +1369,7 @@ def compile_hessian(
                 def hess_power_sparse(x):
                     result = np.zeros((n, n))
                     diag_vals = coeff * np.power(x[indices], exp)
-                    for i, idx in enumerate(indices):
-                        result[idx, idx] = diag_vals[i]
+                    result[indices, indices] = diag_vals
                     return _sanitize_derivatives(result)
 
                 return hess_power_sparse
@@ -1399,8 +1398,7 @@ def compile_hessian(
 
                 def hess_sin_sparse(x):
                     result = np.zeros((n, n))
-                    for i, idx in enumerate(indices):
-                        result[idx, idx] = -np.sin(x[idx])
+                    result[indices, indices] = -np.sin(x[indices])
                     return result
 
                 return hess_sin_sparse
@@ -1417,8 +1415,7 @@ def compile_hessian(
 
                 def hess_cos_sparse(x):
                     result = np.zeros((n, n))
-                    for i, idx in enumerate(indices):
-                        result[idx, idx] = -np.cos(x[idx])
+                    result[indices, indices] = -np.cos(x[indices])
                     return result
 
                 return hess_cos_sparse
@@ -1435,8 +1432,7 @@ def compile_hessian(
 
                 def hess_exp_sparse(x):
                     result = np.zeros((n, n))
-                    for i, idx in enumerate(indices):
-                        result[idx, idx] = np.exp(x[idx])
+                    result[indices, indices] = np.exp(x[indices])
                     return result
 
                 return hess_exp_sparse
@@ -1453,8 +1449,7 @@ def compile_hessian(
 
                 def hess_log_sparse(x):
                     result = np.zeros((n, n))
-                    for i, idx in enumerate(indices):
-                        result[idx, idx] = -1.0 / (x[idx] ** 2)
+                    result[indices, indices] = -1.0 / (x[indices] ** 2)
                     return _sanitize_derivatives(result)
 
                 return hess_log_sparse
