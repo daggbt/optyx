@@ -687,6 +687,7 @@ def _register_vector_gradient_rules() -> None:
         VectorVariable,
         VectorPowerSum,
         VectorUnarySum,
+        VectorExpressionSum,
     )
     from optyx.core.matrices import QuadraticForm
 
@@ -737,6 +738,21 @@ def _register_vector_gradient_rules() -> None:
             if var.name == wrt.name:
                 return Constant(1.0)
         return Constant(0.0)
+
+    @register_gradient(VectorExpressionSum)
+    def gradient_vector_expression_sum(
+        expr: VectorExpressionSum, wrt: Variable
+    ) -> Expression:
+        """Gradient for VectorExpressionSum: ∂(Σf_i)/∂x = Σ(∂f_i/∂x).
+
+        For sum(expr) = f_0 + f_1 + ... + f_{n-1}:
+        The gradient is the sum of the gradients of each element.
+        """
+        result: Expression = Constant(0.0)
+        for elem in expr.expression._expressions:
+            d_elem = gradient(elem, wrt)
+            result = _simplify_add(result, d_elem)
+        return result
 
     @register_gradient(DotProduct)
     def gradient_dot_product(expr: DotProduct, wrt: Variable) -> Expression:
