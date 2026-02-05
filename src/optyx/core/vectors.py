@@ -59,7 +59,7 @@ class VectorSum(Expression):
         self, values: Mapping[str, ArrayLike | float]
     ) -> NDArray[np.floating] | float:
         """Evaluate the sum given variable values."""
-        return sum(v.evaluate(values) for v in self.vector)  # type: ignore[return-value]
+        return np.sum(np.array([v.evaluate(values) for v in self.vector]))
 
     def get_variables(self) -> set[Variable]:
         """Return all variables this expression depends on."""
@@ -120,7 +120,9 @@ class VectorExpressionSum(Expression):
         self, values: Mapping[str, ArrayLike | float]
     ) -> NDArray[np.floating] | float:
         """Evaluate the sum given variable values."""
-        return sum(e.evaluate(values) for e in self.expression._expressions)  # type: ignore[return-value]
+        return np.sum(
+            np.array([e.evaluate(values) for e in self.expression._expressions])
+        )
 
     def get_variables(self) -> set[Variable]:
         """Return all variables this expression depends on."""
@@ -186,9 +188,9 @@ class DotProduct(Expression):
         self, values: Mapping[str, ArrayLike | float]
     ) -> NDArray[np.floating] | float:
         """Evaluate the dot product given variable values."""
-        left_vals = [v.evaluate(values) for v in self._iter_left()]
-        right_vals = [v.evaluate(values) for v in self._iter_right()]
-        return sum(lv * rv for lv, rv in zip(left_vals, right_vals))  # type: ignore[return-value]
+        left_vals = np.array([v.evaluate(values) for v in self._iter_left()])
+        right_vals = np.array([v.evaluate(values) for v in self._iter_right()])
+        return np.dot(left_vals, right_vals)
 
     def _iter_left(self) -> Iterator[Expression]:
         """Iterate over left vector elements."""
