@@ -32,6 +32,7 @@ from optyx.core.errors import (
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray, ArrayLike
+    from optyx.constraints import Constraint
 
 
 # =============================================================================
@@ -214,6 +215,43 @@ class MatrixExpression:
         """Element-wise power."""
         return _matrix_binary_op(self, other, "**")
 
+    # Comparison operators - return list of Constraints
+    def __ge__(
+        self, other: MatrixExpression | MatrixVariable | NDArray | float | int
+    ) -> list[Constraint]:
+        """Element-wise >= constraint.
+
+        Example:
+            >>> X = MatrixVariable("X", 2, 2)
+            >>> Y = MatrixVariable("Y", 2, 2)
+            >>> constraints = (X - Y) >= 0  # 4 constraints
+        """
+        return _matrix_constraint(self, other, ">=")
+
+    def __le__(
+        self, other: MatrixExpression | MatrixVariable | NDArray | float | int
+    ) -> list[Constraint]:
+        """Element-wise <= constraint.
+
+        Example:
+            >>> X = MatrixVariable("X", 2, 2)
+            >>> constraints = (X + 1) <= 10  # 4 constraints
+        """
+        return _matrix_constraint(self, other, "<=")
+
+    def eq(
+        self, other: MatrixExpression | MatrixVariable | NDArray | float | int
+    ) -> list[Constraint]:
+        """Element-wise == constraint.
+
+        Use .eq() instead of == to avoid Python's __eq__ returning bool.
+
+        Example:
+            >>> X = MatrixVariable("X", 2, 2)
+            >>> constraints = (X + Y).eq(target_array)
+        """
+        return _matrix_constraint(self, other, "==")
+
 
 def _matrix_binary_op(
     left: MatrixVariable | MatrixExpression,
@@ -297,6 +335,91 @@ def _matrix_binary_op(
     ]
 
     return MatrixExpression(result_exprs)
+
+
+def _matrix_constraint(
+    left: MatrixVariable | MatrixExpression,
+    right: MatrixVariable | MatrixExpression | NDArray | float | int,
+    sense: Literal["<=", ">=", "=="],
+) -> list[Constraint]:
+    """Create element-wise constraints for matrices.
+
+    Args:
+        left: Left operand (MatrixVariable or MatrixExpression).
+        right: Right operand (matrix, scalar, or numpy array).
+        sense: Constraint sense (<=, >=, or ==).
+
+    Returns:
+        List of Constraint objects, one per element.
+
+    Raises:
+        DimensionMismatchError: If matrix shapes don't match.
+    """
+    from optyx.constraints import _make_constraint
+
+    rows, cols = left.shape
+
+    # Get left expressions
+    if isinstance(left, MatrixVariable):
+        left_exprs = [[left._variables[i][j] for j in range(cols)] for i in range(rows)]
+    else:  # MatrixExpression
+        left_exprs = left._expressions
+
+    constraints: list[Constraint] = []
+
+    if isinstance(right, (int, float)):
+        # Scalar broadcast to all elements
+        for i in range(rows):
+            for j in range(cols):
+                constraints.append(_make_constraint(left_exprs[i][j], sense, right))
+
+    elif isinstance(right, np.ndarray):
+        if right.shape != (rows, cols):
+            raise DimensionMismatchError(
+                operation=f"matrix constraint ({sense})",
+                left_shape=(rows, cols),
+                right_shape=right.shape,
+            )
+        for i in range(rows):
+            for j in range(cols):
+                constraints.append(
+                    _make_constraint(left_exprs[i][j], sense, float(right[i, j]))
+                )
+
+    elif isinstance(right, MatrixVariable):
+        if right.shape != (rows, cols):
+            raise DimensionMismatchError(
+                operation=f"matrix constraint ({sense})",
+                left_shape=(rows, cols),
+                right_shape=right.shape,
+            )
+        for i in range(rows):
+            for j in range(cols):
+                constraints.append(
+                    _make_constraint(left_exprs[i][j], sense, right._variables[i][j])
+                )
+
+    elif isinstance(right, MatrixExpression):
+        if right.shape != (rows, cols):
+            raise DimensionMismatchError(
+                operation=f"matrix constraint ({sense})",
+                left_shape=(rows, cols),
+                right_shape=right.shape,
+            )
+        for i in range(rows):
+            for j in range(cols):
+                constraints.append(
+                    _make_constraint(left_exprs[i][j], sense, right._expressions[i][j])
+                )
+
+    else:
+        raise InvalidOperationError(
+            operation=f"matrix constraint ({sense})",
+            operand_types=(type(left).__name__, type(right).__name__),
+            suggestion="Use scalar, numpy array, MatrixVariable, or MatrixExpression.",
+        )
+
+    return constraints
 
 
 class MatrixVariable:
@@ -796,6 +919,42 @@ class MatrixVariable:
     def __pow__(self, other: float | int) -> MatrixExpression:
         """Element-wise power: X ** 2."""
         return _matrix_binary_op(self, other, "**")
+
+    # Comparison operators - return list of Constraints
+    def __ge__(
+        self, other: MatrixExpression | MatrixVariable | NDArray | float | int
+    ) -> list[Constraint]:
+        """Element-wise >= constraint.
+
+        Example:
+            >>> X = MatrixVariable("X", 3, 3)
+            >>> constraints = X >= 0  # 9 constraints
+        """
+        return _matrix_constraint(self, other, ">=")
+
+    def __le__(
+        self, other: MatrixExpression | MatrixVariable | NDArray | float | int
+    ) -> list[Constraint]:
+        """Element-wise <= constraint.
+
+        Example:
+            >>> X = MatrixVariable("X", 3, 3)
+            >>> constraints = X <= 100  # 9 constraints
+        """
+        return _matrix_constraint(self, other, "<=")
+
+    def eq(
+        self, other: MatrixExpression | MatrixVariable | NDArray | float | int
+    ) -> list[Constraint]:
+        """Element-wise == constraint.
+
+        Use .eq() instead of == to avoid Python's __eq__ returning bool.
+
+        Example:
+            >>> X = MatrixVariable("X", 2, 2)
+            >>> constraints = X.eq(target_matrix)
+        """
+        return _matrix_constraint(self, other, "==")
 
     def __matmul__(self, other: object) -> VectorExpression:
         """Matrix-vector multiplication: A @ x.
