@@ -252,6 +252,19 @@ class MatrixExpression:
         """
         return _matrix_constraint(self, other, "==")
 
+    def sum(self) -> MatrixSum:
+        """Sum all elements of this matrix expression.
+
+        Returns:
+            MatrixSum expression (scalar).
+
+        Example:
+            >>> X = MatrixVariable("X", 2, 2)
+            >>> Y = MatrixVariable("Y", 2, 2)
+            >>> s = (X * Y).sum()  # Hadamard product, then sum
+        """
+        return MatrixSum(self)
+
 
 def _matrix_binary_op(
     left: MatrixVariable | MatrixExpression,
@@ -420,6 +433,67 @@ def _matrix_constraint(
         )
 
     return constraints
+
+
+class MatrixSum(Expression):
+    """Sum of all elements in a matrix: sum(X) = X[0,0] + X[0,1] + ... + X[n-1,m-1].
+
+    This is a scalar expression representing sum(X). Enables O(1) evaluation
+    and gradient computation using numpy.
+
+    Unlike building a nested BinaryOp tree with Python's sum(), MatrixSum
+    stores a flat reference to the matrix, avoiding RecursionError for large N.
+
+    Args:
+        matrix: The MatrixVariable or MatrixExpression to sum.
+
+    Example:
+        >>> X = MatrixVariable("X", 2, 2)
+        >>> s = MatrixSum(X)
+        >>> s.evaluate({"X[0,0]": 1, "X[0,1]": 2, "X[1,0]": 3, "X[1,1]": 4})
+        10.0
+    """
+
+    __slots__ = ("matrix",)
+
+    def __init__(self, matrix: MatrixVariable | MatrixExpression) -> None:
+        self.matrix = matrix
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        """Shape of the underlying matrix."""
+        return self.matrix.shape
+
+    def evaluate(self, values: Mapping[str, float]) -> float:
+        """Evaluate the sum given variable values."""
+        if isinstance(self.matrix, MatrixVariable):
+            total = 0.0
+            for i in range(self.matrix.rows):
+                for j in range(self.matrix.cols):
+                    total += float(self.matrix._variables[i][j].evaluate(values))
+            return total
+        else:  # MatrixExpression
+            result = self.matrix.evaluate(values)
+            return float(np.sum(result))
+
+    def get_variables(self) -> set[Variable]:
+        """Return all variables this expression depends on."""
+        vars_result = self.matrix.get_variables()
+        return vars_result if isinstance(vars_result, set) else set(vars_result)
+
+    def jacobian_row(self, variables: list[Variable]) -> list[Expression] | None:
+        """Return Jacobian row in O(n).
+
+        For MatrixSum(X), gradient w.r.t. X[i,j] is 1 for all elements in X,
+        0 for all other variables.
+        """
+        my_vars = self.matrix.get_variables()
+        return [Constant(1.0) if var in my_vars else Constant(0.0) for var in variables]
+
+    def __repr__(self) -> str:
+        if isinstance(self.matrix, MatrixVariable):
+            return f"MatrixSum({self.matrix.name})"
+        return f"MatrixSum(MatrixExpression{self.matrix.shape})"
 
 
 class MatrixVariable:
@@ -955,6 +1029,19 @@ class MatrixVariable:
             >>> constraints = X.eq(target_matrix)
         """
         return _matrix_constraint(self, other, "==")
+
+    def sum(self) -> MatrixSum:
+        """Sum all elements of this matrix.
+
+        Returns:
+            MatrixSum expression (scalar) representing the sum of all elements.
+
+        Example:
+            >>> X = MatrixVariable("X", 3, 3)
+            >>> s = X.sum()
+            >>> s.evaluate(solution)  # Returns sum of all 9 elements
+        """
+        return MatrixSum(self)
 
     def __matmul__(self, other: object) -> VectorExpression:
         """Matrix-vector multiplication: A @ x.
