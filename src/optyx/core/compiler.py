@@ -116,7 +116,12 @@ def _compile_cached(
 def _estimate_tree_depth(expr: Expression) -> int:
     """Estimate depth of expression tree following left spine."""
     from optyx.core.expressions import BinaryOp, Constant, UnaryOp, Variable
-    from optyx.core.vectors import LinearCombination, VectorSum, DotProduct
+    from optyx.core.vectors import (
+        LinearCombination,
+        VectorSum,
+        DotProduct,
+        VectorExpressionSum,
+    )
 
     depth = 0
     current = expr
@@ -129,7 +134,7 @@ def _estimate_tree_depth(expr: Expression) -> int:
         elif isinstance(current, UnaryOp):
             depth += 1
             current = current.operand
-        elif isinstance(current, (LinearCombination, VectorSum)):
+        elif isinstance(current, (LinearCombination, VectorSum, VectorExpressionSum)):
             break  # These don't recurse deeply
         elif isinstance(current, DotProduct):
             depth += 1
@@ -161,6 +166,7 @@ def _build_evaluator(
         VectorPowerSum,
         ElementwiseUnary,
         VectorUnarySum,
+        VectorExpressionSum,
     )
     from optyx.core.matrices import QuadraticForm
 
@@ -197,6 +203,13 @@ def _build_evaluator(
         # sum(x) = x[0] + x[1] + ... - efficient numpy implementation
         indices = np.array([var_indices[v.name] for v in expr.vector._variables])
         return lambda x, idx=indices: np.sum(x[idx])
+
+    elif isinstance(expr, VectorExpressionSum):
+        # sum(expr) where expr is a VectorExpression
+        elem_fns = [
+            _build_evaluator(e, var_indices) for e in expr.expression._expressions
+        ]
+        return lambda x, fns=elem_fns: float(sum(f(x) for f in fns))
 
     elif isinstance(expr, DotProduct):
         # x · y = x[0]*y[0] + x[1]*y[1] + ...
@@ -319,6 +332,7 @@ def _build_evaluator_iterative(
         LinearCombination,
         VectorSum,
         VectorVariable,
+        VectorExpressionSum,
     )
     from optyx.core.matrices import QuadraticForm
 
@@ -377,6 +391,21 @@ def _build_evaluator_iterative(
         if isinstance(node, VectorSum):
             indices = np.array([var_indices[v.name] for v in node.vector._variables])
             result_stack.append(lambda x, idx=indices: np.sum(x[idx]))
+            continue
+
+        if isinstance(node, VectorExpressionSum):
+            # sum(expr) where expr is a VectorExpression - build non-recursively
+            elem_fns = []
+            for e in node.expression._expressions:
+                if isinstance(e, Variable):
+                    idx = var_indices[e.name]
+                    elem_fns.append(lambda x, i=idx: x[i])
+                elif isinstance(e, Constant):
+                    val = e.value
+                    elem_fns.append(lambda x, v=val: v)
+                else:
+                    elem_fns.append(_build_evaluator(e, var_indices))
+            result_stack.append(lambda x, fns=elem_fns: float(sum(f(x) for f in fns)))
             continue
 
         if isinstance(node, DotProduct):
