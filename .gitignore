@@ -52,21 +52,13 @@ Thumbs.db
 .github/PULL_REQUEST_TEMPLATE.md
 
 # Comparison scripts (local analysis only)
-compare_optyx_scipy.py
+compare_*.py
 benchmarks/comparison/bench_vector_vs_loop.py
 benchmarks/comparison/bench_matrix_vs_alternatives.py
-compare_*.py
-debug_expr.py 
 debug_*.py
 diagnose*.py 
-profile_granular.py
-profile_numpy.py
+
 test_scalability.py
 test_scipy_scalability.py
 # Profiling scripts (local analysis only)
-profile_nlp_granular.py
-profile_nlp_overhead.py
-profile_full_solve.py
-profile_optyx_overhead.py
-profile_optyx_solve.py
-profile_solver_overhead.py
+profile_*.py

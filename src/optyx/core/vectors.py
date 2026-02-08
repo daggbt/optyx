@@ -54,12 +54,21 @@ class VectorSum(Expression):
 
     def __init__(self, vector: VectorVariable) -> None:
         self.vector = vector
+        self._hash = None
 
     def evaluate(
         self, values: Mapping[str, ArrayLike | float]
     ) -> NDArray[np.floating] | float:
         """Evaluate the sum given variable values."""
-        return sum(v.evaluate(values) for v in self.vector)  # type: ignore[return-value]
+        return float(
+            np.sum(
+                np.fromiter(
+                    (v.evaluate(values) for v in self.vector),
+                    dtype=float,
+                    count=self.vector.size,
+                )
+            )
+        )
 
     def get_variables(self) -> set[Variable]:
         """Return all variables this expression depends on."""
@@ -110,6 +119,7 @@ class VectorExpressionSum(Expression):
 
     def __init__(self, expression: VectorExpression) -> None:
         self.expression = expression
+        self._hash = None
 
     @property
     def size(self) -> int:
@@ -181,14 +191,24 @@ class DotProduct(Expression):
             )
         self.left = left
         self.right = right
+        self._hash = None
 
     def evaluate(
         self, values: Mapping[str, ArrayLike | float]
     ) -> NDArray[np.floating] | float:
         """Evaluate the dot product given variable values."""
-        left_vals = [v.evaluate(values) for v in self._iter_left()]
-        right_vals = [v.evaluate(values) for v in self._iter_right()]
-        return sum(lv * rv for lv, rv in zip(left_vals, right_vals))  # type: ignore[return-value]
+        size = self.left.size
+        left_vals = np.fromiter(
+            (v.evaluate(values) for v in self._iter_left()),
+            dtype=float,
+            count=size,
+        )
+        right_vals = np.fromiter(
+            (v.evaluate(values) for v in self._iter_right()),
+            dtype=float,
+            count=size,
+        )
+        return float(np.dot(left_vals, right_vals))
 
     def _iter_left(self) -> Iterator[Expression]:
         """Iterate over left vector elements."""
@@ -282,6 +302,7 @@ class L2Norm(Expression):
 
     def __init__(self, vector: VectorVariable | VectorExpression) -> None:
         self.vector = vector
+        self._hash = None
 
     def evaluate(
         self, values: Mapping[str, ArrayLike | float]
@@ -329,6 +350,7 @@ class L1Norm(Expression):
 
     def __init__(self, vector: VectorVariable | VectorExpression) -> None:
         self.vector = vector
+        self._hash = None
 
     def evaluate(
         self, values: Mapping[str, ArrayLike | float]
@@ -394,6 +416,7 @@ class LinearCombination(Expression):
             )
         self.coefficients = coefficients
         self.vector = vector
+        self._hash = None
 
     def evaluate(
         self, values: Mapping[str, ArrayLike | float]

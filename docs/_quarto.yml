@@ -107,8 +107,6 @@ website:
             href: tutorials/constraints.qmd
           - text: "Automatic Differentiation"
             href: tutorials/autodiff.qmd
-          - text: "---"
-          - text: "v1.2.0 Features"
           - text: "Vector Variables"
             href: tutorials/vectors.qmd
           - text: "Matrix Variables"
@@ -128,7 +126,7 @@ website:
           - text: "Rosenbrock Function"
             href: examples/rosenbrock.qmd
           - text: "---"
-          - text: "Large-Scale (v1.2.0)"
+          - text: "Large-Scale"
           - text: "Resource Allocation"
             href: examples/resource-allocation.qmd
           - text: "Advanced Portfolio (Covariance)"
@@ -166,55 +164,8 @@ website:
     right:
       - icon: github
         href: https://github.com/daggbt/optyx
-  
-  sidebar:
-    - title: "Getting Started"
-      style: "docked"
-      contents:
-        - getting-started/installation.qmd
-        - getting-started/quickstart.qmd
-        - getting-started/concepts.qmd
-        - getting-started/how-it-works.qmd
-    
-    - title: "Tutorials"
-      contents:
-        - tutorials/basic-optimization.qmd
-        - tutorials/constraints.qmd
-        - tutorials/autodiff.qmd
-        - section: "v1.2.0 Features"
-          contents:
-            - tutorials/vectors.qmd
-            - tutorials/matrices.qmd
-    
-    - title: "Examples"
-      contents:
-        - examples/portfolio.qmd
-        - examples/fleet-dispatch.qmd
-        - examples/mine-scheduling.qmd
-        - examples/road-maintenance.qmd
-        - examples/rosenbrock.qmd
-        - section: "Large-Scale (v1.2.0)"
-          contents:
-            - examples/resource-allocation.qmd
-            - examples/portfolio-advanced.qmd
-    
-    - title: "API Reference"
-      contents:
-        - api/index.qmd
-        - section: "Guides"
-          contents:
-            - api/expressions.qmd
-            - api/constraints.qmd
-            - api/problem.qmd
-            - api/solution.qmd
-            - api/autodiff.qmd
-        - section: "Full Reference"
-          contents:
-            - api/reference/index.qmd
-    
-    - title: "Benchmarks"
-      contents:
-        - benchmarks.qmd
+      - text: "PyPI"
+        href: https://pypi.org/project/optyx/
   
   page-footer:
     left: "© 2025 Optyx Contributors"

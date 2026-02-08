@@ -458,6 +458,7 @@ class MatrixSum(Expression):
 
     def __init__(self, matrix: MatrixVariable | MatrixExpression) -> None:
         self.matrix = matrix
+        self._hash = None
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -1304,6 +1305,7 @@ class QuadraticForm(Expression):
 
         self.vector = vector
         self.matrix = matrix
+        self._hash = None
 
     def evaluate(self, values: Mapping[str, ArrayLike | float]) -> float:
         """Evaluate the quadratic form xᵀQx."""
@@ -1579,6 +1581,7 @@ class FrobeniusNorm(Expression):
 
     def __init__(self, matrix: MatrixVariable) -> None:
         self.matrix = matrix
+        self._hash = None
 
     def evaluate(self, values: Mapping[str, ArrayLike | float]) -> float:
         """Evaluate the Frobenius norm."""

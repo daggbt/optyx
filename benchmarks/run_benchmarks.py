@@ -37,6 +37,22 @@ from utils import RESULTS_DIR
 import matplotlib.pyplot as plt
 
 
+class Tee:
+    """Helper to write to both stdout and a file."""
+
+    def __init__(self, *files):
+        self.files = files
+
+    def write(self, obj):
+        for f in self.files:
+            f.write(obj)
+            f.flush()
+
+    def flush(self):
+        for f in self.files:
+            f.flush()
+
+
 @dataclass
 class BenchmarkResult:
     """Result of a single benchmark run."""
@@ -762,34 +778,46 @@ def run_overhead_summary():
 
 def main():
     """Run all benchmarks."""
-    print("=" * 80)
-    print("OPTYX BENCHMARK SUITE - END-TO-END COMPARISON")
-    print("=" * 80)
-    print("\nThis benchmark measures TOTAL time including:")
-    print("  • Variable creation")
-    print("  • Problem setup")
-    print("  • Constraint construction")
-    print("  • Cold solve (first solve, includes compilation)")
-    print("  • Warm solve (cached subsequent solves)")
-    print("\nCompared against SciPy (which has no build phase).")
-    print(f"\nResults will be saved to: {RESULTS_DIR}")
-
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Run scaling benchmarks
-    run_lp_scaling()
-    run_nlp_scaling()
-    run_cqp_scaling()
+    # Capture output to file
+    output_path = RESULTS_DIR / "benchmark_output.txt"
+    original_stdout = sys.stdout
 
-    # Run overhead summary
-    run_overhead_summary()
+    with open(output_path, "w") as log_file:
+        sys.stdout = Tee(sys.stdout, log_file)  # type: ignore
 
-    print("\n" + "=" * 80)
-    print("BENCHMARK COMPLETE")
-    print("=" * 80)
-    print(f"\nPlots saved to: {RESULTS_DIR}")
-    for f in sorted(RESULTS_DIR.glob("*.png")):
-        print(f"  - {f.name}")
+        try:
+            print("=" * 80)
+            print("OPTYX BENCHMARK SUITE - END-TO-END COMPARISON")
+            print("=" * 80)
+            print("\nThis benchmark measures TOTAL time including:")
+            print("  • Variable creation")
+            print("  • Problem setup")
+            print("  • Constraint construction")
+            print("  • Cold solve (first solve, includes compilation)")
+            print("  • Warm solve (cached subsequent solves)")
+            print("\nCompared against SciPy (which has no build phase).")
+            print(f"\nResults will be saved to: {RESULTS_DIR}")
+            print(f"Terminal output being saved to: {output_path}")
+
+            # Run scaling benchmarks
+            run_lp_scaling()
+            run_nlp_scaling()
+            run_cqp_scaling()
+
+            # Run overhead summary
+            run_overhead_summary()
+
+            print("\n" + "=" * 80)
+            print("BENCHMARK COMPLETE")
+            print("=" * 80)
+            print(f"\nPlots saved to: {RESULTS_DIR}")
+            for f in sorted(RESULTS_DIR.glob("*.png")):
+                print(f"  - {f.name}")
+
+        finally:
+            sys.stdout = original_stdout
 
 
 if __name__ == "__main__":

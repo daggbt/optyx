@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.4] - 2026-02-08
+
+### Fixed
+- **Solver selection bug**: `_auto_select_method` no longer selects `L-BFGS-B` for problems with generic constraints, which caused `RuntimeWarning: Method L-BFGS-B cannot handle constraints` and incorrect solutions. Falls back to `SLSQP` instead.
+- **Hash initialization**: Added `self._hash = None` to `__init__` in `MatrixSum`, `QuadraticForm`, and `FrobeniusNorm`, fixing `AttributeError: 'QuadraticForm' object has no attribute '_hash'` when using quadratic forms in optimization.
+
+### Performance
+- **Remove hot-loop safety checks**: Removed `np.isfinite` validation from the objective/gradient functions in `scipy_solver.py`, eliminating per-iteration overhead in the solver loop.
+- **Vectorize DotProduct evaluation**: `DotProduct.evaluate` now uses `np.dot` via `np.fromiter` instead of Python `sum()` with generators.
+- **Vectorize VectorSum evaluation**: `VectorSum.evaluate` now uses `np.sum` via `np.fromiter` instead of Python `sum()`.
+- **Pre-compile regex**: `_natural_sort_key` in `problem.py` now uses a module-level pre-compiled regex instead of `re.split()` on every call.
+- **Optimize Expression.__hash__**: Removed `hasattr(self, "_hash")` check by initializing `_hash = None` in `__init__` for all Expression subclasses, reducing hash computation overhead.
+
+### Changed
+- **Updated benchmarks**: All performance tables in `docs/benchmarks.qmd` updated with v1.2.4 numbers.
+- **Documentation**: Fixed landing page title inference issue, centered navbar logo, added benchmark analysis sections for caching and SciPy baseline scaling.
+
 ## [1.2.3] - 2026-02-05
 
 ### Fixed

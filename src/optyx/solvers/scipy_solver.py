@@ -122,34 +122,11 @@ def solve_scipy(
     scipy_constraints = cache["scipy_constraints"]
     bounds = cache["bounds"]
 
-    # Track if we've warned about inf/nan to avoid spamming
-    _inf_nan_warned = [False]  # Use list to allow mutation in nested function
-
     def objective(x: np.ndarray) -> float:
-        val = float(obj_fn(x))
-        if not np.isfinite(val) and not _inf_nan_warned[0]:
-            warnings.warn(
-                f"Objective function returned {val} at point {x}. "
-                "This may indicate evaluation at a singularity (e.g., log(0), 1/0). "
-                "Consider adjusting variable bounds or initial point.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-            _inf_nan_warned[0] = True
-        return val
+        return float(obj_fn(x))
 
     def gradient(x: np.ndarray) -> np.ndarray:
-        grad = grad_fn(x).flatten()
-        if not np.all(np.isfinite(grad)) and not _inf_nan_warned[0]:
-            warnings.warn(
-                f"Gradient contains inf/nan values at point {x}. "
-                "This may indicate evaluation near a singularity. "
-                "Consider adjusting variable bounds or initial point.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-            _inf_nan_warned[0] = True
-        return grad
+        return grad_fn(x).flatten()
 
     # Build Hessian for methods that support it (not cached - method-dependent)
     hess_fn: Callable[[np.ndarray], np.ndarray] | None = None

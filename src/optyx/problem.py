@@ -29,6 +29,9 @@ SMALL_PROBLEM_THRESHOLD = 3
 # Threshold for "large" problems where memory-efficient methods are preferred
 LARGE_PROBLEM_THRESHOLD = 1000
 
+# Pre-compiled regex for natural sorting of variable names
+_NUMBER_SPLIT_RE = re.compile(r"(\d+)")
+
 
 def _natural_sort_key(var: Variable) -> tuple:
     """Generate a sort key for natural ordering of variable names.
@@ -43,9 +46,12 @@ def _natural_sort_key(var: Variable) -> tuple:
     Returns:
         Tuple for sorting: (base_name, index1, index2, ...)
     """
+    if hasattr(var, "_sort_key"):
+        return var._sort_key
+
     name = var.name
     # Split into text and number parts
-    parts = re.split(r"(\d+)", name)
+    parts = _NUMBER_SPLIT_RE.split(name)
     # Convert number parts to integers for proper numeric sorting
     return tuple(int(p) if p.isdigit() else p for p in parts)
 
@@ -503,8 +509,11 @@ class Problem:
             return "L-BFGS-B"
 
         # Only variable bounds (no general constraints)
-        if self._only_simple_bounds():
-            return "L-BFGS-B"
+        # FIXME: L-BFGS-B does not support constraints passed via the 'constraints' argument.
+        # Until we implement merging of simple bound constraints into the variable bounds,
+        # we must avoid L-BFGS-B if there are any constraints in the list.
+        # if self._only_simple_bounds():
+        #     return "L-BFGS-B"
 
         # Check if objective is non-linear (degree > 2 or contains transcendental functions)
         obj = self.objective
