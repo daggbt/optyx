@@ -1,15 +1,15 @@
 ---
-title: "Optyx"
-subtitle: "Optimization that reads like Python"
 page-layout: full
 toc: false
+title: "Optyx"
 ---
 
+
 ::: {.hero}
-[Get Started](getting-started/quickstart.qmd){.btn .btn-primary .btn-lg}
-[View on GitHub](https://github.com/daggbt/optyx){.btn .btn-outline-secondary .btn-lg}
-[PyPI](https://pypi.org/project/optyx/){.btn .btn-outline-secondary .btn-lg}
+# Optyx
+### Optimization that reads like Python
 :::
+
 
 ## See the Difference
 
@@ -93,8 +93,6 @@ But if you want readable optimization code that just works for most problems, ke
 import warnings
 warnings.filterwarnings('ignore')
 ```
-
-### Constrained Nonlinear Optimization
 
 ```{python}
 from optyx import Variable, Problem
@@ -219,7 +217,7 @@ for scenario in scenarios:
     solution = problem.solve(x0=scenario)
 ```
 
-Up to **900x faster** on repeated solves.
+Up to **800x faster** on repeated solves.
 :::
 
 :::
@@ -372,7 +370,7 @@ Loop-built expressions differentiate element-by-element. NumPy-style operations 
 
 ## VectorVariable: Vectors Done Right
 
-**VectorVariable** (v1.2.0) solves these problems with NumPy-like syntax:
+**VectorVariable** solves these problems with NumPy-like syntax:
 
 ```{python}
 from optyx import VectorVariable
@@ -594,13 +592,13 @@ A loop-built quadratic form creates n² expression nodes. `w.dot(Σ @ w)` uses a
 
 Optyx is designed for developer productivity first, but it's not slow:
 
-| Scenario | Overhead vs Raw SciPy | Notes |
-|----------|----------------------|-------|
-| Linear programs | ~1x | Near-parity via HiGHS |
-| Nonlinear (first solve) | ~1.5-2x | Autodiff compilation cost |
-| Nonlinear (re-solve) | **0.001-0.5x** | Cached structure wins |
+| Scenario | Time vs Raw SciPy | Notes |
+|----------|-------------------|-------|
+| Linear programs | ~1.0x | Near-parity via HiGHS |
+| Nonlinear (first solve) | ~1.5-2.0x | Autodiff compilation cost |
+| Nonlinear (re-solve) | **0.001-0.4x** | Cached structure wins |
 
-For problems where compilation is amortized over many solves, Optyx can be *faster* than hand-written code.
+For problems where compilation is amortized over many solves, Optyx can be *orders of magnitude faster* than naive loops.
 
 See [Benchmarks](benchmarks.qmd) for detailed analysis.
 
@@ -616,9 +614,9 @@ Then try the [5-minute quickstart](getting-started/quickstart.qmd) or explore th
 
 ---
 
-## What's New in v1.2.0
+## Scalable Optimization
 
-The biggest release yet brings **scalable optimization** to Optyx:
+Optyx scales from prototypes to production with **Vector and Matrix features**:
 
 ::: {.grid}
 
@@ -673,12 +671,12 @@ price.set(150)
 sol2 = prob.solve()  # Uses cached structure
 ```
 
-Up to **900x faster** for repeated solves with changing data.
+Instant feedback for real-time applications.
 :::
 
 :::
 
-### New in v1.2.0
+### Key Features
 
 - **VectorVariable** — Create vectors of variables with `VectorVariable("x", 100)`
 - **MatrixVariable** — 2D variable arrays with row/column slicing
@@ -687,7 +685,7 @@ Up to **900x faster** for repeated solves with changing data.
 - **Parameter class** — Updatable constants for fast scenario analysis
 - **VectorParameter** — Array-valued parameters for bulk updates
 
-[Learn more →](tutorials/vectors.qmd)
+[Learn more about Vectors →](tutorials/vectors.qmd)
 
 ---
 
@@ -700,7 +698,6 @@ Optyx is actively developed. On the roadmap:
 - **Debugging tools** — Infeasibility diagnostics and constraint analysis
 - **Stochastic programming** — Scenario-based optimization support
 
-See the [roadmap](https://github.com/daggbt/optyx/blob/main/optyx-project/ROADMAP.md) for details.
 
 ---
 

@@ -7,12 +7,17 @@ from typing import TYPE_CHECKING, Literal
 from typing import Mapping
 
 import numpy as np
+import re
 
 from optyx.core.errors import MissingValueError, UnknownOperatorError
 
 if TYPE_CHECKING:
     from numpy.typing import ArrayLike, NDArray
     from optyx.constraints import Constraint
+
+
+# Pre-compiled regex for natural sorting of variable names
+_NUMBER_SPLIT_RE = re.compile(r"(\d+)")
 
 
 class Expression(ABC):
@@ -60,7 +65,7 @@ class Expression(ABC):
         return None
 
     def __hash__(self) -> int:
-        if not hasattr(self, "_hash") or self._hash is None:
+        if self._hash is None:
             self._hash = id(self)
         return self._hash
 
@@ -226,7 +231,7 @@ class Variable(Expression):
         5.0
     """
 
-    __slots__ = ("name", "lb", "ub", "domain")
+    __slots__ = ("name", "lb", "ub", "domain", "_sort_key")
 
     def __init__(
         self,
@@ -235,10 +240,16 @@ class Variable(Expression):
         ub: float | None = None,
         domain: Literal["continuous", "integer", "binary"] = "continuous",
     ) -> None:
+        self._hash = None
+        self._degree = None
         self.name = name
         self.lb = lb
         self.ub = ub
         self.domain = domain
+
+        # Pre-compute sort key for consistent ordering
+        parts = _NUMBER_SPLIT_RE.split(name)
+        self._sort_key = tuple(int(p) if p.isdigit() else p for p in parts)
 
         # Binary variables have implicit bounds
         if domain == "binary":
