@@ -141,7 +141,43 @@ class TestVectorBinaryOpEvaluation:
 
 
 class TestVectorBinaryOpMaterialization:
-    """_expressions should be eagerly materialized for backward compat."""
+    """_expressions should be lazily materialized only when accessed."""
+
+    def test_not_materialized_on_construction(self):
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        result = x + y
+        assert result._materialized is None
+
+    def test_materialized_on_index_access(self):
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        result = x + y
+        assert result._materialized is None
+        _ = result[0]  # triggers materialization
+        assert result._materialized is not None
+
+    def test_not_materialized_by_evaluate(self):
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        result = x + y
+        vals = {"x[0]": 1, "x[1]": 2, "x[2]": 3, "y[0]": 4, "y[1]": 5, "y[2]": 6}
+        result.evaluate(vals)
+        assert result._materialized is None
+
+    def test_not_materialized_by_get_variables(self):
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        result = x + y
+        _ = result.get_variables()
+        assert result._materialized is None
+
+    def test_not_materialized_by_len(self):
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        result = x + y
+        assert len(result) == 3
+        assert result._materialized is None
 
     def test_expressions_are_populated(self):
         x = VectorVariable("x", 3)
@@ -170,6 +206,20 @@ class TestVectorBinaryOpMaterialization:
         result = x + y
         variables = result.get_variables()
         assert len(variables) == 6
+
+    def test_chained_lazy(self):
+        """Chained VectorBinaryOps should all be lazy."""
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        z = x + y  # first VectorBinaryOp
+        w = z * 2  # second VectorBinaryOp wrapping first
+        assert z._materialized is None
+        assert w._materialized is None
+        # evaluate doesn't trigger either
+        vals = {"x[0]": 1, "x[1]": 2, "x[2]": 3, "y[0]": 4, "y[1]": 5, "y[2]": 6}
+        assert w.evaluate(vals) == [10.0, 14.0, 18.0]
+        assert z._materialized is None
+        assert w._materialized is None
 
 
 class TestVectorBinaryOpSum:
@@ -265,6 +315,103 @@ class TestVectorBinaryOpGradient:
         assert grad_y.evaluate({}) == -1.0
 
 
+class TestVectorBinaryOpCompiledGradient:
+    """compile_gradient should produce fast vectorized gradients for VectorBinaryOp."""
+
+    def test_compiled_gradient_add_sum(self):
+        """sum(x + y): gradient w.r.t. all vars should be 1."""
+        from optyx.core.compiler import compile_gradient
+
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        expr = (x + y).sum()
+        variables = list(x._variables) + list(y._variables)
+        grad_fn = compile_gradient(expr, variables)
+        x_val = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+        grad = grad_fn(x_val)
+        np.testing.assert_array_almost_equal(grad, np.ones(6))
+
+    def test_compiled_gradient_sub_sum(self):
+        """sum(x - y): gradient is [1,1,1,-1,-1,-1]."""
+        from optyx.core.compiler import compile_gradient
+
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        expr = (x - y).sum()
+        variables = list(x._variables) + list(y._variables)
+        grad_fn = compile_gradient(expr, variables)
+        x_val = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+        grad = grad_fn(x_val)
+        np.testing.assert_array_almost_equal(grad, [1, 1, 1, -1, -1, -1])
+
+    def test_compiled_gradient_scalar_mul_sum(self):
+        """sum(x * 3): gradient is [3,3,3]."""
+        from optyx.core.compiler import compile_gradient
+
+        x = VectorVariable("x", 3)
+        expr = (x * 3).sum()
+        variables = list(x._variables)
+        grad_fn = compile_gradient(expr, variables)
+        x_val = np.array([1.0, 2.0, 3.0])
+        grad = grad_fn(x_val)
+        np.testing.assert_array_almost_equal(grad, [3.0, 3.0, 3.0])
+
+    def test_compiled_gradient_neg_sum(self):
+        """sum(-x): gradient is [-1,-1,-1]."""
+        from optyx.core.compiler import compile_gradient
+
+        x = VectorVariable("x", 3)
+        expr = (-x).sum()
+        variables = list(x._variables)
+        grad_fn = compile_gradient(expr, variables)
+        x_val = np.array([1.0, 2.0, 3.0])
+        grad = grad_fn(x_val)
+        np.testing.assert_array_almost_equal(grad, [-1.0, -1.0, -1.0])
+
+    def test_compiled_gradient_scalar_div_sum(self):
+        """sum(x / 2): gradient is [0.5, 0.5, 0.5]."""
+        from optyx.core.compiler import compile_gradient
+
+        x = VectorVariable("x", 3)
+        expr = (x / 2).sum()
+        variables = list(x._variables)
+        grad_fn = compile_gradient(expr, variables)
+        x_val = np.array([1.0, 2.0, 3.0])
+        grad = grad_fn(x_val)
+        np.testing.assert_array_almost_equal(grad, [0.5, 0.5, 0.5])
+
+    def test_compiled_gradient_vec_mul_sum(self):
+        """sum(x * y): ∂/∂x_i = y_i, ∂/∂y_i = x_i."""
+        from optyx.core.compiler import compile_gradient
+
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        expr = (x * y).sum()
+        variables = list(x._variables) + list(y._variables)
+        grad_fn = compile_gradient(expr, variables)
+        x_val = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+        grad = grad_fn(x_val)
+        # ∂/∂x = [y0, y1, y2] = [4, 5, 6], ∂/∂y = [x0, x1, x2] = [1, 2, 3]
+        np.testing.assert_array_almost_equal(grad, [4, 5, 6, 1, 2, 3])
+
+    def test_compiled_gradient_no_materialization(self):
+        """Compiled gradient should not trigger _expressions materialization."""
+        from optyx.core.compiler import compile_gradient
+
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        z = x + y
+        expr = z.sum()
+        variables = list(x._variables) + list(y._variables)
+        grad_fn = compile_gradient(expr, variables)
+        # Check: the VectorBinaryOp was never materialized
+        assert z._materialized is None
+        # Gradient computation also shouldn't materialize
+        x_val = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+        _ = grad_fn(x_val)
+        assert z._materialized is None
+
+
 class TestVectorBinaryOpConstraints:
     """Constraints on VectorBinaryOp should work."""
 
@@ -313,3 +460,93 @@ class TestVectorBinaryOpSolve:
         assert "VectorBinaryOp" in repr(result)
         assert "+" in repr(result)
         assert "3" in repr(result)
+
+
+class TestVectorExpressionSumEvaluateNoMaterialization:
+    """VectorExpressionSum.evaluate() should not trigger materialization."""
+
+    def test_evaluate_no_materialization(self):
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        z = x + y
+        s = z.sum()
+        vals = {"x[0]": 1, "x[1]": 2, "x[2]": 3, "y[0]": 4, "y[1]": 5, "y[2]": 6}
+        result = s.evaluate(vals)
+        assert result == 21.0
+        assert z._materialized is None
+
+    def test_evaluate_sub_no_materialization(self):
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        z = x - y
+        s = z.sum()
+        vals = {"x[0]": 10, "x[1]": 20, "x[2]": 30, "y[0]": 1, "y[1]": 2, "y[2]": 3}
+        result = s.evaluate(vals)
+        assert result == 54.0
+        assert z._materialized is None
+
+    def test_evaluate_scalar_mul_no_materialization(self):
+        x = VectorVariable("x", 3)
+        z = x * 5
+        s = z.sum()
+        vals = {"x[0]": 1, "x[1]": 2, "x[2]": 3}
+        result = s.evaluate(vals)
+        assert result == 30.0
+        assert z._materialized is None
+
+
+class TestVectorBinaryOpGradientRule:
+    """@register_gradient(VectorBinaryOp) should provide O(1) gradients."""
+
+    def test_gradient_rule_registered(self):
+        from optyx.core.autodiff import has_gradient_rule
+
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        z = x + y
+        assert has_gradient_rule(z)
+
+    def test_gradient_add_no_materialization(self):
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        z = x + y
+        expr = z.sum()
+        g = gradient(expr, x._variables[0])
+        assert g.evaluate({}) == 1.0
+        assert z._materialized is None
+
+    def test_gradient_sub_no_materialization(self):
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        z = x - y
+        expr = z.sum()
+        gx = gradient(expr, x._variables[0])
+        gy = gradient(expr, y._variables[0])
+        assert gx.evaluate({}) == 1.0
+        assert gy.evaluate({}) == -1.0
+        assert z._materialized is None
+
+    def test_gradient_scalar_mul_no_materialization(self):
+        x = VectorVariable("x", 3)
+        z = x * 7
+        expr = z.sum()
+        g = gradient(expr, x._variables[0])
+        assert g.evaluate({}) == 7.0
+        assert z._materialized is None
+
+    def test_gradient_scalar_div_no_materialization(self):
+        x = VectorVariable("x", 3)
+        z = x / 4
+        expr = z.sum()
+        g = gradient(expr, x._variables[0])
+        assert g.evaluate({}) == 0.25
+        assert z._materialized is None
+
+    def test_gradient_unrelated_var_is_zero(self):
+        x = VectorVariable("x", 3)
+        y = VectorVariable("y", 3)
+        z = x + x
+        expr = z.sum()
+        g = gradient(expr, y._variables[0])
+        assert g.evaluate({}) == 0.0
+        assert z._materialized is None

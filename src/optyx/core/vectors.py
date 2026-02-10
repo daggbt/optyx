@@ -7,7 +7,7 @@ enabling natural syntax like `x = VectorVariable("x", 100)` with indexing and sl
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Iterator, Literal, Mapping, overload
+from typing import TYPE_CHECKING, Iterator, Literal, Mapping, cast, overload
 
 import numpy as np
 
@@ -128,7 +128,15 @@ class VectorExpressionSum(Expression):
     def evaluate(
         self, values: Mapping[str, ArrayLike | float]
     ) -> NDArray[np.floating] | float:
-        """Evaluate the sum given variable values."""
+        """Evaluate the sum given variable values.
+
+        For VectorBinaryOp, uses its vectorized evaluate() + np.sum()
+        to avoid triggering O(N) materialization of scalar expressions.
+        """
+        # Use type name check to avoid forward reference issue
+        # (VectorBinaryOp is defined later in this module)
+        if type(self.expression).__name__ == "VectorBinaryOp":
+            return float(np.sum(np.array(self.expression.evaluate(values))))
         return sum(e.evaluate(values) for e in self.expression._expressions)  # type: ignore[return-value]
 
     def get_variables(self) -> set[Variable]:
@@ -1056,7 +1064,7 @@ class VectorBinaryOp(VectorExpression):
         [5.0, 7.0, 9.0]
     """
 
-    __slots__ = ("left", "right", "op")
+    __slots__ = ("left", "right", "op", "_materialized")
 
     _NUMPY_OPS: dict[str, np.ufunc] = {
         "+": np.add,
@@ -1078,13 +1086,30 @@ class VectorBinaryOp(VectorExpression):
         self.right = right
         self.op = op
         self.size = size
-        # Eagerly materialize _expressions for backward compatibility.
-        # The compiler detects VectorBinaryOp and uses numpy instead.
-        left_exprs = _iter_vector_exprs(left)
-        right_exprs = _iter_vector_exprs(right, broadcast_size=size)
-        self._expressions = [
-            BinaryOp(le, re, op) for le, re in zip(left_exprs, right_exprs)
-        ]
+        # Lazy materialization: _expressions created only when accessed
+        self._materialized: list[BinaryOp] | None = None
+
+    @property
+    def _expressions(self) -> list[BinaryOp]:  # type: ignore[override]
+        """Lazily materialize per-element BinaryOp nodes.
+
+        Only called when code needs individual scalar expressions
+        (e.g., gradient fallback, iteration). The compiler fast path
+        and evaluate() never trigger this.
+        """
+        if self._materialized is None:
+            left_exprs = _iter_vector_exprs(self.left)
+            right_exprs = _iter_vector_exprs(self.right, broadcast_size=self.size)
+            op = cast("Literal['+', '-', '*', '/', '**']", self.op)
+            self._materialized = [
+                BinaryOp(le, re, op) for le, re in zip(left_exprs, right_exprs)
+            ]
+        return self._materialized
+
+    @_expressions.setter
+    def _expressions(self, value: list[BinaryOp]) -> None:
+        """Allow direct assignment for compatibility."""
+        self._materialized = value
 
     # -- fast evaluate (no materialization) ----------------------------------
 
@@ -1100,17 +1125,23 @@ class VectorBinaryOp(VectorExpression):
         result: set[Variable] = set()
         if isinstance(self.left, VectorVariable):
             result.update(self.left._variables)
-        elif hasattr(self.left, "get_variables"):
+        elif isinstance(self.left, VectorExpression) and hasattr(
+            self.left, "get_variables"
+        ):
             result.update(self.left.get_variables())
         if isinstance(self.right, VectorVariable):
             result.update(self.right._variables)
-        elif hasattr(self.right, "get_variables"):
-            result.update(self.right.get_variables())
+        elif isinstance(self.right, (VectorVariable, VectorExpression)) and hasattr(
+            self.right, "get_variables"
+        ):
+            result.update(self.right.get_variables())  # type: ignore[union-attr]
         return result
 
     def __repr__(self) -> str:
-        left_name = self.left.name if hasattr(self.left, "name") else "expr"
-        right_name = self.right.name if hasattr(self.right, "name") else "expr"
+        left_name = self.left.name if isinstance(self.left, VectorVariable) else "expr"
+        right_name = (
+            self.right.name if isinstance(self.right, VectorVariable) else "expr"
+        )
         return f"VectorBinaryOp({left_name} {self.op} {right_name}, size={self.size})"
 
 
