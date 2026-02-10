@@ -828,7 +828,7 @@ class VectorExpression:
         3.0
     """
 
-    __slots__ = ("_expressions", "size")
+    __slots__ = ("_stored_expressions", "size")
 
     # Tell NumPy to defer to Python's operators
     __array_ufunc__ = None
@@ -839,8 +839,12 @@ class VectorExpression:
                 container_type="VectorExpression",
                 operation="initialization",
             )
-        self._expressions = list(expressions)
+        self._stored_expressions = list(expressions)
         self.size = len(expressions)
+
+    @property
+    def _expressions(self) -> Sequence[Expression]:
+        return self._stored_expressions
 
     def __getitem__(self, key: int) -> Expression:
         """Get a single expression by index."""
@@ -972,6 +976,18 @@ class VectorExpression:
             >>> constraints = x.eq(y)  # 3 constraints: x[i] == y[i]
         """
         return _vector_constraint(self, other, "==")
+
+    def between(
+        self,
+        lb: float | int | np.ndarray | list | VectorExpression | VectorVariable,
+        ub: float | int | np.ndarray | list | VectorExpression | VectorVariable,
+    ) -> list[Constraint]:
+        """Create element-wise range constraints: lb <= self <= ub.
+
+        Returns:
+            List of constraints covering both bounds.
+        """
+        return _vector_constraint(self, lb, ">=") + _vector_constraint(self, ub, "<=")
 
     def dot(self, other: VectorExpression | VectorVariable) -> DotProduct:
         """Compute dot product with another vector.
@@ -1208,8 +1224,8 @@ class VectorVariable:
     # Declare types for slots (helps type checkers)
     name: str
     size: int
-    lb: float | None
-    ub: float | None
+    lb: float | Sequence[float] | NDArray | None
+    ub: float | Sequence[float] | NDArray | None
     domain: DomainType
     _variables: list[Variable]
 
@@ -1217,8 +1233,8 @@ class VectorVariable:
         self,
         name: str,
         size: int,
-        lb: float | None = None,
-        ub: float | None = None,
+        lb: float | Sequence[float] | NDArray | None = None,
+        ub: float | Sequence[float] | NDArray | None = None,
         domain: DomainType = "continuous",
     ) -> None:
         if size <= 0:
@@ -1234,10 +1250,35 @@ class VectorVariable:
         self.ub = ub
         self.domain = domain
 
+        # Helper to get bound for index i
+        def get_bound(
+            b: float | Sequence[float] | NDArray | None, i: int, param_name: str
+        ) -> float | None:
+            if b is None:
+                return None
+            if isinstance(b, (int, float, np.number)):
+                return float(b)
+            if hasattr(b, "__len__") and hasattr(b, "__getitem__"):
+                if len(b) != size:
+                    raise InvalidSizeError(
+                        entity=f"{param_name} for {name}",
+                        size=len(b),
+                        reason=f"must match vector size {size}",
+                    )
+                return float(b[i])
+            # Fallback
+            if hasattr(b, "__float__"):
+                return float(b)  # type: ignore
+            return None
+
         # Create individual variables
-        self._variables: list[Variable] = [
-            Variable(f"{name}[{i}]", lb=lb, ub=ub, domain=domain) for i in range(size)
-        ]
+        self._variables: list[Variable] = []
+        for i in range(size):
+            val_l = get_bound(lb, i, "lb")
+            val_u = get_bound(ub, i, "ub")
+            self._variables.append(
+                Variable(f"{name}[{i}]", lb=val_l, ub=val_u, domain=domain)
+            )
 
     @overload
     def __getitem__(self, key: int) -> Variable: ...
@@ -1245,20 +1286,23 @@ class VectorVariable:
     @overload
     def __getitem__(self, key: slice) -> VectorVariable: ...
 
-    def __getitem__(self, key: int | slice) -> Variable | VectorVariable:
+    def __getitem__(
+        self, key: int | slice | Sequence[int] | NDArray
+    ) -> Variable | VectorVariable:
         """Index or slice the vector.
 
         Args:
-            key: Integer index or slice object.
+            key: Integer index, slice object, list of indices, or boolean array.
 
         Returns:
-            Single Variable for integer index, VectorVariable for slice.
+            Single Variable for integer index, VectorVariable for slice or list/array.
 
         Example:
             >>> x = VectorVariable("x", 10)
             >>> x[0]  # Variable("x[0]")
             >>> x[-1]  # Variable("x[9]")
             >>> x[2:5]  # VectorVariable with 3 elements
+            >>> x[[0, 2, 4]]  # VectorVariable with elements 0, 2, 4
         """
         if isinstance(key, int):
             # Handle negative indices
@@ -1280,12 +1324,48 @@ class VectorVariable:
             return VectorVariable._from_variables(
                 name=f"{self.name}[{key.start or 0}:{key.stop or self.size}]",
                 variables=sliced_vars,
-                lb=self.lb,
-                ub=self.ub,
+                lb=self.lb if isinstance(self.lb, (int, float, type(None))) else None,
+                ub=self.ub if isinstance(self.ub, (int, float, type(None))) else None,
+                domain=self.domain,
+            )
+
+        elif isinstance(key, (list, tuple, np.ndarray)):
+            # Fancy indexing
+            if isinstance(key, (list, tuple)):
+                key = np.array(key)
+
+            # Type ignore because we checked type above but type checker might not infer
+            indices: NDArray = key  # type: ignore
+
+            if indices.dtype == bool:
+                if len(indices) != self.size:
+                    raise IndexError(f"Boolean index has wrong length: {len(indices)}")
+                indices = np.where(indices)[0]
+
+            selected_vars = []
+            for idx in indices:
+                # Handle negative indices manually
+                i = int(idx)
+                if i < 0:
+                    i = self.size + i
+                if i < 0 or i >= self.size:
+                    raise IndexError(f"Index {i} out of range")
+                selected_vars.append(self._variables[i])
+
+            if len(selected_vars) == 0:
+                raise IndexError("Fancy indexing results in empty VectorVariable")
+
+            return VectorVariable._from_variables(
+                name=f"{self.name}[fancy]",
+                variables=selected_vars,
+                lb=self.lb if isinstance(self.lb, (int, float, type(None))) else None,
+                ub=self.ub if isinstance(self.ub, (int, float, type(None))) else None,
                 domain=self.domain,
             )
 
         else:
+            # Original error fallback
+            raise TypeError(f"Invalid index type: {type(key)}")
             raise InvalidOperationError(
                 operation="vector indexing",
                 operand_types=(type(key).__name__,),
@@ -1455,6 +1535,18 @@ class VectorVariable:
             >>> constraints = x.eq(y)  # 3 constraints: x[i] == y[i]
         """
         return _vector_constraint(self, other, "==")
+
+    def between(
+        self,
+        lb: float | int | np.ndarray | list | VectorExpression | VectorVariable,
+        ub: float | int | np.ndarray | list | VectorExpression | VectorVariable,
+    ) -> list[Constraint]:
+        """Create element-wise range constraints: lb <= self <= ub.
+
+        Returns:
+            List of constraints covering both bounds.
+        """
+        return _vector_constraint(self, lb, ">=") + _vector_constraint(self, ub, "<=")
 
     def dot(self, other: VectorVariable | VectorExpression) -> DotProduct | Expression:
         """Compute dot product with another vector.

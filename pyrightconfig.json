@@ -11,18 +11,20 @@
   "reportPossiblyUnboundVariable": "warning",
   "reportOperatorIssue": "warning",
   "include": [
-    "src"
+    "src",
+    "examples",
+    "benchmarks"
   ],
   "exclude": [
     "**/__pycache__",
     ".venv",
     "docs/_site",
     "docs/_freeze",
+    "./*.py",
     ".pytest_cache",
     "*.egg-info",
     "examples",
     "tests",
-    "benchmarks",
-    "compare_optyx_scipy.py"
+    "benchmarks"
   ]
 }
