@@ -192,13 +192,9 @@ def _build_evaluator(
             indices = np.array([var_indices[v.name] for v in expr.vector._variables])
             return lambda x, c=coeffs, idx=indices: np.dot(c, x[idx])
         else:
-            # VectorExpression - build evaluators for each element
-            elem_fns = [
-                _build_evaluator(e, var_indices) for e in expr.vector._expressions
-            ]
-            return lambda x, c=coeffs, fns=elem_fns: np.dot(
-                c, np.array([f(x) for f in fns])
-            )
+            # VectorExpression/VectorBinaryOp - use vector evaluator
+            vec_fn = _build_vector_evaluator(expr.vector, var_indices)
+            return lambda x, c=coeffs, vf=vec_fn: np.dot(c, vf(x))
 
     elif isinstance(expr, VectorSum):
         # sum(x) = x[0] + x[1] + ... - efficient numpy implementation
@@ -207,6 +203,12 @@ def _build_evaluator(
 
     elif isinstance(expr, VectorExpressionSum):
         # sum(expr) where expr is a VectorExpression
+        # Fast path for VectorBinaryOp: single numpy op + sum
+        from optyx.core.vectors import VectorBinaryOp
+
+        if isinstance(expr.expression, VectorBinaryOp):
+            vec_fn = _build_vector_evaluator(expr.expression, var_indices)
+            return lambda x, vf=vec_fn: float(np.sum(vf(x)))
         elem_fns = [
             _build_evaluator(e, var_indices) for e in expr.expression._expressions
         ]
@@ -314,14 +316,23 @@ def _build_vector_evaluator(
     var_indices: dict[str, int],
 ) -> Callable[[NDArray[np.floating]], NDArray[np.floating]]:
     """Build an evaluator for a vector (returns array of values)."""
-    from optyx.core.vectors import VectorExpression, VectorVariable
+    from optyx.core.vectors import VectorBinaryOp, VectorExpression, VectorVariable
 
     if isinstance(vec, VectorVariable):
         indices = np.array([var_indices[v.name] for v in vec._variables])
         return lambda x, idx=indices: x[idx]
+    elif isinstance(vec, VectorBinaryOp):
+        # Single numpy op instead of N per-element evaluations
+        left_fn = _build_vector_evaluator(vec.left, var_indices)
+        right_fn = _build_vector_evaluator(vec.right, var_indices)
+        np_op = vec._NUMPY_OPS[vec.op]
+        return lambda x, lf=left_fn, rf=right_fn, op=np_op: op(lf(x), rf(x))
     elif isinstance(vec, VectorExpression):
         elem_fns = [_build_evaluator(e, var_indices) for e in vec._expressions]
         return lambda x, fns=elem_fns: np.array([f(x) for f in fns])
+    elif isinstance(vec, (int, float)):
+        val = np.array([float(vec)])
+        return lambda x, v=val: v
     else:
         raise InvalidExpressionError(
             expr_type=type(vec),
@@ -392,23 +403,9 @@ def _build_evaluator_iterative(
                 )
                 result_stack.append(lambda x, c=coeffs, idx=indices: np.dot(c, x[idx]))
             else:
-                # VectorExpression - build non-recursive
-                elem_fns = []
-                for e in node.vector._expressions:
-                    if isinstance(e, Variable):
-                        idx = var_indices[e.name]
-                        elem_fns.append(lambda x, i=idx: x[i])
-                    elif isinstance(e, Constant):
-                        val = e.value
-                        elem_fns.append(lambda x, v=val: v)
-                    else:
-                        # Fallback to recursive for complex elements
-                        elem_fns.append(_build_evaluator(e, var_indices))
-                result_stack.append(
-                    lambda x, c=coeffs, fns=elem_fns: np.dot(
-                        c, np.array([f(x) for f in fns])
-                    )
-                )
+                # VectorExpression/VectorBinaryOp - use vector evaluator
+                vec_fn = _build_vector_evaluator(node.vector, var_indices)
+                result_stack.append(lambda x, c=coeffs, vf=vec_fn: np.dot(c, vf(x)))
             continue
 
         if isinstance(node, VectorSum):
@@ -418,6 +415,13 @@ def _build_evaluator_iterative(
 
         if isinstance(node, VectorExpressionSum):
             # sum(expr) where expr is a VectorExpression - build non-recursively
+            # Fast path for VectorBinaryOp: single numpy op + sum
+            from optyx.core.vectors import VectorBinaryOp
+
+            if isinstance(node.expression, VectorBinaryOp):
+                vec_fn = _build_vector_evaluator(node.expression, var_indices)
+                result_stack.append(lambda x, vf=vec_fn: float(np.sum(vf(x))))
+                continue
             elem_fns = []
             for e in node.expression._expressions:
                 if isinstance(e, Variable):

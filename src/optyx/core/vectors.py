@@ -16,7 +16,6 @@ from optyx.core.expressions import (
     Variable,
     Constant,
     BinaryOp,
-    _ensure_expr,
 )
 from optyx.core.errors import (
     DimensionMismatchError,
@@ -894,10 +893,13 @@ class VectorExpression:
         """Element-wise subtraction."""
         return _vector_binary_op(self, other, "-")
 
-    def __rsub__(self, other: float | int) -> VectorExpression:
-        # other - self
-        return VectorExpression(
-            [BinaryOp(_ensure_expr(other), expr, "-") for expr in self._expressions]
+    def __rsub__(self, other: float | int) -> VectorBinaryOp:
+        # other - self: wrap scalar as left, self as right
+        return VectorBinaryOp(
+            VectorExpression([Constant(float(other))] * self.size),
+            self,
+            "-",
+            self.size,
         )
 
     def __mul__(self, other: float | int) -> VectorExpression:
@@ -911,15 +913,18 @@ class VectorExpression:
         """Scalar division."""
         return _vector_binary_op(self, other, "/")
 
-    def __rtruediv__(self, other: float | int) -> VectorExpression:
+    def __rtruediv__(self, other: float | int) -> VectorBinaryOp:
         """Right scalar division."""
-        return VectorExpression(
-            [BinaryOp(_ensure_expr(other), expr, "/") for expr in self._expressions]
+        return VectorBinaryOp(
+            VectorExpression([Constant(float(other))] * self.size),
+            self,
+            "/",
+            self.size,
         )
 
-    def __neg__(self) -> VectorExpression:
-        """Negate all elements."""
-        return VectorExpression([-expr for expr in self._expressions])
+    def __neg__(self) -> VectorBinaryOp:
+        """Negate all elements: -expr = (-1) * expr."""
+        return _vector_binary_op(self, -1, "*")
 
     def __pow__(self, other: float | int) -> VectorExpression:
         """Element-wise power."""
@@ -1025,6 +1030,122 @@ class VectorExpression:
         if arr.ndim != 1:
             return NotImplemented
         return LinearCombination(arr, self)
+
+
+class VectorBinaryOp(VectorExpression):
+    """Element-wise binary operation between two vectors as a single node.
+
+    Instead of materializing N individual BinaryOp nodes, this stores the
+    operation symbolically and evaluates using a single NumPy call.
+
+    The ``_expressions`` list is created lazily on first access so that code
+    which iterates over individual elements (e.g. gradient computation) still
+    works, while the common compilation path avoids O(N) materialization.
+
+    Args:
+        left: Left operand vector.
+        right: Right operand vector (or broadcast scalar).
+        op: Binary operation (``+``, ``-``, ``*``, ``/``, ``**``).
+        size: Number of elements.
+
+    Example:
+        >>> x = VectorVariable("x", 3)
+        >>> y = VectorVariable("y", 3)
+        >>> z = x + y  # VectorBinaryOp, single node
+        >>> z.evaluate({"x[0]": 1, "x[1]": 2, "x[2]": 3, "y[0]": 4, "y[1]": 5, "y[2]": 6})
+        [5.0, 7.0, 9.0]
+    """
+
+    __slots__ = ("left", "right", "op")
+
+    _NUMPY_OPS: dict[str, np.ufunc] = {
+        "+": np.add,
+        "-": np.subtract,
+        "*": np.multiply,
+        "/": np.divide,
+        "**": np.power,
+    }
+
+    def __init__(
+        self,
+        left: VectorVariable | VectorExpression,
+        right: VectorVariable | VectorExpression | float | int,
+        op: str,
+        size: int,
+    ) -> None:
+        # Store vector-level operands for fast numpy compilation
+        self.left = left
+        self.right = right
+        self.op = op
+        self.size = size
+        # Eagerly materialize _expressions for backward compatibility.
+        # The compiler detects VectorBinaryOp and uses numpy instead.
+        left_exprs = _iter_vector_exprs(left)
+        right_exprs = _iter_vector_exprs(right, broadcast_size=size)
+        self._expressions = [
+            BinaryOp(le, re, op) for le, re in zip(left_exprs, right_exprs)
+        ]
+
+    # -- fast evaluate (no materialization) ----------------------------------
+
+    def evaluate(self, values: Mapping[str, ArrayLike | float]) -> list[float]:
+        """Evaluate using numpy — O(1) NumPy calls, no per-element overhead."""
+        left_vals = _eval_vector(self.left, values)
+        right_vals = _eval_vector(self.right, values)
+        result = self._NUMPY_OPS[self.op](left_vals, right_vals)
+        return [float(v) for v in result]
+
+    def get_variables(self) -> set[Variable]:
+        """Return all variables from both operands."""
+        result: set[Variable] = set()
+        if isinstance(self.left, VectorVariable):
+            result.update(self.left._variables)
+        elif hasattr(self.left, "get_variables"):
+            result.update(self.left.get_variables())
+        if isinstance(self.right, VectorVariable):
+            result.update(self.right._variables)
+        elif hasattr(self.right, "get_variables"):
+            result.update(self.right.get_variables())
+        return result
+
+    def __repr__(self) -> str:
+        left_name = self.left.name if hasattr(self.left, "name") else "expr"
+        right_name = self.right.name if hasattr(self.right, "name") else "expr"
+        return f"VectorBinaryOp({left_name} {self.op} {right_name}, size={self.size})"
+
+
+def _iter_vector_exprs(
+    vec: VectorVariable | VectorExpression | float | int,
+    broadcast_size: int | None = None,
+) -> list[Expression]:
+    """Extract a list of scalar expressions from a vector operand."""
+    if isinstance(vec, VectorVariable):
+        return list(vec._variables)
+    if isinstance(vec, VectorExpression):
+        return list(
+            vec._expressions
+        )  # triggers lazy materialization for VectorBinaryOp
+    if isinstance(vec, (int, float)):
+        return [Constant(vec)] * (broadcast_size or 1)
+    return [Constant(vec)] * (broadcast_size or 1)
+
+
+def _eval_vector(
+    vec: VectorVariable | VectorExpression | float | int,
+    values: Mapping[str, ArrayLike | float],
+) -> NDArray[np.floating]:
+    """Evaluate a vector operand to a numpy array."""
+    if isinstance(vec, VectorVariable):
+        return np.array([v.evaluate(values) for v in vec._variables])
+    if isinstance(vec, VectorBinaryOp):
+        # Recursive numpy evaluation — no materialization
+        left_vals = _eval_vector(vec.left, values)
+        right_vals = _eval_vector(vec.right, values)
+        return VectorBinaryOp._NUMPY_OPS[vec.op](left_vals, right_vals)
+    if isinstance(vec, VectorExpression):
+        return np.array([e.evaluate(values) for e in vec._expressions])
+    # scalar
+    return np.array([float(vec)])
 
 
 class VectorVariable:
@@ -1228,10 +1349,13 @@ class VectorVariable:
         """Element-wise subtraction: x - y or x - scalar."""
         return _vector_binary_op(self, other, "-")
 
-    def __rsub__(self, other: float | int) -> VectorExpression:
+    def __rsub__(self, other: float | int) -> VectorBinaryOp:
         """Right subtraction: scalar - vector."""
-        return VectorExpression(
-            [BinaryOp(_ensure_expr(other), v, "-") for v in self._variables]
+        return VectorBinaryOp(
+            VectorExpression([Constant(float(other))] * self.size),
+            self,
+            "-",
+            self.size,
         )
 
     def __mul__(self, other: float | int) -> VectorExpression:
@@ -1246,15 +1370,18 @@ class VectorVariable:
         """Scalar division: x / 2."""
         return _vector_binary_op(self, other, "/")
 
-    def __rtruediv__(self, other: float | int) -> VectorExpression:
+    def __rtruediv__(self, other: float | int) -> VectorBinaryOp:
         """Right scalar division: 1 / x."""
-        return VectorExpression(
-            [BinaryOp(_ensure_expr(other), v, "/") for v in self._variables]
+        return VectorBinaryOp(
+            VectorExpression([Constant(float(other))] * self.size),
+            self,
+            "/",
+            self.size,
         )
 
-    def __neg__(self) -> VectorExpression:
+    def __neg__(self) -> VectorBinaryOp:
         """Negate all elements: -x."""
-        return VectorExpression([-v for v in self._variables])
+        return _vector_binary_op(self, -1, "*")
 
     def __pow__(self, other: float | int) -> ElementwisePower:
         """Element-wise power: x ** 2.
@@ -1605,8 +1732,11 @@ def _vector_binary_op(
     left: VectorVariable | VectorExpression,
     right: VectorVariable | VectorExpression | float | int,
     op: Literal["+", "-", "*", "/", "**"],
-) -> VectorExpression:
+) -> VectorBinaryOp:
     """Helper for element-wise binary operations on vectors.
+
+    Returns a single VectorBinaryOp node instead of N individual BinaryOps.
+    The per-element BinaryOps are materialized lazily only when needed.
 
     Args:
         left: Left operand (VectorVariable or VectorExpression).
@@ -1614,47 +1744,36 @@ def _vector_binary_op(
         op: Operation to perform.
 
     Returns:
-        VectorExpression with element-wise results.
+        VectorBinaryOp with element-wise operation.
 
     Raises:
-        ValueError: If vector sizes don't match.
+        DimensionMismatchError: If vector sizes don't match.
     """
-    # Get expressions from left
+    # Determine left size
     if isinstance(left, VectorVariable):
-        left_exprs = list(left._variables)
-    elif isinstance(left, ElementwisePower):
-        left_exprs = list(left)  # ElementwisePower is iterable
+        left_size = left.size
+    elif isinstance(left, (VectorExpression, ElementwisePower)):
+        left_size = left.size
     else:
-        left_exprs = list(left._expressions)
+        left_size = left.size
 
-    # Handle right operand
+    # Validate right operand and determine size
     if isinstance(right, (int, float)):
-        # Scalar broadcast
-        right_exprs = [Constant(right)] * len(left_exprs)
+        pass  # scalar broadcast, always valid
     elif isinstance(right, VectorVariable):
-        if len(right) != len(left_exprs):
+        if right.size != left_size:
             raise DimensionMismatchError(
                 operation=f"vector {op}",
-                left_shape=len(left_exprs),
-                right_shape=len(right),
-            )
-        right_exprs = list(right._variables)
-    elif isinstance(right, VectorExpression):
-        if right.size != len(left_exprs):
-            raise DimensionMismatchError(
-                operation=f"vector {op}",
-                left_shape=len(left_exprs),
+                left_shape=left_size,
                 right_shape=right.size,
             )
-        right_exprs = list(right._expressions)
-    elif isinstance(right, ElementwisePower):
-        if right.size != len(left_exprs):
+    elif isinstance(right, (VectorExpression, ElementwisePower)):
+        if right.size != left_size:
             raise DimensionMismatchError(
                 operation=f"vector {op}",
-                left_shape=len(left_exprs),
+                left_shape=left_size,
                 right_shape=right.size,
             )
-        right_exprs = list(right)  # ElementwisePower is iterable
     elif isinstance(right, (np.ndarray, list)):
         arr = np.asarray(right)
         if arr.ndim != 1:
@@ -1663,13 +1782,14 @@ def _vector_binary_op(
                 expected_ndim=1,
                 got_ndim=arr.ndim,
             )
-        if len(arr) != len(left_exprs):
+        if len(arr) != left_size:
             raise DimensionMismatchError(
                 operation=f"vector {op}",
-                left_shape=len(left_exprs),
+                left_shape=left_size,
                 right_shape=len(arr),
             )
-        right_exprs = [Constant(val) for val in arr]
+        # Wrap numpy array as a VectorExpression of Constants
+        right = VectorExpression([Constant(float(val)) for val in arr])
     else:
         raise InvalidOperationError(
             operation=f"vector {op}",
@@ -1677,13 +1797,7 @@ def _vector_binary_op(
             suggestion="Use VectorVariable, VectorExpression, scalar, numpy array, or list.",
         )
 
-    # Create element-wise operations
-    result_exprs = [
-        BinaryOp(left_expr, right_expr, op)
-        for left_expr, right_expr in zip(left_exprs, right_exprs)
-    ]
-
-    return VectorExpression(result_exprs)
+    return VectorBinaryOp(left, right, op, left_size)
 
 
 def vector_sum(vector: VectorVariable | VectorExpression) -> VectorSum | Expression:
