@@ -238,3 +238,74 @@ def test_flatten_does_not_mix_ops():
     # Top-level is *, children are sums — should not merge + and *
     assert isinstance(flat, BinaryOp)
     assert flat.op == "*"
+
+
+# ===================================================================
+# NarySum gradient flatness tests
+# ===================================================================
+
+
+def test_nary_sum_gradient_produces_flat_output():
+    """Gradient of NarySum with 4+ terms should produce NarySum, not nested BinaryOp."""
+    from optyx.core.autodiff import gradient
+
+    vars = [Variable(f"x{i}") for i in range(5)]
+    expr = NarySum(tuple(v * v for v in vars))  # sum(x_i^2)
+
+    g = gradient(expr, vars[0])
+
+    # ∂(sum(x_i^2))/∂x_0 = 2*x_0 — only one Non-zero term
+    # so it should just be a single expression, not NarySum
+    assert not isinstance(g, NarySum)
+    vals = {"x0": 3.0}
+    assert g.evaluate(vals) == 6.0
+
+
+def test_nary_sum_gradient_multiple_nonzero_terms():
+    """Gradient of NarySum where multiple terms contribute should produce NarySum."""
+    from optyx.core.autodiff import gradient
+
+    x = Variable("x")
+    # sum(x, 2*x, 3*x, 4*x, 5*x)
+    expr = NarySum((x, x * 2, x * 3, x * 4, x * 5))
+
+    g = gradient(expr, x)
+    # ∂/∂x = 1 + 2 + 3 + 4 + 5 = 15
+    assert g.evaluate({}) == 15.0
+    # Should be flat — either NarySum or simplified
+    if isinstance(g, NarySum):
+        # Flat NarySum with 5 terms (not nested BinaryOp chain)
+        assert len(g.terms) == 5
+    # Regardless of structure, must not be a deep chain
+    from optyx.core.expressions import _estimate_tree_depth
+
+    assert _estimate_tree_depth(g) < 5
+
+
+def test_nary_sum_gradient_all_zero_terms():
+    """Gradient of NarySum where wrt is not present returns Constant(0)."""
+    from optyx.core.autodiff import gradient
+    from optyx.core.expressions import Constant
+
+    x = Variable("x")
+    y = Variable("y")
+    expr = NarySum((y, y * 2, y * 3))
+
+    g = gradient(expr, x)
+    assert isinstance(g, Constant)
+    assert g.evaluate({}) == 0.0
+
+
+def test_nary_sum_gradient_single_nonzero_term():
+    """If only one term has nonzero gradient, no wrapping in NarySum."""
+    from optyx.core.autodiff import gradient
+
+    x = Variable("x")
+    y = Variable("y")
+    z = Variable("z")
+    expr = NarySum((x * 2, y, z))
+
+    g = gradient(expr, x)
+    # Only x*2 contributes: ∂(2*x)/∂x = 2
+    assert not isinstance(g, NarySum)
+    assert g.evaluate({}) == 2.0

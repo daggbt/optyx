@@ -192,13 +192,9 @@ def _build_evaluator(
             indices = np.array([var_indices[v.name] for v in expr.vector._variables])
             return lambda x, c=coeffs, idx=indices: np.dot(c, x[idx])
         else:
-            # VectorExpression - build evaluators for each element
-            elem_fns = [
-                _build_evaluator(e, var_indices) for e in expr.vector._expressions
-            ]
-            return lambda x, c=coeffs, fns=elem_fns: np.dot(
-                c, np.array([f(x) for f in fns])
-            )
+            # VectorExpression/VectorBinaryOp - use vector evaluator
+            vec_fn = _build_vector_evaluator(expr.vector, var_indices)
+            return lambda x, c=coeffs, vf=vec_fn: np.dot(c, vf(x))
 
     elif isinstance(expr, VectorSum):
         # sum(x) = x[0] + x[1] + ... - efficient numpy implementation
@@ -207,6 +203,12 @@ def _build_evaluator(
 
     elif isinstance(expr, VectorExpressionSum):
         # sum(expr) where expr is a VectorExpression
+        # Fast path for VectorBinaryOp: single numpy op + sum
+        from optyx.core.vectors import VectorBinaryOp
+
+        if isinstance(expr.expression, VectorBinaryOp):
+            vec_fn = _build_vector_evaluator(expr.expression, var_indices)
+            return lambda x, vf=vec_fn: float(np.sum(vf(x)))
         elem_fns = [
             _build_evaluator(e, var_indices) for e in expr.expression._expressions
         ]
@@ -314,14 +316,23 @@ def _build_vector_evaluator(
     var_indices: dict[str, int],
 ) -> Callable[[NDArray[np.floating]], NDArray[np.floating]]:
     """Build an evaluator for a vector (returns array of values)."""
-    from optyx.core.vectors import VectorExpression, VectorVariable
+    from optyx.core.vectors import VectorBinaryOp, VectorExpression, VectorVariable
 
     if isinstance(vec, VectorVariable):
         indices = np.array([var_indices[v.name] for v in vec._variables])
         return lambda x, idx=indices: x[idx]
+    elif isinstance(vec, VectorBinaryOp):
+        # Single numpy op instead of N per-element evaluations
+        left_fn = _build_vector_evaluator(vec.left, var_indices)
+        right_fn = _build_vector_evaluator(vec.right, var_indices)
+        np_op = vec._NUMPY_OPS[vec.op]
+        return lambda x, lf=left_fn, rf=right_fn, op=np_op: op(lf(x), rf(x))
     elif isinstance(vec, VectorExpression):
         elem_fns = [_build_evaluator(e, var_indices) for e in vec._expressions]
         return lambda x, fns=elem_fns: np.array([f(x) for f in fns])
+    elif isinstance(vec, (int, float)):
+        val = np.array([float(vec)])
+        return lambda x, v=val: v
     else:
         raise InvalidExpressionError(
             expr_type=type(vec),
@@ -392,23 +403,9 @@ def _build_evaluator_iterative(
                 )
                 result_stack.append(lambda x, c=coeffs, idx=indices: np.dot(c, x[idx]))
             else:
-                # VectorExpression - build non-recursive
-                elem_fns = []
-                for e in node.vector._expressions:
-                    if isinstance(e, Variable):
-                        idx = var_indices[e.name]
-                        elem_fns.append(lambda x, i=idx: x[i])
-                    elif isinstance(e, Constant):
-                        val = e.value
-                        elem_fns.append(lambda x, v=val: v)
-                    else:
-                        # Fallback to recursive for complex elements
-                        elem_fns.append(_build_evaluator(e, var_indices))
-                result_stack.append(
-                    lambda x, c=coeffs, fns=elem_fns: np.dot(
-                        c, np.array([f(x) for f in fns])
-                    )
-                )
+                # VectorExpression/VectorBinaryOp - use vector evaluator
+                vec_fn = _build_vector_evaluator(node.vector, var_indices)
+                result_stack.append(lambda x, c=coeffs, vf=vec_fn: np.dot(c, vf(x)))
             continue
 
         if isinstance(node, VectorSum):
@@ -418,6 +415,13 @@ def _build_evaluator_iterative(
 
         if isinstance(node, VectorExpressionSum):
             # sum(expr) where expr is a VectorExpression - build non-recursively
+            # Fast path for VectorBinaryOp: single numpy op + sum
+            from optyx.core.vectors import VectorBinaryOp
+
+            if isinstance(node.expression, VectorBinaryOp):
+                vec_fn = _build_vector_evaluator(node.expression, var_indices)
+                result_stack.append(lambda x, vf=vec_fn: float(np.sum(vf(x))))
+                continue
             elem_fns = []
             for e in node.expression._expressions:
                 if isinstance(e, Variable):
@@ -596,7 +600,8 @@ def compile_gradient(
         >>> grad_fn = compile_gradient(expr, [x, y])
         >>> grad_fn(np.array([3.0, 4.0]))  # Returns [6.0, 8.0]
     """
-    from optyx.core.vectors import VectorPowerSum, VectorUnarySum
+    from optyx.core.vectors import VectorPowerSum, VectorUnarySum, VectorBinaryOp
+    from optyx.core.expressions import NarySum  # noqa: F811
 
     # Fast path for VectorPowerSum: gradient is k * x^(k-1), vectorized
     if isinstance(expr, VectorPowerSum):
@@ -605,6 +610,22 @@ def compile_gradient(
     # Fast path for VectorUnarySum: gradient is f'(x), vectorized
     if isinstance(expr, VectorUnarySum):
         return _compile_vectorized_unary_gradient(expr, variables)
+
+    # Fast path for VectorExpressionSum(VectorBinaryOp): vectorized gradient
+    from optyx.core.vectors import VectorExpressionSum
+
+    if isinstance(expr, VectorExpressionSum) and isinstance(
+        expr.expression, VectorBinaryOp
+    ):
+        result = _compile_vectorized_binary_op_sum_gradient(expr.expression, variables)
+        if result is not None:
+            return result
+
+    # Fast path for NarySum containing VectorExpressionSum(VectorBinaryOp) terms
+    if isinstance(expr, NarySum):
+        result = _compile_nary_sum_gradient_fast(expr, variables)
+        if result is not None:
+            return result
 
     # General path: symbolic differentiation
     from optyx.core.autodiff import gradient
@@ -879,6 +900,188 @@ def _compile_vectorized_unary_gradient(
             return _sanitize_derivatives(raw)
 
         return fallback_gradient
+
+
+def _compile_vectorized_binary_op_sum_gradient(
+    vbo: Any,
+    variables: list["Variable"],
+) -> Callable[[NDArray[np.floating]], NDArray[np.floating]] | None:
+    """Compile O(1) gradient for sum(VectorBinaryOp).
+
+    Handles sum(left op right) where left/right are VectorVariable or scalar.
+    Returns None if the pattern isn't recognized (falls back to symbolic).
+
+    Derivative rules for sum(f(left, right)):
+        sum(l + r): ∂/∂l_i = 1, ∂/∂r_i = 1
+        sum(l - r): ∂/∂l_i = 1, ∂/∂r_i = -1
+        sum(c * x): ∂/∂x_i = c
+        sum(l * r): ∂/∂l_i = r_i, ∂/∂r_i = l_i  (needs runtime values)
+        sum(l / r): ∂/∂l_i = 1/r_i, ∂/∂r_i = -l_i/r_i^2
+    """
+    from optyx.core.vectors import VectorBinaryOp, VectorVariable
+
+    if not isinstance(vbo, VectorBinaryOp):
+        return None
+
+    op = vbo.op
+    left = vbo.left
+    right = vbo.right
+    n = len(variables)
+    var_name_to_idx = {v.name: i for i, v in enumerate(variables)}
+
+    def _get_indices(
+        vec: Any,
+    ) -> np.ndarray | None:
+        """Get variable indices for a vector operand, or None if scalar/const."""
+        if isinstance(vec, VectorVariable):
+            return np.array(
+                [
+                    var_name_to_idx[v.name]
+                    for v in vec._variables
+                    if v.name in var_name_to_idx
+                ],
+                dtype=np.intp,
+            )
+        return None
+
+    left_idx = _get_indices(left)
+    right_idx = _get_indices(right)
+    is_scalar_right = isinstance(right, (int, float))
+
+    if op == "+":
+        # sum(l + r): grad is 1 for each variable present in l or r
+        def grad_add_sum(x: NDArray[np.floating]) -> NDArray[np.floating]:
+            result = np.zeros(n)
+            if left_idx is not None:
+                result[left_idx] += 1.0
+            if right_idx is not None:
+                result[right_idx] += 1.0
+            return result
+
+        return grad_add_sum
+
+    elif op == "-":
+        # sum(l - r): grad is +1 for l vars, -1 for r vars
+        def grad_sub_sum(x: NDArray[np.floating]) -> NDArray[np.floating]:
+            result = np.zeros(n)
+            if left_idx is not None:
+                result[left_idx] += 1.0
+            if right_idx is not None:
+                result[right_idx] -= 1.0
+            return result
+
+        return grad_sub_sum
+
+    elif op == "*":
+        if is_scalar_right:
+            # sum(x * c): grad w.r.t. x_i = c
+            c = float(right)
+
+            def grad_scalar_mul_sum(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                result = np.zeros(n)
+                if left_idx is not None:
+                    result[left_idx] = c
+                return result
+
+            return grad_scalar_mul_sum
+
+        elif left_idx is not None and right_idx is not None:
+            # sum(l * r): grad w.r.t. l_i = r_i, grad w.r.t. r_i = l_i
+            li = left_idx
+            ri = right_idx
+
+            def grad_vec_mul_sum(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                result = np.zeros(n)
+                result[li] += x[ri]
+                result[ri] += x[li]
+                return result
+
+            return grad_vec_mul_sum
+
+        return None  # Unrecognized mul pattern
+
+    elif op == "/":
+        if is_scalar_right:
+            # sum(x / c): grad w.r.t. x_i = 1/c
+            inv_c = 1.0 / float(right)
+
+            def grad_scalar_div_sum(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                result = np.zeros(n)
+                if left_idx is not None:
+                    result[left_idx] = inv_c
+                return result
+
+            return grad_scalar_div_sum
+
+        elif left_idx is not None and right_idx is not None:
+            # sum(l / r): ∂/∂l_i = 1/r_i, ∂/∂r_i = -l_i/r_i^2
+            li = left_idx
+            ri = right_idx
+
+            def grad_vec_div_sum(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                result = np.zeros(n)
+                result[li] += 1.0 / x[ri]
+                result[ri] -= x[li] / (x[ri] ** 2)
+                return _sanitize_derivatives(result)
+
+            return grad_vec_div_sum
+
+        return None
+
+    # Unrecognized op (e.g., **) — fall back
+    return None
+
+
+def _compile_nary_sum_gradient_fast(
+    expr: Any,
+    variables: list["Variable"],
+) -> Callable[[NDArray[np.floating]], NDArray[np.floating]] | None:
+    """Try to compile a fast gradient for NarySum with VectorBinaryOp terms.
+
+    If some terms of the NarySum are VectorExpressionSum(VectorBinaryOp),
+    compile those with the fast path and use symbolic for the rest.
+    Only activates if at least one term benefits from the fast path.
+    """
+    from optyx.core.vectors import VectorExpressionSum, VectorBinaryOp
+
+    fast_grads: list[Callable] = []
+    slow_terms: list[Any] = []
+
+    for term in expr.terms:
+        if isinstance(term, VectorExpressionSum) and isinstance(
+            term.expression, VectorBinaryOp
+        ):
+            fg = _compile_vectorized_binary_op_sum_gradient(term.expression, variables)
+            if fg is not None:
+                fast_grads.append(fg)
+                continue
+        slow_terms.append(term)
+
+    if not fast_grads:
+        return None  # No benefit, fall back entirely
+
+    # Compile slow terms via symbolic differentiation
+    from optyx.core.autodiff import gradient as sym_gradient
+
+    slow_grad_fns: list[list[Callable]] = []
+    for term in slow_terms:
+        grad_exprs = [sym_gradient(term, var) for var in variables]
+        compiled = [compile_expression(g, variables) for g in grad_exprs]
+        slow_grad_fns.append(compiled)
+
+    n = len(variables)
+
+    def nary_gradient(x: NDArray[np.floating]) -> NDArray[np.floating]:
+        result = np.zeros(n)
+        # Fast vectorized contributions
+        for fg in fast_grads:
+            result += fg(x)
+        # Slow symbolic contributions
+        for compiled in slow_grad_fns:
+            result += np.array([fn(x) for fn in compiled])
+        return _sanitize_derivatives(result)
+
+    return nary_gradient
 
 
 class CompiledExpression:

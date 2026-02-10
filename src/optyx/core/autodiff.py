@@ -470,10 +470,19 @@ def _gradient_cached(expr: Expression, wrt: Variable) -> Expression:
     # N-ary operations
     if isinstance(expr, NarySum):
         # d/dx(a + b + c + ...) = da + db + dc + ...
-        result: Expression = Constant(0.0)
+        # Collect non-zero gradients and return flat NarySum
+        grads: list[Expression] = []
         for term in expr.terms:
-            result = _simplify_add(result, _gradient_cached(term, wrt))
-        return result
+            g = _gradient_cached(term, wrt)
+            if not _is_zero(g):
+                grads.append(g)
+        if len(grads) == 0:
+            return Constant(0.0)
+        if len(grads) == 1:
+            return grads[0]
+        if len(grads) == 2:
+            return grads[0] + grads[1]
+        return NarySum(tuple(grads))
 
     if isinstance(expr, NaryProduct):
         # Generalized product rule:
@@ -703,11 +712,20 @@ def _gradient_iterative(expr: Expression, wrt: Variable) -> Expression:
                         if id(t) not in results:
                             stack.append((t, 0, []))
                     continue
-            # Sum of gradients
-            grad: Expression = Constant(0.0)
+            # Collect non-zero gradients and return flat NarySum
+            grads: list[Expression] = []
             for t in current.terms:
-                grad = _simplify_add(grad, results[id(t)])
-            results[node_id] = grad
+                g = results[id(t)]
+                if not _is_zero(g):
+                    grads.append(g)
+            if len(grads) == 0:
+                results[node_id] = Constant(0.0)
+            elif len(grads) == 1:
+                results[node_id] = grads[0]
+            elif len(grads) == 2:
+                results[node_id] = grads[0] + grads[1]
+            else:
+                results[node_id] = NarySum(tuple(grads))
             continue
 
         if isinstance(current, NaryProduct):
@@ -760,6 +778,7 @@ def _register_vector_gradient_rules() -> None:
         L1Norm,
         L2Norm,
         LinearCombination,
+        VectorBinaryOp,
         VectorSum,
         VectorVariable,
         VectorPowerSum,
@@ -767,6 +786,66 @@ def _register_vector_gradient_rules() -> None:
         VectorExpressionSum,
     )
     from optyx.core.matrices import QuadraticForm
+
+    @register_gradient(VectorBinaryOp)
+    def gradient_vector_binary_op(expr: VectorBinaryOp, wrt: Variable) -> Expression:
+        """Gradient for sum(VectorBinaryOp) delegated from VectorExpressionSum.
+
+        Computes ∂(Σ(l_i op r_i))/∂x without materializing N BinaryOp nodes.
+
+        For VectorVariable operands, this is O(1) via name lookup.
+        Returns the summed gradient as a scalar Expression, or None to
+        signal fallback to per-element differentiation.
+
+        Derivative rules:
+            sum(l + r): ∂/∂x = count(x in l) + count(x in r)  → 0 or 1
+            sum(l - r): ∂/∂x = +1 if x in l, -1 if x in r
+            sum(c * x): ∂/∂x_i = c
+            sum(x * y): ∂/∂x_i = y_i  (not constant, fall back)
+            sum(x / c): ∂/∂x_i = 1/c
+        """
+        left = expr.left
+        right = expr.right
+        op = expr.op
+
+        def _var_in_vector(v: Variable, vec: object) -> bool:
+            if isinstance(vec, VectorVariable):
+                return any(var.name == v.name for var in vec._variables)
+            return False
+
+        in_left = _var_in_vector(wrt, left)
+        in_right = _var_in_vector(wrt, right)
+
+        if not in_left and not in_right:
+            return Constant(0.0)
+
+        if op == "+":
+            val = (1.0 if in_left else 0.0) + (1.0 if in_right else 0.0)
+            return Constant(val)
+
+        elif op == "-":
+            val = (1.0 if in_left else 0.0) - (1.0 if in_right else 0.0)
+            return Constant(val)
+
+        elif op == "*":
+            if isinstance(right, (int, float)):
+                # sum(x * c): ∂/∂x_i = c
+                return Constant(float(right)) if in_left else Constant(0.0)
+            if isinstance(left, (int, float)):
+                # sum(c * x): ∂/∂x_i = c
+                return Constant(float(left)) if in_right else Constant(0.0)
+            # sum(x * y) where both are vectors: ∂/∂x_i = y_i (not constant)
+            return None  # type: ignore[return-value]
+
+        elif op == "/":
+            if isinstance(right, (int, float)):
+                # sum(x / c): ∂/∂x_i = 1/c
+                return Constant(1.0 / float(right)) if in_left else Constant(0.0)
+            # sum(x / y): needs runtime values, fall back
+            return None  # type: ignore[return-value]
+
+        # Unrecognized op — fall back
+        return None  # type: ignore[return-value]
 
     @register_gradient(LinearCombination)
     def gradient_linear_combination(
@@ -824,9 +903,24 @@ def _register_vector_gradient_rules() -> None:
 
         For sum(expr) = f_0 + f_1 + ... + f_{n-1}:
         The gradient is the sum of the gradients of each element.
+
+        For VectorBinaryOp, delegates to the VectorBinaryOp gradient rule
+        which avoids O(N) materialization for simple patterns.
         """
+        from optyx.core.vectors import VectorBinaryOp
+
+        inner = expr.expression
+        if isinstance(inner, VectorBinaryOp) and has_gradient_rule(inner):  # type: ignore[arg-type]
+            # Each element's gradient w.r.t. wrt is the same as
+            # differentiating the VectorBinaryOp then summing.
+            # The VectorBinaryOp gradient rule returns per-element
+            # gradient expressions; we sum them.
+            elem_grad = apply_gradient_rule(inner, wrt)  # type: ignore[arg-type]
+            if elem_grad is not None:
+                return elem_grad
+
         result: Expression = Constant(0.0)
-        for elem in expr.expression._expressions:
+        for elem in inner._expressions:
             d_elem = gradient(elem, wrt)
             result = _simplify_add(result, d_elem)
         return result
