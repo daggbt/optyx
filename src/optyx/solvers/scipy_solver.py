@@ -120,7 +120,13 @@ def solve_scipy(
     obj_fn = cache["obj_fn"]
     grad_fn = cache["grad_fn"]
     scipy_constraints = cache["scipy_constraints"]
-    bounds = cache["bounds"]
+
+    # Recompute bounds each time to ensure updates to variable properties are respected
+    bounds = []
+    for v in variables:
+        lb = v.lb if v.lb is not None else -np.inf
+        ub = v.ub if v.ub is not None else np.inf
+        bounds.append((lb, ub))
 
     def objective(x: np.ndarray) -> float:
         return float(obj_fn(x))

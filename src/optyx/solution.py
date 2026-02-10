@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING
+import json
+import os
 
 import numpy as np
 
@@ -29,6 +31,7 @@ class SolverStatus(Enum):
     INFEASIBLE = "infeasible"
     UNBOUNDED = "unbounded"
     MAX_ITERATIONS = "max_iterations"
+    TERMINATED = "terminated"
     FAILED = "failed"
     NOT_SOLVED = "not_solved"
 
@@ -69,7 +72,74 @@ class Solution:
     @property
     def is_feasible(self) -> bool:
         """Check if a feasible solution was found."""
-        return self.status in (SolverStatus.OPTIMAL, SolverStatus.MAX_ITERATIONS)
+        return self.status in (
+            SolverStatus.OPTIMAL,
+            SolverStatus.MAX_ITERATIONS,
+            SolverStatus.TERMINATED,
+        )
+
+    def to_dict(self) -> dict:
+        """Convert solution to dictionary."""
+        return {
+            "status": self.status.value,
+            "objective_value": self.objective_value,
+            "values": self.values,
+            "multipliers": self.multipliers,
+            "iterations": self.iterations,
+            "message": self.message,
+            "solve_time": self.solve_time,
+        }
+
+    def to_json(self, path: str | None = None) -> str:
+        """Convert solution to JSON string or save to file.
+
+        Args:
+            path: Optional file path to save JSON to.
+
+        Returns:
+            JSON string if path is None, otherwise empty string.
+        """
+        data = self.to_dict()
+        if path:
+            with open(path, "w") as f:
+                json.dump(data, f, indent=2)
+            return ""
+        return json.dumps(data, indent=2)
+
+    @classmethod
+    def from_json(cls, json_str_or_path: str) -> Solution:
+        """Create solution from JSON string or file path.
+
+        Args:
+            json_str_or_path: JSON string or path to JSON file.
+
+        Returns:
+            Solution object.
+        """
+        if os.path.isfile(json_str_or_path):
+            with open(json_str_or_path, "r") as f:
+                data = json.load(f)
+        else:
+            data = json.loads(json_str_or_path)
+
+        return cls(
+            status=SolverStatus(data["status"]),
+            objective_value=data.get("objective_value"),
+            values=data.get("values", {}),
+            multipliers=data.get("multipliers"),
+            iterations=data.get("iterations"),
+            message=data.get("message", ""),
+            solve_time=data.get("solve_time"),
+        )
+
+    def print_vars(self) -> None:
+        """Pretty-print variable values."""
+        print(f"Status: {self.status.value}")
+        if self.objective_value is not None:
+            print(f"Objective: {self.objective_value:.6g}")
+        print("Variables:")
+        for name, value in sorted(self.values.items()):
+            print(f"  {name}: {value:.6g}")
 
     def __getitem__(
         self, var: Variable | VectorVariable | MatrixVariable | str

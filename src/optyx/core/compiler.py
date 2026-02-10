@@ -573,6 +573,60 @@ def compile_to_dict_function(
     return dict_fn
 
 
+def compile_vector_gradient(
+    expr: Expression,
+    variables: list[Variable],
+) -> Callable[[NDArray[np.floating]], NDArray[np.floating]] | None:
+    """Attempt to compile a fast vector gradient O(1)."""
+    from optyx.core.autodiff import detect_vector_gradient_pattern
+
+    pattern = detect_vector_gradient_pattern(expr)
+    if pattern is None:
+        return None
+
+    # Check if variables match exactly Pattern.vector
+    vec_vars = pattern.vector._variables
+    if len(variables) != len(vec_vars):
+        return None
+
+    # Fast check: are they the same objects?
+    if variables != vec_vars:
+        # Check names
+        for v1, v2 in zip(variables, vec_vars):
+            if v1.name != v2.name:
+                return None
+
+    A = pattern.linear_term
+    b = pattern.constant_term
+
+    # Cases
+    if A is None and b is None:
+        zeros = np.zeros(len(variables))
+        return lambda x: zeros
+
+    if A is None:
+        # Gradient is constant b
+        # Ensure b is sanitized/copied if needed, but usually fine
+        # Pyright issue: b is known to be NDArray here because checks passed?
+        # Actually b is NDArray | None. We know it is not None because of previous check (A is None and b is None -> return zeros).
+        # So here b is NDArray.
+        b_val = b  # capture for closure
+        return lambda x: b_val  # type: ignore
+
+    if b is None:
+        # Gradient is A @ x
+        def grad_Ax(x: NDArray[np.floating]) -> NDArray[np.floating]:
+            return A @ x  # type: ignore
+
+        return grad_Ax
+
+    # Gradient is A @ x + b
+    def grad_Ax_b(x: NDArray[np.floating]) -> NDArray[np.floating]:
+        return A @ x + b
+
+    return grad_Ax_b
+
+
 def compile_gradient(
     expr: Expression,
     variables: list[Variable],
@@ -600,6 +654,11 @@ def compile_gradient(
         >>> grad_fn = compile_gradient(expr, [x, y])
         >>> grad_fn(np.array([3.0, 4.0]))  # Returns [6.0, 8.0]
     """
+    # Fast path: Vector Gradient Pattern (Linear/Quadratic forms)
+    vec_grad = compile_vector_gradient(expr, variables)
+    if vec_grad is not None:
+        return vec_grad
+
     from optyx.core.vectors import VectorPowerSum, VectorUnarySum, VectorBinaryOp
     from optyx.core.expressions import NarySum  # noqa: F811
 
@@ -635,10 +694,13 @@ def compile_gradient(
 
     # Compile each gradient expression
     grad_fns = [compile_expression(g, variables) for g in grad_exprs]
+    n_grads = len(grad_fns)
 
     def symbolic_gradient(x: NDArray[np.floating]) -> NDArray[np.floating]:
         """Compute gradient using symbolic differentiation."""
-        raw = np.array([fn(x) for fn in grad_fns])
+        raw = np.empty(n_grads)
+        for i, fn in enumerate(grad_fns):
+            raw[i] = fn(x)
         return _sanitize_derivatives(raw)
 
     return symbolic_gradient

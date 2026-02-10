@@ -11,9 +11,14 @@ Provides a fluent API for building optimization problems:
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Iterable
+from types import TracebackType
 
-from optyx.core.errors import InvalidOperationError, ConstraintError, NoObjectiveError
+from optyx.core.errors import (
+    InvalidOperationError,
+    ConstraintError,
+    NoObjectiveError,
+)
 
 if TYPE_CHECKING:
     from optyx.analysis import LPData
@@ -133,19 +138,22 @@ def _try_get_single_vector_source(expr: "Expression") -> "VectorVariable | None"
 
         # DotProduct (x.dot(y)) - check if both sides are same VectorVariable
         if isinstance(current, DotProduct):
-            left_is_vec = isinstance(current.left, VectorVariable)
-            right_is_vec = isinstance(current.right, VectorVariable)
-            if left_is_vec and right_is_vec:
+            left = current.left
+            right = current.right
+            is_left_vec = isinstance(left, VectorVariable)
+            is_right_vec = isinstance(right, VectorVariable)
+
+            if is_left_vec and is_right_vec:
                 # Both are VectorVariables - must be the same
-                if current.left is current.right:
-                    candidate = current.left
+                if left is right:
+                    candidate = left
                     if found_source is None:
                         found_source = candidate
                     elif found_source is not candidate:
                         return None
                 else:
                     return None  # Two different VectorVariables
-            elif left_is_vec or right_is_vec:
+            elif is_left_vec or is_right_vec:
                 # One is VectorVariable, one is VectorExpression
                 return None  # Complex case, bail out
             else:
@@ -218,7 +226,7 @@ class Problem:
         self._lp_cache = None
         self._is_linear_cache = None
 
-    def minimize(self, expr: Expression) -> Problem:
+    def minimize(self, expr: Expression | float | int) -> Problem:
         """Set the objective function to minimize.
 
         Args:
@@ -240,7 +248,7 @@ class Problem:
         self._invalidate_caches()
         return self
 
-    def maximize(self, expr: Expression) -> Problem:
+    def maximize(self, expr: Expression | float | int) -> Problem:
         """Set the objective function to maximize.
 
         Args:
@@ -261,13 +269,12 @@ class Problem:
         self._invalidate_caches()
         return self
 
-    def subject_to(self, constraint: Constraint | list[Constraint]) -> Problem:
+    def subject_to(self, constraint: Constraint | Iterable[Constraint]) -> Problem:
         """Add a constraint or list of constraints to the problem.
 
         Args:
-            constraint: Constraint or list of constraints to add.
-                Lists are typically produced by vectorized constraints
-                like `x >= 0` on VectorVariable.
+            constraint: Constraint or iterable of constraints to add.
+                Accepts lists, tuples, generators, etc.
 
         Returns:
             Self for method chaining.
@@ -278,16 +285,56 @@ class Problem:
         Example:
             >>> x = VectorVariable("x", 100)
             >>> prob.subject_to(x >= 0)  # Adds 100 constraints
+            >>> prob.subject_to(x[i] >= 0 for i in range(10))  # Generator
         """
-        if isinstance(constraint, list):
+        from optyx.constraints import Constraint as ConstraintType
+
+        if isinstance(constraint, ConstraintType):
+            self._constraints.append(self._validate_constraint(constraint))
+        elif isinstance(constraint, Iterable):
             for c in constraint:
                 self._constraints.append(self._validate_constraint(c))
         else:
-            self._constraints.append(self._validate_constraint(constraint))
+            # Fallback
+            from optyx.core.expressions import Expression
+
+            if isinstance(constraint, Expression):
+                reason = f"Expected Constraint, got Expression ({type(constraint).__name__}). Did you forget a comparison operator (==, <=, >=)?"
+            else:
+                reason = f"Expected Constraint or iterable of Constraints, got {type(constraint).__name__}"
+
+            raise ConstraintError(
+                message=reason,
+                constraint_expr=str(constraint),
+            )
         self._invalidate_caches()
         return self
 
-    def _validate_expression(self, expr: Expression, context: str) -> Expression:
+    def __enter__(self) -> Problem:
+        """Context manager support."""
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Context manager exit (no-op)."""
+        pass
+
+    def reset(self) -> None:
+        """Reset the problem solver state (clears caches).
+
+        Forces a complete re-analysis and re-compilation of the problem
+        on the next solve() call. Useful for benchmarking or ensuring
+        clean state.
+        """
+        self._invalidate_caches()
+
+    def _validate_expression(
+        self, expr: Expression | float | int, context: str
+    ) -> Expression:
         """Validate that expr is a valid Expression type.
 
         Args:

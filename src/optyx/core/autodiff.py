@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import sys
 from contextlib import contextmanager
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Callable, Iterator, cast
 
@@ -248,6 +249,173 @@ def _estimate_tree_depth(
             else:
                 break
         return depth
+
+
+@dataclass
+class VectorGradientPattern:
+    """Represents a gradient of the form ∇f(x) = Ax + b.
+
+    Used for vectorized compilation of gradients for:
+    - Linear combinations (A=None, b=c)
+    - Quadratic forms (A=Q+Q', b=0)
+    - Dot products (A=2I, b=0)
+    """
+
+    linear_term: NDArray[np.floating] | None  # A matrix (n×n)
+    constant_term: NDArray[np.floating] | None  # b vector (n,)
+    vector: Any  # VectorVariable (Any to avoid circular import issues)
+
+
+def detect_vector_gradient_pattern(
+    expr: Expression,
+) -> VectorGradientPattern | None:
+    """Detect if an expression has a vectorizable gradient pattern: ∇f(x) = Ax + b.
+
+    This enables O(1) compilation of gradients for common patterns like quadratic
+    forms, dot products, and linear combinations, entirely bypassing the
+    potentially large expression tree.
+
+    Args:
+        expr: The expression to analyze.
+
+    Returns:
+        VectorGradientPattern if detected, None otherwise.
+    """
+    from optyx.core.expressions import BinaryOp, Constant
+    from optyx.core.vectors import (
+        LinearCombination,
+        VectorSum,
+        DotProduct,
+        VectorVariable,
+    )
+    from optyx.core.matrices import QuadraticForm
+
+    # Case: c @ x  => grad = c (A=None, b=c)
+    if isinstance(expr, LinearCombination):
+        if isinstance(expr.vector, VectorVariable):
+            return VectorGradientPattern(
+                linear_term=None,
+                constant_term=expr.coefficients,
+                vector=expr.vector,
+            )
+
+    # Case: sum(x) => grad = ones (A=None, b=1)
+    if isinstance(expr, VectorSum):
+        if isinstance(expr.vector, VectorVariable):
+            return VectorGradientPattern(
+                linear_term=None,
+                constant_term=np.ones(expr.vector.size),
+                vector=expr.vector,
+            )
+
+    # Case: x.dot(x) => grad = 2*x (A=2I, b=None)
+    if isinstance(expr, DotProduct):
+        if isinstance(expr.left, VectorVariable) and expr.left is expr.right:
+            n = expr.left.size
+            return VectorGradientPattern(
+                linear_term=np.eye(n) * 2.0,
+                constant_term=None,
+                vector=expr.left,
+            )
+
+    # Case: QuadraticForm(x, Q) => grad = (Q + Q.T)x (A=Q+Q', b=None)
+    if isinstance(expr, QuadraticForm) and isinstance(expr.vector, VectorVariable):
+        Q = expr.matrix
+        return VectorGradientPattern(
+            linear_term=Q + Q.T,
+            constant_term=None,
+            vector=expr.vector,
+        )
+
+    # Recursive combinations
+    if isinstance(expr, BinaryOp):
+        # f + g, f - g
+        if expr.op in ("+", "-"):
+            p1 = detect_vector_gradient_pattern(expr.left)
+            # Handle Pattern + Constant (grad is Pattern)
+            if p1 and isinstance(expr.right, Constant):
+                return p1
+            # Handle Constant + Pattern (grad is Pattern)
+            if isinstance(expr.left, Constant):
+                p2 = detect_vector_gradient_pattern(expr.right)
+                if p2:
+                    if expr.op == "+":
+                        return p2
+                    else:  # Constant - Pattern
+                        return _negate_pattern(p2)
+
+            p2 = detect_vector_gradient_pattern(expr.right)
+            if p1 and p2:
+                # Must be w.r.t the same vector
+                if p1.vector.name == p2.vector.name:
+                    return _combine_patterns(p1, p2, expr.op)
+
+        # c * f
+        if expr.op == "*":
+            # Constant * Pattern
+            if isinstance(expr.left, Constant):
+                p2 = detect_vector_gradient_pattern(expr.right)
+                if p2:
+                    return _scale_pattern(p2, float(expr.left.value))
+            # Pattern * Constant
+            if isinstance(expr.right, Constant):
+                p1 = detect_vector_gradient_pattern(expr.left)
+                if p1:
+                    return _scale_pattern(p1, float(expr.right.value))
+
+    return None
+
+
+def _combine_patterns(
+    p1: VectorGradientPattern, p2: VectorGradientPattern, op: str
+) -> VectorGradientPattern:
+    """Combine two patterns (A1, b1) and (A2, b2)."""
+    if op == "+":
+        A = _safe_add(p1.linear_term, p2.linear_term)
+        b = _safe_add(p1.constant_term, p2.constant_term)
+    else:  # "-"
+        A = _safe_sub(p1.linear_term, p2.linear_term)
+        b = _safe_sub(p1.constant_term, p2.constant_term)
+
+    return VectorGradientPattern(A, b, p1.vector)
+
+
+def _safe_add(
+    t1: NDArray[np.floating] | None, t2: NDArray[np.floating] | None
+) -> NDArray[np.floating] | None:
+    if t1 is None and t2 is None:
+        return None
+    if t1 is None:
+        return t2
+    if t2 is None:
+        return t1
+    return t1 + t2
+
+
+def _safe_sub(
+    t1: NDArray[np.floating] | None, t2: NDArray[np.floating] | None
+) -> NDArray[np.floating] | None:
+    if t1 is None and t2 is None:
+        return None
+    if t1 is None:  # 0 - t2
+        return -t2 if t2 is not None else None
+    if t2 is None:  # t1 - 0
+        return t1
+    return t1 - t2
+
+
+def _negate_pattern(p: VectorGradientPattern) -> VectorGradientPattern:
+    """Return new pattern negated."""
+    A = -p.linear_term if p.linear_term is not None else None
+    b = -p.constant_term if p.constant_term is not None else None
+    return VectorGradientPattern(A, b, p.vector)
+
+
+def _scale_pattern(p: VectorGradientPattern, c: float) -> VectorGradientPattern:
+    """Return new pattern scaled by c."""
+    A = c * p.linear_term if p.linear_term is not None else None
+    b = c * p.constant_term if p.constant_term is not None else None
+    return VectorGradientPattern(A, b, p.vector)
 
 
 @lru_cache(maxsize=4096)
@@ -1348,44 +1516,6 @@ def compute_hessian(
     return hessian
 
 
-def _is_scaled_variable_pattern(
-    jacobian_row: list[Expression],
-    variables: list[Variable],
-) -> tuple[NDArray[Any] | float | int, bool] | None:
-    """Check if a Jacobian row is c*x[i] for all variables.
-
-    For DotProduct(x, x), gradient is 2*x[i] for each x[i].
-    We can compile this as: lambda x: c * x
-
-    Returns:
-        (scale, match) tuple if all elements are c*var[i], None otherwise.
-    """
-    from optyx.core.expressions import Constant, BinaryOp
-
-    if len(jacobian_row) != len(variables):
-        return None
-
-    scale = None
-    for i, (expr, var) in enumerate(zip(jacobian_row, variables)):
-        # Check for pattern: Constant(c) * Variable(var)
-        if isinstance(expr, BinaryOp) and expr.op == "*":
-            if isinstance(expr.left, Constant) and expr.right is var:
-                c = expr.left.value
-            elif isinstance(expr.right, Constant) and expr.left is var:
-                c = expr.right.value
-            else:
-                return None
-
-            if scale is None:
-                scale = c
-            elif scale != c:
-                return None  # Different scales, not uniform
-        else:
-            return None
-
-    return (scale, True) if scale is not None else None
-
-
 def compile_jacobian(
     exprs: list[Expression],
     variables: list[Variable],
@@ -1400,15 +1530,15 @@ def compile_jacobian(
         A callable that takes a 1D array and returns the Jacobian as a 2D array.
 
     Performance:
-        - For VectorPowerSum/VectorUnarySum, uses O(1) numpy vectorized gradients.
-        - For linear expressions where all Jacobian elements are constants,
-          returns a pre-computed array directly (9.7x speedup vs element-by-element).
-        - For DotProduct(x, x) pattern (gradient = c*x), uses vectorized NumPy.
+        - Checks for vector patterns (O(1)) per row.
+        - Checks for constant rows (O(1)).
+        - Batches execution per row (m calls instead of m*n).
     """
     import numpy as np
     from optyx.core.compiler import (
         compile_expression,
         _sanitize_derivatives,
+        compile_vector_gradient,
         _compile_vectorized_power_gradient,
         _compile_vectorized_unary_gradient,
     )
@@ -1417,70 +1547,90 @@ def compile_jacobian(
 
     m = len(exprs)
     n = len(variables)
+    row_fns = []
 
-    # Fast path 0: Single VectorPowerSum or VectorUnarySum - use vectorized gradient
-    if m == 1:
-        expr = exprs[0]
+    for i in range(m):
+        expr = exprs[i]
+
+    # Check if ALL rows are constant, for global optimization
+    # This restores the optimization tested by test_constant_jacobian_returns_same_object
+    # We detect this during row construction
+
+    # Store processed rows to check if we can build a full constant matrix later
+    processed_rows = []
+
+    for i in range(m):
+        expr = exprs[i]
+
+        # 1. Try vector gradient pattern (linear/quadratic => O(1) compile)
+        pattern_fn = compile_vector_gradient(expr, variables)
+        if pattern_fn is not None:
+            # Check if this pattern is actually constant (A=0, b!=None)
+            # Actually, compile_vector_gradient returns a function.
+            # We can't easily introspect it without evaluating or checking the pattern object again.
+            # But the row_fn logic handles it.
+            # If we want global constant optimization, we might need a separate pass or flag.
+
+            # For simplicity, let's keep the row_batching logic which is strictly better for performance generally,
+            # EXCEPT for the specific identity check test case.
+            # But wait, purely constant Jacobian is a very common case (Linear Programming).
+            # Returning a single object is much faster than running m row functions.
+            row_fns.append(pattern_fn)
+            processed_rows.append(None)  # Not explicitly constant data
+            continue
+
+        # 1.5 Try specialized vectorized gradients
         if isinstance(expr, VectorPowerSum):
             grad_fn = _compile_vectorized_power_gradient(expr, variables)
-
-            def power_jacobian_fn(x):
-                return grad_fn(x).reshape(1, -1)
-
-            return power_jacobian_fn
+            row_fns.append(grad_fn)
+            processed_rows.append(None)
+            continue
 
         if isinstance(expr, VectorUnarySum):
             grad_fn = _compile_vectorized_unary_gradient(expr, variables)
+            row_fns.append(grad_fn)
+            processed_rows.append(None)
+            continue
 
-            def unary_jacobian_fn(x):
-                return grad_fn(x).reshape(1, -1)
+        # 2. Compute symbolic derivatives for this row
+        if hasattr(expr, "jacobian_row"):
+            row = expr.jacobian_row(variables)
+            if row is None:
+                row = [gradient(expr, v) for v in variables]
+        else:
+            row = [gradient(expr, v) for v in variables]
 
-            return unary_jacobian_fn
+        # 3. Check for Constant row (fast, O(1) execute)
+        if all(isinstance(e, Constant) for e in row):
+            vals = np.array([cast(Constant, e).value for e in row], dtype=np.float64)
+            # Use closure to capture vals
+            row_fns.append(lambda x, v=vals: v)
+            processed_rows.append(vals)
+            continue
 
-    jacobian_exprs = compute_jacobian(exprs, variables)
-
-    # Fast path 1: All Jacobian elements are constants - pre-compute once
-    all_constant = all(
-        isinstance(jacobian_exprs[i][j], Constant) for i in range(m) for j in range(n)
-    )
-
-    if all_constant:
-        # Pre-compute constant Jacobian matrix
-        const_jac = np.array(
-            [
-                [cast(Constant, jacobian_exprs[i][j]).value for j in range(n)]
-                for i in range(m)
-            ],
-            dtype=np.float64,
+        # 4. Fallback: Compile scalar expressions
+        compiled_cols = [compile_expression(e, variables) for e in row]
+        row_fns.append(
+            lambda x, funcs=compiled_cols: np.array(
+                [f(x) for f in funcs], dtype=np.float64
+            )
         )
+        processed_rows.append(None)
+
+    # Global optimization: If all rows were identified as constant arrays
+    if all(r is not None for r in processed_rows):
+        # We can construct the full constant matrix once
+        const_jac = np.array(processed_rows, dtype=np.float64)
 
         def constant_jacobian_fn(x):
             return const_jac
 
         return constant_jacobian_fn
 
-    # Fast path 2: Single row with c*x[i] pattern (e.g., gradient of x.dot(x) = 2*x)
-    if m == 1:
-        pattern = _is_scaled_variable_pattern(jacobian_exprs[0], variables)
-        if pattern is not None:
-            scale, _ = pattern
-
-            def scaled_variable_jacobian_fn(x):
-                return (scale * x).reshape(1, -1)
-
-            return scaled_variable_jacobian_fn
-
-    # Standard path: compile each element
-    compiled_elements = [
-        [compile_expression(jacobian_exprs[i][j], variables) for j in range(n)]
-        for i in range(m)
-    ]
-
     def jacobian_fn(x):
-        result = np.zeros((m, n))
+        result = np.empty((m, n))
         for i in range(m):
-            for j in range(n):
-                result[i, j] = compiled_elements[i][j](x)
+            result[i, :] = row_fns[i](x)
         return _sanitize_derivatives(result)
 
     return jacobian_fn
@@ -1505,7 +1655,15 @@ def compile_hessian(
     """
     import numpy as np
     from optyx.core.compiler import compile_expression, _sanitize_derivatives
-    from optyx.core.vectors import VectorPowerSum, VectorUnarySum
+    from optyx.core.vectors import (
+        VectorPowerSum,
+        VectorUnarySum,
+        VectorSum,
+        LinearCombination,
+        DotProduct,
+        VectorVariable,
+    )
+    from optyx.core.matrices import QuadraticForm
 
     n = len(variables)
 
@@ -1642,6 +1800,76 @@ def compile_hessian(
                 return hess_log_sparse
 
         # Fall through to general path for other ops
+
+    # New fast paths for constant/linear/quadratic expressions
+
+    # Linear expressions => zero Hessian
+    if isinstance(expr, (VectorSum, LinearCombination)):
+        zeros = np.zeros((n, n))
+
+        def hess_zero(x):
+            return zeros
+
+        return hess_zero
+
+    # x.dot(x) => 2*I (sparse if subset of variables)
+    if isinstance(expr, DotProduct):
+        if isinstance(expr.left, VectorVariable) and expr.left is expr.right:
+            vector_vars = expr.left._variables
+            var_name_to_idx = {v.name: i for i, v in enumerate(variables)}
+
+            # Map vector indices to variable indices
+            indices = [var_name_to_idx.get(v.name) for v in vector_vars]
+            valid_indices = [idx for idx in indices if idx is not None]
+
+            # Create Hessian with 2.0 on diagonal for relevant variables
+            hess_base = np.zeros((n, n))
+            for idx in valid_indices:
+                hess_base[idx, idx] = 2.0
+
+            def hess_dot_self(x):
+                return hess_base
+
+            return hess_dot_self
+
+    # QuadraticForm(x, Q) => Q + Q.T
+    if isinstance(expr, QuadraticForm) and isinstance(expr.vector, VectorVariable):
+        Q = expr.matrix
+        Q_sym = Q + Q.T
+
+        var_name_to_idx = {v.name: i for i, v in enumerate(variables)}
+        vector_vars = expr.vector._variables
+
+        # Mapping from index in Q (k) to index in Hessian (n_idx)
+        k_to_n = {}
+        for k, v in enumerate(vector_vars):
+            if v.name in var_name_to_idx:
+                k_to_n[k] = var_name_to_idx[v.name]
+
+        hess_base = np.zeros((n, n))
+
+        # Check if 1:1 match (optimization)
+        is_direct_match = (
+            len(vector_vars) == n
+            and len(k_to_n) == n
+            and all(k_to_n.get(i) == i for i in range(n))
+        )
+
+        if is_direct_match and Q_sym.shape == (n, n):
+            hess_base = Q_sym
+        else:
+            # General case: scatter
+            keys = sorted(k_to_n.keys())
+            for k_i in keys:
+                n_i = k_to_n[k_i]
+                for k_j in keys:
+                    n_j = k_to_n[k_j]
+                    hess_base[n_i, n_j] = Q_sym[k_i, k_j]
+
+        def hess_quadratic(x):
+            return hess_base
+
+        return hess_quadratic
 
     hessian_exprs = compute_hessian(expr, variables)
 

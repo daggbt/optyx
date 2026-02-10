@@ -135,6 +135,20 @@ class Expression(ABC):
 
         return _make_constraint(self, "==", other)
 
+    def between(
+        self, lb: float | int | Expression, ub: float | int | Expression
+    ) -> list[Constraint]:
+        """Create range constraints: lb <= self <= ub.
+
+        Returns:
+            List of two constraints: [self >= lb, self <= ub].
+
+        Example:
+            >>> x = Variable("x")
+            >>> constraints = x.between(0, 10)
+        """
+        return [self >= lb, self <= ub]
+
     def constraint_eq(self, other: Expression | float | int) -> Constraint:
         """Create an == constraint: self == other.
 
@@ -231,7 +245,7 @@ class Variable(Expression):
         5.0
     """
 
-    __slots__ = ("name", "lb", "ub", "domain", "_sort_key")
+    __slots__ = ("name", "lb", "ub", "domain", "_sort_key", "obj")
 
     def __init__(
         self,
@@ -239,6 +253,7 @@ class Variable(Expression):
         lb: float | None = None,
         ub: float | None = None,
         domain: Literal["continuous", "integer", "binary"] = "continuous",
+        obj: float | int = 0.0,
     ) -> None:
         self._hash = None
         self._degree = None
@@ -246,6 +261,7 @@ class Variable(Expression):
         self.lb = lb
         self.ub = ub
         self.domain = domain
+        self.obj = float(obj)  # Linear objective coefficient
 
         # Pre-compute sort key for consistent ordering
         parts = _NUMBER_SPLIT_RE.split(name)
@@ -294,6 +310,10 @@ class BinaryOp(Expression):
     """
 
     __slots__ = ("left", "right", "op")
+
+    left: Expression
+    right: Expression
+    op: Literal["+", "-", "*", "/", "**"]
 
     # Operator dispatch table for evaluation
     _OPS = {
