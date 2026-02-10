@@ -256,7 +256,14 @@ def _gradient_cached(expr: Expression, wrt: Variable) -> Expression:
 
     Used for shallow expression trees where recursion is safe and fast.
     """
-    from optyx.core.expressions import BinaryOp, Constant, UnaryOp, Variable as Var
+    from optyx.core.expressions import (
+        BinaryOp,
+        Constant,
+        NaryProduct,
+        NarySum,
+        UnaryOp,
+        Variable as Var,
+    )
     from optyx.core.functions import cos, sin, log, cosh, sinh
     from optyx.core.parameters import Parameter
 
@@ -460,6 +467,29 @@ def _gradient_cached(expr: Expression, wrt: Variable) -> Expression:
                 context="gradient computation (unary)",
             )
 
+    # N-ary operations
+    if isinstance(expr, NarySum):
+        # d/dx(a + b + c + ...) = da + db + dc + ...
+        result: Expression = Constant(0.0)
+        for term in expr.terms:
+            result = _simplify_add(result, _gradient_cached(term, wrt))
+        return result
+
+    if isinstance(expr, NaryProduct):
+        # Generalized product rule:
+        # d/dx(a * b * c) = da*b*c + a*db*c + a*b*dc
+        factors = expr.factors
+        result = Constant(0.0)
+        for i, factor in enumerate(factors):
+            d_factor = _gradient_cached(factor, wrt)
+            # Build product of all other factors
+            other_product: Expression = Constant(1.0)
+            for j, other in enumerate(factors):
+                if j != i:
+                    other_product = _simplify_mul(other_product, other)
+            result = _simplify_add(result, _simplify_mul(d_factor, other_product))
+        return result
+
     raise InvalidExpressionError(
         expr_type=type(expr),
         context="gradient computation",
@@ -488,7 +518,14 @@ def _gradient_iterative(expr: Expression, wrt: Variable) -> Expression:
     Returns:
         The gradient expression.
     """
-    from optyx.core.expressions import BinaryOp, Constant, UnaryOp, Variable as Var
+    from optyx.core.expressions import (
+        BinaryOp,
+        Constant,
+        NaryProduct,
+        NarySum,
+        UnaryOp,
+        Variable as Var,
+    )
     from optyx.core.functions import cos, sin, log, cosh, sinh
     from optyx.core.parameters import Parameter
 
@@ -653,6 +690,46 @@ def _gradient_iterative(expr: Expression, wrt: Variable) -> Expression:
                     operator=current.op,
                     context="iterative gradient computation (unary)",
                 )
+            continue
+
+        # N-ary operations
+        if isinstance(current, NarySum):
+            if phase == 0:
+                # Check if all children computed
+                all_done = all(id(t) in results for t in current.terms)
+                if not all_done:
+                    stack.append((current, 1, []))
+                    for t in reversed(current.terms):
+                        if id(t) not in results:
+                            stack.append((t, 0, []))
+                    continue
+            # Sum of gradients
+            grad: Expression = Constant(0.0)
+            for t in current.terms:
+                grad = _simplify_add(grad, results[id(t)])
+            results[node_id] = grad
+            continue
+
+        if isinstance(current, NaryProduct):
+            if phase == 0:
+                all_done = all(id(f) in results for f in current.factors)
+                if not all_done:
+                    stack.append((current, 1, []))
+                    for f in reversed(current.factors):
+                        if id(f) not in results:
+                            stack.append((f, 0, []))
+                    continue
+            # Generalized product rule
+            factors = current.factors
+            grad = Constant(0.0)
+            for i, factor in enumerate(factors):
+                d_factor = results[id(factor)]
+                other_product: Expression = Constant(1.0)
+                for j, other in enumerate(factors):
+                    if j != i:
+                        other_product = _simplify_mul(other_product, other)
+                grad = _simplify_add(grad, _simplify_mul(d_factor, other_product))
+            results[node_id] = grad
             continue
 
         raise InvalidExpressionError(

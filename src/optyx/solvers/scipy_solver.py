@@ -340,6 +340,7 @@ def _build_solver_cache(problem: Problem, variables: list) -> dict[str, Any]:
     """
     from optyx.core.autodiff import compile_jacobian
     from optyx.core.compiler import compile_expression
+    from optyx.core.optimizer import flatten_expression
 
     cache: dict[str, Any] = {}
 
@@ -351,6 +352,9 @@ def _build_solver_cache(problem: Problem, variables: list) -> dict[str, Any]:
         )
     if problem.sense == "maximize":
         obj_expr = -obj_expr  # Negate for maximization
+
+    # Flatten deep expression trees before compilation
+    obj_expr = flatten_expression(obj_expr)
 
     cache["obj_fn"] = compile_expression(obj_expr, variables)
     cache["grad_fn"] = compile_jacobian([obj_expr], variables)
@@ -370,6 +374,7 @@ def _build_solver_cache(problem: Problem, variables: list) -> dict[str, Any]:
         c_expr = c.expr
         if c_expr is None:
             continue
+        c_expr = flatten_expression(c_expr)
         c_fn = compile_expression(c_expr, variables)
         c_jac_fn = compile_jacobian([c_expr], variables)
 

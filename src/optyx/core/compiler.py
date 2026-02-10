@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Callable
 import numpy as np
 
 from optyx.core.errors import UnknownOperatorError, InvalidExpressionError
+from optyx.core.expressions import NarySum, NaryProduct
 
 # Large but finite value to replace infinities in gradients.
 # This prevents solver crashes while maintaining gradient direction.
@@ -285,6 +286,21 @@ def _build_evaluator(
         numpy_func = expr._numpy_func
         return lambda x, f=operand_fn, np_f=numpy_func: np_f(f(x))
 
+    elif isinstance(expr, NarySum):
+        term_fns = tuple(_build_evaluator(t, var_indices) for t in expr.terms)
+        return lambda x, fns=term_fns: sum(fn(x) for fn in fns)
+
+    elif isinstance(expr, NaryProduct):
+        factor_fns = tuple(_build_evaluator(f, var_indices) for f in expr.factors)
+
+        def _eval_product(x: NDArray, fns: tuple = factor_fns) -> float:
+            result = 1.0
+            for fn in fns:
+                result = result * fn(x)
+            return result
+
+        return _eval_product
+
     else:
         raise InvalidExpressionError(
             expr_type=type(expr),
@@ -323,7 +339,14 @@ def _build_evaluator_iterative(
     Handles deep expression trees that would cause RecursionError.
     Uses explicit stack to build closures bottom-up.
     """
-    from optyx.core.expressions import BinaryOp, Constant, UnaryOp, Variable
+    from optyx.core.expressions import (
+        BinaryOp,
+        Constant,
+        NaryProduct,
+        NarySum,
+        UnaryOp,
+        Variable,
+    )
     from optyx.core.parameters import Parameter
     from optyx.core.vectors import (
         DotProduct,
@@ -479,6 +502,24 @@ def _build_evaluator_iterative(
                 operand_fn = result_stack.pop()
                 numpy_func = node._numpy_func
                 result_stack.append(lambda x, f=operand_fn, np_f=numpy_func: np_f(f(x)))
+            continue
+
+        # N-ary expressions - flat children, compile each directly
+        if isinstance(node, NarySum):
+            term_fns = tuple(_build_evaluator(t, var_indices) for t in node.terms)
+            result_stack.append(lambda x, fns=term_fns: sum(fn(x) for fn in fns))
+            continue
+
+        if isinstance(node, NaryProduct):
+            factor_fns = tuple(_build_evaluator(f, var_indices) for f in node.factors)
+
+            def _eval_product_iter(x: NDArray, fns: tuple = factor_fns) -> float:
+                result = 1.0
+                for fn in fns:
+                    result = result * fn(x)
+                return result
+
+            result_stack.append(_eval_product_iter)
             continue
 
         # Unknown type - try to evaluate directly

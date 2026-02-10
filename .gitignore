@@ -62,3 +62,7 @@ test_scalability.py
 test_scipy_scalability.py
 # Profiling scripts (local analysis only)
 profile_*.py
+
+dense*.py
+
+setup_*.py
