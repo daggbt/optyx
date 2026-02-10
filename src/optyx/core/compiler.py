@@ -329,7 +329,17 @@ def _build_vector_evaluator(
         return lambda x, lf=left_fn, rf=right_fn, op=np_op: op(lf(x), rf(x))
     elif isinstance(vec, VectorExpression):
         elem_fns = [_build_evaluator(e, var_indices) for e in vec._expressions]
-        return lambda x, fns=elem_fns: np.array([f(x) for f in fns])
+        n_elems = len(elem_fns)
+
+        def vector_expr_eval(
+            x: NDArray[np.floating], fns=elem_fns, n=n_elems
+        ) -> NDArray[np.floating]:
+            res = np.empty(n)
+            for i, f in enumerate(fns):
+                res[i] = f(x)
+            return res
+
+        return vector_expr_eval
     elif isinstance(vec, (int, float)):
         val = np.array([float(vec)])
         return lambda x, v=val: v
@@ -563,11 +573,14 @@ def compile_to_dict_function(
     """
     array_fn = compile_expression(expr, variables)
     var_names = [v.name for v in variables]
+    n_vars = len(var_names)
 
     def dict_fn(
         values: dict[str, float | NDArray[np.floating]],
     ) -> NDArray[np.floating] | np.floating | float:
-        arr = np.array([values[name] for name in var_names])
+        arr = np.empty(n_vars)
+        for i, name in enumerate(var_names):
+            arr[i] = values[name]
         return array_fn(arr)
 
     return dict_fn
@@ -956,9 +969,12 @@ def _compile_vectorized_unary_gradient(
 
         grad_exprs = [gradient(expr, var) for var in variables]
         grad_fns = [compile_expression(g, variables) for g in grad_exprs]
+        n_fns = len(grad_fns)
 
         def fallback_gradient(x: NDArray[np.floating]) -> NDArray[np.floating]:
-            raw = np.array([fn(x) for fn in grad_fns])
+            raw = np.empty(n_fns)
+            for i, fn in enumerate(grad_fns):
+                raw[i] = fn(x)
             return _sanitize_derivatives(raw)
 
         return fallback_gradient
@@ -1139,8 +1155,11 @@ def _compile_nary_sum_gradient_fast(
         for fg in fast_grads:
             result += fg(x)
         # Slow symbolic contributions
+        temp = np.empty(n)
         for compiled in slow_grad_fns:
-            result += np.array([fn(x) for fn in compiled])
+            for i, fn in enumerate(compiled):
+                temp[i] = fn(x)
+            result += temp
         return _sanitize_derivatives(result)
 
     return nary_gradient

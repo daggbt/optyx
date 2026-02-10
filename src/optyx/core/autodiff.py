@@ -1499,8 +1499,79 @@ def compute_hessian(
         The Hessian is symmetric, so H[i][j] = H[j][i].
         We compute the full matrix but could optimize by exploiting symmetry.
     """
+    # Imports inside function to avoid circular dependencies
+    from optyx.core.matrices import QuadraticForm
+    from optyx.core.vectors import (
+        DotProduct,
+        LinearCombination,
+        VectorSum,
+        VectorVariable,
+    )
+    from optyx.core.expressions import Constant
+
     n = len(variables)
-    hessian: list[list[Expression]] = []
+
+    # Optimization 0: Linear Forms have Zero Hessian
+    # d/dx( c.x ) = c (constant), d/dx( c ) = 0
+    if isinstance(expr, (LinearCombination, VectorSum)):
+        return [[Constant(0.0) for _ in range(n)] for _ in range(n)]
+
+    # Optimization 1: QuadraticForm(x, Q) -> Hessian = Q + Q.T
+    # This avoids symbolic differentiation of the linear gradient (Q+Q.T)x
+    if isinstance(expr, QuadraticForm) and isinstance(expr.vector, VectorVariable):
+        # Map variable names to indices in the vector x
+        # This allows us to handle cases where 'variables' is a superset or subset of x
+        var_to_idx = {v.name: i for i, v in enumerate(expr.vector)}
+
+        Q = expr.matrix
+        # Hessian of x'Qx is Q + Q'
+        H_val = Q + Q.T
+
+        hessian: list[list[Expression]] = []
+        for v1 in variables:
+            row: list[Expression] = []
+            idx1 = var_to_idx.get(v1.name)
+            for v2 in variables:
+                idx2 = var_to_idx.get(v2.name)
+
+                if idx1 is not None and idx2 is not None:
+                    # Both variables are in the quadratic form vector
+                    row.append(Constant(float(H_val[idx1, idx2])))
+                else:
+                    # Partial derivative wrt a variable not in the form is 0
+                    row.append(Constant(0.0))
+            hessian.append(row)
+        return hessian
+
+    # Optimization 2: DotProduct(x, x) -> Hessian = 2*I
+    if isinstance(expr, DotProduct):
+        # Check if left and right are the same VectorVariable
+        same_vector = (expr.left is expr.right) or (
+            isinstance(expr.left, VectorVariable)
+            and isinstance(expr.right, VectorVariable)
+            and expr.left.name == expr.right.name
+        )
+
+        if same_vector and isinstance(expr.left, VectorVariable):
+            var_to_idx = {v.name: i for i, v in enumerate(expr.left)}
+
+            hessian = []
+            for v1 in variables:
+                row = []
+                idx1 = var_to_idx.get(v1.name)
+                for v2 in variables:
+                    idx2 = var_to_idx.get(v2.name)
+
+                    if idx1 is not None and idx2 is not None:
+                        # 2 * delta_ij
+                        val = 2.0 if idx1 == idx2 else 0.0
+                        row.append(Constant(val))
+                    else:
+                        row.append(Constant(0.0))
+                hessian.append(row)
+            return hessian
+
+    hessian = []
 
     # First compute the gradient
     grad = [gradient(expr, var) for var in variables]
