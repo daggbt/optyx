@@ -150,3 +150,91 @@ def test_flatten_nary_sum_input():
     assert isinstance(flat, NarySum)
     assert len(flat.terms) == 3
     assert flat.terms == (x, y, z)
+
+
+# ---- Gradient tests ----
+
+
+def test_nary_sum_gradient():
+    """d/dx(x + y + z) = 1 for any term, 0 for others."""
+    from optyx.core.autodiff import gradient
+
+    x = Variable("x")
+    y = Variable("y")
+    z = Variable("z")
+
+    expr = NarySum((x, y, z))
+    grad_x = gradient(expr, x)
+    grad_y = gradient(expr, y)
+
+    assert grad_x.evaluate({}) == 1.0
+    assert grad_y.evaluate({}) == 1.0
+
+
+def test_nary_product_gradient():
+    """d/dx(x * y * z) = y * z."""
+    from optyx.core.autodiff import gradient
+
+    x = Variable("x")
+    y = Variable("y")
+    z = Variable("z")
+
+    expr = NaryProduct((x, y, z))
+    grad_x = gradient(expr, x)
+
+    # d/dx(x * y * z) = y * z
+    assert grad_x.evaluate({"x": 2, "y": 3, "z": 5}) == 15.0
+
+
+def test_nary_sum_gradient_with_constants():
+    """d/dx(2 + x + 3) = 1."""
+    from optyx.core.autodiff import gradient
+    from optyx.core.expressions import Constant
+
+    x = Variable("x")
+    expr = NarySum((Constant(2.0), x, Constant(3.0)))
+    grad = gradient(expr, x)
+
+    assert grad.evaluate({"x": 99}) == 1.0
+
+
+def test_nary_get_variables():
+    """NarySum and NaryProduct report all contained variables."""
+    x = Variable("x")
+    y = Variable("y")
+    z = Variable("z")
+
+    s = NarySum((x, y, z))
+    p = NaryProduct((x, z))
+
+    assert s.get_variables() == {x, y, z}
+    assert p.get_variables() == {x, z}
+
+
+def test_flatten_deep_product():
+    """x0 * x1 * ... * x9 flattens to NaryProduct."""
+    vars = [Variable(f"x{i}") for i in range(10)]
+
+    expr = vars[0]
+    for i in range(1, 10):
+        expr = expr * vars[i]
+
+    flat = flatten_expression(expr)
+
+    assert isinstance(flat, NaryProduct)
+    assert len(flat.factors) == 10
+
+
+def test_flatten_does_not_mix_ops():
+    """(a + b) * (c + d) should NOT flatten across different operators."""
+    a = Variable("a")
+    b = Variable("b")
+    c = Variable("c")
+    d = Variable("d")
+
+    expr = (a + b) * (c + d)
+    flat = flatten_expression(expr)
+
+    # Top-level is *, children are sums — should not merge + and *
+    assert isinstance(flat, BinaryOp)
+    assert flat.op == "*"

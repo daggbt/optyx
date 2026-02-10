@@ -382,14 +382,14 @@ def run_lp_scaling():
     print("Compared against: SciPy linprog (no build phase)")
 
     # Loop-based: limited to n=100 due to exponential cold solve time
-    loop_sizes = [10, 25, 50, 100]
+    loop_sizes = [10, 25, 50, 100, 200, 500]
     # VectorVariable: scale to n=5000 to test large problems
     vec_sizes = [10, 25, 50, 100, 200, 500, 1000, 2000, 5000]
 
     loop_results = ScalingResults(label="LP (Loop)")
     vec_results = ScalingResults(label="LP (VectorVariable)")
 
-    print("\n--- Loop-based Variable (n ≤ 100, slow cold solve) ---")
+    print(f"\n--- Loop-based Variable (n ≤ {max(loop_sizes)}, slow cold solve) ---")
     for n in loop_sizes:
         m = n // 2
         np.random.seed(42)
@@ -433,20 +433,20 @@ def run_nlp_scaling():
     print("Measures: Build + Solve (includes gradient compilation)")
 
     # Loop-based: limited to n=100 due to exponential cold solve time
-    loop_sizes = [10, 25, 50, 100]
+    loop_sizes = [10, 25, 50, 100, 200, 500]
     # VectorVariable with vectorized ops: scale to n=10000 to test large problems
     vec_sizes = [10, 25, 50, 100, 200, 500, 1000, 2000, 5000]
 
     loop_results = ScalingResults(label="NLP (Loop)")
     vec_results = ScalingResults(label="NLP (VectorVariable)")
 
-    print("\n--- Loop-based Variable (n ≤ 100, slow cold solve) ---")
+    print(f"\n--- Loop-based Variable (n ≤ {max(loop_sizes)}, slow cold solve) ---")
     for n in loop_sizes:
         r = benchmark_nlp_loop(n)
         loop_results.add(r)
         print_result("Loop", r)
 
-    print("\n--- VectorVariable with x.dot(x) - x.sum() (n ≤ 5,000) ---")
+    print(f"\n--- VectorVariable with x.dot(x) - x.sum() (n ≤ {max(vec_sizes)}) ---")
     for n in vec_sizes:
         r = benchmark_nlp_vector(n)
         vec_results.add(r)
@@ -472,20 +472,20 @@ def run_cqp_scaling():
     print("Measures: Build + Solve (includes gradient/Jacobian compilation)")
 
     # Loop-based: limited to n=100 due to exponential cold solve time
-    loop_sizes = [10, 25, 50, 100]
+    loop_sizes = [10, 25, 50, 100, 200, 500]
     # VectorVariable: scale to n=5000 to test large problems
     vec_sizes = [10, 25, 50, 100, 200, 500, 1000, 2000, 5000]
 
     loop_results = ScalingResults(label="CQP (Loop)")
     vec_results = ScalingResults(label="CQP (VectorVariable)")
 
-    print("\n--- Loop-based Variable (n ≤ 100, slow cold solve) ---")
+    print(f"\n--- Loop-based Variable (n ≤ {max(loop_sizes)}, slow cold solve) ---")
     for n in loop_sizes:
         r = benchmark_cqp_loop(n)
         loop_results.add(r)
         print_result("Loop", r)
 
-    print("\n--- VectorVariable with x.dot(x), x.sum() (n ≤ 5,000) ---")
+    print(f"\n--- VectorVariable with x.dot(x), x.sum() (n ≤ {max(vec_sizes)}) ---")
     for n in vec_sizes:
         r = benchmark_cqp_vector(n)
         vec_results.add(r)
