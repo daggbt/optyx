@@ -64,7 +64,8 @@ class TestConstantHessianDetection:
         n = 3
         x = VectorVariable("x", n)
         coeffs = np.array([1.0, 2.0, 3.0])
-        lin_comb = LinearCombination(x, coeffs)
+        # Arguments are (coefficients, vector)
+        lin_comb = LinearCombination(coeffs, x)
 
         hessian = compute_hessian(lin_comb, list(x))
 
@@ -105,3 +106,32 @@ class TestConstantHessianDetection:
         assert hessian[2][0].value == 0.0  # d2/dy0dx0
         assert hessian[2][1].value == 0.0  # d2/dy0dx1
         assert hessian[2][2].value == 0.0  # d2/dy0dy0
+
+    def test_linear_combination_of_quadratic_forms(self):
+        """Test Hessian of c1*QF1 + c2*QF2 avoids re-evaluation."""
+        n = 2
+        x = VectorVariable("x", n)
+        Q1 = np.array([[1.0, 0.0], [0.0, 1.0]])
+        Q2 = np.array([[0.0, 1.0], [1.0, 0.0]])
+
+        # Expr = 2 * x'Q1x + 3 * x'Q2x
+        # Hessian should be 2*(Q1+Q1.T) + 3*(Q2+Q2.T)
+        expr = Constant(2.0) * QuadraticForm(x, Q1) + Constant(3.0) * QuadraticForm(
+            x, Q2
+        )
+
+        hessian = compute_hessian(expr, list(x))
+
+        # Expected value
+        # 2*[[2,0],[0,2]] + 3*[[0,2],[2,0]] = [[4,0],[0,4]] + [[0,6],[6,0]] = [[4,6],[6,4]]
+        H_val = np.array([[4.0, 6.0], [6.0, 4.0]])
+
+        for i in range(n):
+            for j in range(n):
+                val_node = hessian[i][j]
+                # Optimization should return Constant nodes directly (pre-computed)
+                # Not BinaryOp(BinaryOp(Constant...))
+                assert isinstance(val_node, Constant), (
+                    f"Hessian element [{i},{j}] should be Constant, got {type(val_node)}"
+                )
+                np.testing.assert_almost_equal(val_node.value, H_val[i, j])

@@ -501,6 +501,7 @@ class ElementwisePower(Expression):
     def __init__(self, vector: VectorVariable, power: float | int) -> None:
         self.vector = vector
         self.power = float(power)
+        self._hash = None
 
     @property
     def size(self) -> int:
@@ -558,6 +559,7 @@ class VectorPowerSum(Expression):
     def __init__(self, vector: VectorVariable, power: float | int) -> None:
         self.vector = vector
         self.power = float(power)
+        self._hash = None
 
     def evaluate(self, values: Mapping[str, ArrayLike | float]) -> float:
         """Evaluate sum of powers using numpy."""
@@ -643,6 +645,7 @@ class ElementwiseUnary(Expression):
             )
         self.vector = vector
         self.op = op
+        self._hash = None
 
     @property
     def size(self) -> int:
@@ -736,6 +739,7 @@ class VectorUnarySum(Expression):
             )
         self.vector = vector
         self.op = op
+        self._hash = None
 
     def evaluate(self, values: Mapping[str, ArrayLike | float]) -> float:
         """Evaluate sum of function values using numpy."""

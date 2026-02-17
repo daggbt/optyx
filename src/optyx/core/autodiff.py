@@ -1507,14 +1507,19 @@ def compute_hessian(
         VectorSum,
         VectorVariable,
     )
-    from optyx.core.expressions import Constant
+    from optyx.core.expressions import Constant, BinaryOp
 
     n = len(variables)
 
     # Optimization 0: Linear Forms have Zero Hessian
     # d/dx( c.x ) = c (constant), d/dx( c ) = 0
-    if isinstance(expr, (LinearCombination, VectorSum)):
-        return [[Constant(0.0) for _ in range(n)] for _ in range(n)]
+    # Only applies if the vector components are variables (linear)
+    if isinstance(expr, (LinearCombination, VectorSum)) and isinstance(
+        expr.vector, VectorVariable
+    ):
+        # reuse ZERO for memory
+        ZERO = Constant(0.0)
+        return [[ZERO for _ in range(n)] for _ in range(n)]
 
     # Optimization 1: QuadraticForm(x, Q) -> Hessian = Q + Q.T
     # This avoids symbolic differentiation of the linear gradient (Q+Q.T)x
@@ -1527,6 +1532,9 @@ def compute_hessian(
         # Hessian of x'Qx is Q + Q'
         H_val = Q + Q.T
 
+        # Cache 0.0 constant to avoid creating O(N^2) objects
+        ZERO = Constant(0.0)
+
         hessian: list[list[Expression]] = []
         for v1 in variables:
             row: list[Expression] = []
@@ -1536,10 +1544,14 @@ def compute_hessian(
 
                 if idx1 is not None and idx2 is not None:
                     # Both variables are in the quadratic form vector
-                    row.append(Constant(float(H_val[idx1, idx2])))
+                    val = float(H_val[idx1, idx2])
+                    if val == 0.0:
+                        row.append(ZERO)
+                    else:
+                        row.append(Constant(val))
                 else:
                     # Partial derivative wrt a variable not in the form is 0
-                    row.append(Constant(0.0))
+                    row.append(ZERO)
             hessian.append(row)
         return hessian
 
@@ -1555,6 +1567,10 @@ def compute_hessian(
         if same_vector and isinstance(expr.left, VectorVariable):
             var_to_idx = {v.name: i for i, v in enumerate(expr.left)}
 
+            # Cache constants
+            ZERO = Constant(0.0)
+            TWO = Constant(2.0)
+
             hessian = []
             for v1 in variables:
                 row = []
@@ -1564,12 +1580,80 @@ def compute_hessian(
 
                     if idx1 is not None and idx2 is not None:
                         # 2 * delta_ij
-                        val = 2.0 if idx1 == idx2 else 0.0
-                        row.append(Constant(val))
+                        row.append(TWO if idx1 == idx2 else ZERO)
                     else:
-                        row.append(Constant(0.0))
+                        row.append(ZERO)
                 hessian.append(row)
             return hessian
+
+    # Optimization 3: Binary Operations (+, -, *)
+    if isinstance(expr, BinaryOp):
+        from optyx.core.expressions import BinaryOp
+
+        # Helper to check if node is constant 0.0
+        def is_zero(node: Expression) -> bool:
+            return isinstance(node, Constant) and node.value == 0.0
+
+        if expr.op in ("+", "-"):
+            # H(f +/- g) = H(f) +/- H(g)
+            H1 = compute_hessian(expr.left, variables)
+            H2 = compute_hessian(expr.right, variables)
+
+            hessian = []
+            for i in range(n):
+                row = []
+                for j in range(n):
+                    val1 = H1[i][j]
+                    val2 = H2[i][j]
+
+                    # Optimizations: 0 + x = x, x + 0 = x
+                    if is_zero(val1):
+                        if expr.op == "+":
+                            row.append(val2)
+                        else:  # 0 - val2
+                            # If val2 is constant, negate it directly
+                            if isinstance(val2, Constant):
+                                row.append(Constant(-val2.value))
+                            else:
+                                row.append(BinaryOp(Constant(0.0), val2, "-"))
+                    elif is_zero(val2):
+                        row.append(val1)  # val1 + 0 = val1, val1 - 0 = val1
+                    elif isinstance(val1, Constant) and isinstance(val2, Constant):
+                        v1 = val1.value
+                        v2 = val2.value
+                        res = v1 + v2 if expr.op == "+" else v1 - v2
+                        row.append(Constant(res))
+                    else:
+                        row.append(BinaryOp(val1, val2, expr.op))
+                hessian.append(row)
+            return hessian
+
+        elif expr.op == "*":
+            # H(c * f) = c * H(f) (if c is constant)
+            c_val = None
+            sub_expr = None
+
+            if isinstance(expr.left, Constant):
+                c_val = expr.left
+                sub_expr = expr.right
+            elif isinstance(expr.right, Constant):
+                c_val = expr.right
+                sub_expr = expr.left
+
+            if c_val is not None:
+                H_sub = compute_hessian(sub_expr, variables)
+                hessian = []
+                for i in range(n):
+                    row = []
+                    for j in range(n):
+                        val = H_sub[i][j]
+                        if isinstance(val, Constant):
+                            # Pre-compute constant product
+                            row.append(Constant(c_val.value * val.value))
+                        else:
+                            row.append(BinaryOp(c_val, val, "*"))
+                    hessian.append(row)
+                return hessian
 
     hessian = []
 
@@ -1726,6 +1810,7 @@ def compile_hessian(
     """
     import numpy as np
     from optyx.core.compiler import compile_expression, _sanitize_derivatives
+    from optyx.core.expressions import Constant
     from optyx.core.vectors import (
         VectorPowerSum,
         VectorUnarySum,
@@ -1943,6 +2028,31 @@ def compile_hessian(
         return hess_quadratic
 
     hessian_exprs = compute_hessian(expr, variables)
+
+    # Global optimization: Check if the entire Hessian is constant
+    # This covers cases where compute_hessian has successfully simplified the tree
+    # e.g., LinearCombination of QuadraticForms
+    all_constant = True
+    constant_matrix = np.zeros((n, n))
+
+    rows_to_check = range(n)
+    for i in rows_to_check:
+        for j in range(n):
+            elem = hessian_exprs[i][j]
+            if isinstance(elem, Constant):
+                constant_matrix[i, j] = elem.value
+            else:
+                all_constant = False
+                break
+        if not all_constant:
+            break
+
+    if all_constant:
+
+        def hessian_constant(x):
+            return constant_matrix
+
+        return hessian_constant
 
     # Compile each element (exploiting symmetry - only upper triangle)
     compiled_elements = {}
