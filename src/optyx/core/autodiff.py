@@ -11,6 +11,7 @@ scalability to n=10,000+ variables.
 from __future__ import annotations
 
 import sys
+from enum import Enum, auto
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
@@ -134,6 +135,111 @@ def apply_gradient_rule(expr: "Expression", wrt: "Variable") -> "Expression":
 
 
 # =============================================================================
+# Pattern Matching System
+# =============================================================================
+
+
+class VectorGradientPattern(Enum):
+    """Classification of patterns in gradient expressions for optimization.
+
+    These patterns allow the compiler to generate specialized, high-performance
+    kernels for common vector operations instead of using generic element-wise logic.
+    """
+
+    ZERO = auto()  # Constant(0)
+    CONSTANT = auto()  # c (non-zero)
+    COMPONENT = auto()  # x[i]
+    SCALED_COMPONENT = auto()  # c * x[i]
+    SUM = auto()  # sum(x)
+    SCALED_SUM = auto()  # c * sum(x)
+    L1_NORM = auto()  # ||x||_1
+    L2_NORM = auto()  # ||x||_2
+    DOT_PRODUCT = auto()  # c @ x (linear form)
+    QUADRATIC_FORM = auto()  # x @ Q @ x (quadratic form)
+    UNKNOWN = auto()  # General expression
+
+
+def detect_vector_gradient_pattern(
+    expr: Expression,
+    wrt: Variable | None = None,
+) -> VectorGradientPattern:
+    """Detect the structural pattern of an expression.
+
+    Identifies standard forms like sums, dot products, and norms that can be
+    optimized by the compiler.
+    """
+    from optyx.core.expressions import BinaryOp, Constant, Variable as Var
+    from optyx.core.matrices import QuadraticForm
+    from optyx.core.vectors import (
+        DotProduct,
+        L1Norm,
+        L2Norm,
+        LinearCombination,
+        VectorSum,
+    )
+
+    # Base cases
+    if isinstance(expr, Constant):
+        return (
+            VectorGradientPattern.ZERO
+            if expr.value == 0
+            else VectorGradientPattern.CONSTANT
+        )
+
+    if isinstance(expr, Var):
+        if wrt is not None and expr.name == wrt.name:
+            return VectorGradientPattern.COMPONENT
+        if wrt is None:
+            # If no variable specified, just treat as component/variable
+            return VectorGradientPattern.COMPONENT
+        return VectorGradientPattern.UNKNOWN
+
+    # Vector expressions
+    if isinstance(expr, VectorSum):
+        return VectorGradientPattern.SUM
+
+    if isinstance(expr, LinearCombination):
+        # Could be DOT_PRODUCT if it represents c @ x
+        # TODO: Refine this check based on coefficients
+        return VectorGradientPattern.DOT_PRODUCT
+
+    if isinstance(expr, DotProduct):
+        # We classify this as DOT_PRODUCT (linear) unless it's x @ x
+        # If both sides involve variables, it might be quadratic but usually
+        # QuadraticForm is explicitly used for that.
+        return VectorGradientPattern.DOT_PRODUCT
+
+    if isinstance(expr, L1Norm):
+        return VectorGradientPattern.L1_NORM
+
+    if isinstance(expr, L2Norm):
+        return VectorGradientPattern.L2_NORM
+
+    if isinstance(expr, QuadraticForm):
+        return VectorGradientPattern.QUADRATIC_FORM
+
+    # Binary operations
+    if isinstance(expr, BinaryOp):
+        if expr.op == "*":
+            # Check for c * pattern
+            # c * x, c * sum(x), c * ||x||
+            if isinstance(expr.left, Constant):
+                sub_pattern = detect_vector_gradient_pattern(expr.right, wrt)
+                if sub_pattern == VectorGradientPattern.COMPONENT:
+                    return VectorGradientPattern.SCALED_COMPONENT
+                if sub_pattern == VectorGradientPattern.SUM:
+                    return VectorGradientPattern.SCALED_SUM
+            elif isinstance(expr.right, Constant):
+                sub_pattern = detect_vector_gradient_pattern(expr.left, wrt)
+                if sub_pattern == VectorGradientPattern.COMPONENT:
+                    return VectorGradientPattern.SCALED_COMPONENT
+                if sub_pattern == VectorGradientPattern.SUM:
+                    return VectorGradientPattern.SCALED_SUM
+
+    return VectorGradientPattern.UNKNOWN
+
+
+# =============================================================================
 # Main Gradient Function
 # =============================================================================
 
@@ -252,7 +358,7 @@ def _estimate_tree_depth(
 
 
 @dataclass
-class VectorGradientPattern:
+class AffineGradientPattern:
     """Represents a gradient of the form ∇f(x) = Ax + b.
 
     Used for vectorized compilation of gradients for:
@@ -266,9 +372,9 @@ class VectorGradientPattern:
     vector: Any  # VectorVariable (Any to avoid circular import issues)
 
 
-def detect_vector_gradient_pattern(
+def detect_affine_gradient_pattern(
     expr: Expression,
-) -> VectorGradientPattern | None:
+) -> AffineGradientPattern | None:
     """Detect if an expression has a vectorizable gradient pattern: ∇f(x) = Ax + b.
 
     This enables O(1) compilation of gradients for common patterns like quadratic
@@ -279,7 +385,7 @@ def detect_vector_gradient_pattern(
         expr: The expression to analyze.
 
     Returns:
-        VectorGradientPattern if detected, None otherwise.
+        AffineGradientPattern if detected, None otherwise.
     """
     from optyx.core.expressions import BinaryOp, Constant
     from optyx.core.vectors import (
@@ -293,7 +399,7 @@ def detect_vector_gradient_pattern(
     # Case: c @ x  => grad = c (A=None, b=c)
     if isinstance(expr, LinearCombination):
         if isinstance(expr.vector, VectorVariable):
-            return VectorGradientPattern(
+            return AffineGradientPattern(
                 linear_term=None,
                 constant_term=expr.coefficients,
                 vector=expr.vector,
@@ -302,7 +408,7 @@ def detect_vector_gradient_pattern(
     # Case: sum(x) => grad = ones (A=None, b=1)
     if isinstance(expr, VectorSum):
         if isinstance(expr.vector, VectorVariable):
-            return VectorGradientPattern(
+            return AffineGradientPattern(
                 linear_term=None,
                 constant_term=np.ones(expr.vector.size),
                 vector=expr.vector,
@@ -312,7 +418,7 @@ def detect_vector_gradient_pattern(
     if isinstance(expr, DotProduct):
         if isinstance(expr.left, VectorVariable) and expr.left is expr.right:
             n = expr.left.size
-            return VectorGradientPattern(
+            return AffineGradientPattern(
                 linear_term=np.eye(n) * 2.0,
                 constant_term=None,
                 vector=expr.left,
@@ -321,7 +427,7 @@ def detect_vector_gradient_pattern(
     # Case: QuadraticForm(x, Q) => grad = (Q + Q.T)x (A=Q+Q', b=None)
     if isinstance(expr, QuadraticForm) and isinstance(expr.vector, VectorVariable):
         Q = expr.matrix
-        return VectorGradientPattern(
+        return AffineGradientPattern(
             linear_term=Q + Q.T,
             constant_term=None,
             vector=expr.vector,
@@ -331,20 +437,20 @@ def detect_vector_gradient_pattern(
     if isinstance(expr, BinaryOp):
         # f + g, f - g
         if expr.op in ("+", "-"):
-            p1 = detect_vector_gradient_pattern(expr.left)
+            p1 = detect_affine_gradient_pattern(expr.left)
             # Handle Pattern + Constant (grad is Pattern)
             if p1 and isinstance(expr.right, Constant):
                 return p1
             # Handle Constant + Pattern (grad is Pattern)
             if isinstance(expr.left, Constant):
-                p2 = detect_vector_gradient_pattern(expr.right)
+                p2 = detect_affine_gradient_pattern(expr.right)
                 if p2:
                     if expr.op == "+":
                         return p2
                     else:  # Constant - Pattern
                         return _negate_pattern(p2)
 
-            p2 = detect_vector_gradient_pattern(expr.right)
+            p2 = detect_affine_gradient_pattern(expr.right)
             if p1 and p2:
                 # Must be w.r.t the same vector
                 if p1.vector.name == p2.vector.name:
@@ -354,12 +460,12 @@ def detect_vector_gradient_pattern(
         if expr.op == "*":
             # Constant * Pattern
             if isinstance(expr.left, Constant):
-                p2 = detect_vector_gradient_pattern(expr.right)
+                p2 = detect_affine_gradient_pattern(expr.right)
                 if p2:
                     return _scale_pattern(p2, float(expr.left.value))
             # Pattern * Constant
             if isinstance(expr.right, Constant):
-                p1 = detect_vector_gradient_pattern(expr.left)
+                p1 = detect_affine_gradient_pattern(expr.left)
                 if p1:
                     return _scale_pattern(p1, float(expr.right.value))
 
@@ -367,8 +473,8 @@ def detect_vector_gradient_pattern(
 
 
 def _combine_patterns(
-    p1: VectorGradientPattern, p2: VectorGradientPattern, op: str
-) -> VectorGradientPattern:
+    p1: AffineGradientPattern, p2: AffineGradientPattern, op: str
+) -> AffineGradientPattern:
     """Combine two patterns (A1, b1) and (A2, b2)."""
     if op == "+":
         A = _safe_add(p1.linear_term, p2.linear_term)
@@ -377,7 +483,7 @@ def _combine_patterns(
         A = _safe_sub(p1.linear_term, p2.linear_term)
         b = _safe_sub(p1.constant_term, p2.constant_term)
 
-    return VectorGradientPattern(A, b, p1.vector)
+    return AffineGradientPattern(A, b, p1.vector)
 
 
 def _safe_add(
@@ -404,18 +510,18 @@ def _safe_sub(
     return t1 - t2
 
 
-def _negate_pattern(p: VectorGradientPattern) -> VectorGradientPattern:
+def _negate_pattern(p: AffineGradientPattern) -> AffineGradientPattern:
     """Return new pattern negated."""
     A = -p.linear_term if p.linear_term is not None else None
     b = -p.constant_term if p.constant_term is not None else None
-    return VectorGradientPattern(A, b, p.vector)
+    return AffineGradientPattern(A, b, p.vector)
 
 
-def _scale_pattern(p: VectorGradientPattern, c: float) -> VectorGradientPattern:
+def _scale_pattern(p: AffineGradientPattern, c: float) -> AffineGradientPattern:
     """Return new pattern scaled by c."""
     A = c * p.linear_term if p.linear_term is not None else None
     b = c * p.constant_term if p.constant_term is not None else None
-    return VectorGradientPattern(A, b, p.vector)
+    return AffineGradientPattern(A, b, p.vector)
 
 
 @lru_cache(maxsize=4096)

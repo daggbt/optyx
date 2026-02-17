@@ -591,9 +591,9 @@ def compile_vector_gradient(
     variables: list[Variable],
 ) -> Callable[[NDArray[np.floating]], NDArray[np.floating]] | None:
     """Attempt to compile a fast vector gradient O(1)."""
-    from optyx.core.autodiff import detect_vector_gradient_pattern
+    from optyx.core.autodiff import detect_affine_gradient_pattern
 
-    pattern = detect_vector_gradient_pattern(expr)
+    pattern = detect_affine_gradient_pattern(expr)
     if pattern is None:
         return None
 
