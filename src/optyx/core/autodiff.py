@@ -357,6 +357,159 @@ def _estimate_tree_depth(
         return depth
 
 
+# =============================================================================
+# Sparsity Analysis
+# =============================================================================
+
+
+@dataclass
+class SparsityPattern:
+    """Describes which gradient elements are structurally non-zero.
+
+    Enables O(nnz) gradient/Jacobian computation by identifying which
+    variables an expression depends on, without computing values.
+
+    Attributes:
+        nnz_indices: Sorted array of indices (into the variables list) that
+            have non-zero partial derivatives.
+        size: Total number of variables (length of full gradient vector).
+        is_constant: True if all non-zero gradients are constants (e.g. linear expr).
+        constant_values: If is_constant, the non-zero gradient values at nnz_indices.
+            None if gradients are not all constant.
+    """
+
+    nnz_indices: NDArray[np.intp]
+    size: int
+    is_constant: bool
+    constant_values: NDArray[np.floating] | None
+
+    @property
+    def nnz(self) -> int:
+        """Number of structurally non-zero elements."""
+        return len(self.nnz_indices)
+
+    @property
+    def density(self) -> float:
+        """Fraction of non-zero elements (0.0 to 1.0)."""
+        return self.nnz / self.size if self.size > 0 else 0.0
+
+    @property
+    def is_dense(self) -> bool:
+        """True if all elements are non-zero."""
+        return self.nnz == self.size
+
+
+def analyze_gradient_sparsity(
+    expr: Expression,
+    variables: list[Variable],
+) -> SparsityPattern:
+    """Analyze which gradient elements are structurally non-zero.
+
+    Determines which variables the expression depends on by walking the
+    expression tree, then optionally checks if those gradients are constant
+    (for linear expressions).
+
+    Args:
+        expr: The expression to analyze.
+        variables: List of variables defining the gradient vector ordering.
+
+    Returns:
+        SparsityPattern describing which gradient elements are non-zero.
+    """
+    from optyx.core.expressions import Constant, get_all_variables
+
+    n = len(variables)
+    expr_vars = get_all_variables(expr)
+
+    # Build name→index map for the variable list
+    var_index: dict[str, int] = {v.name: i for i, v in enumerate(variables)}
+
+    # Find which variables from the list appear in the expression
+    nnz_list: list[int] = []
+    for v in expr_vars:
+        idx = var_index.get(v.name)
+        if idx is not None:
+            nnz_list.append(idx)
+
+    nnz_indices = np.array(sorted(nnz_list), dtype=np.intp)
+
+    # Check if all non-zero gradients are constant (linear expression)
+    is_constant = False
+    constant_values = None
+
+    if len(nnz_indices) > 0:
+        # Fast path: if the expression is linear (degree <= 1), all gradients
+        # are guaranteed constant.
+        if expr.is_linear():
+            is_constant = True
+            # Use extract_all_linear_coefficients for O(n) single-pass extraction
+            # instead of n separate gradient computations
+            from optyx.analysis import extract_all_linear_coefficients
+
+            var_index_map: dict[str, int] = {v.name: i for i, v in enumerate(variables)}
+            try:
+                full_coeffs = extract_all_linear_coefficients(expr, var_index_map, n)
+                constant_values = full_coeffs[nnz_indices]
+            except Exception:
+                # Fallback: compute gradients individually
+                const_vals: list[float] = []
+                for idx in nnz_indices:
+                    g = gradient(expr, variables[idx])
+                    if isinstance(g, Constant):
+                        const_vals.append(float(g.value))
+                    elif not g.get_variables():
+                        const_vals.append(float(g.evaluate({})))
+                    else:
+                        is_constant = False
+                        break
+                if is_constant:
+                    constant_values = np.array(const_vals, dtype=np.float64)
+        else:
+            # For non-linear expressions, only check constancy for sparse rows
+            # (dense non-linear rows won't benefit from constant detection)
+            if len(nnz_indices) < n:
+                const_vals = []
+                all_constant = True
+                for idx in nnz_indices:
+                    g = gradient(expr, variables[idx])
+                    if isinstance(g, Constant):
+                        const_vals.append(float(g.value))
+                    elif not g.get_variables():
+                        const_vals.append(float(g.evaluate({})))
+                    else:
+                        all_constant = False
+                        break
+                if all_constant:
+                    is_constant = True
+                    constant_values = np.array(const_vals, dtype=np.float64)
+
+    return SparsityPattern(
+        nnz_indices=nnz_indices,
+        size=n,
+        is_constant=is_constant,
+        constant_values=constant_values,
+    )
+
+
+def analyze_jacobian_sparsity(
+    exprs: list[Expression],
+    variables: list[Variable],
+) -> list[SparsityPattern]:
+    """Analyze the sparsity structure of the full Jacobian matrix.
+
+    Returns per-row sparsity patterns describing which columns of each
+    Jacobian row are structurally non-zero.
+
+    Args:
+        exprs: List of m expressions (rows of the Jacobian).
+        variables: List of n variables (columns of the Jacobian).
+
+    Returns:
+        List of m SparsityPattern objects, one per row.
+    """
+    return [analyze_gradient_sparsity(expr, variables) for expr in exprs]
+
+
 @dataclass
 class AffineGradientPattern:
     """Represents a gradient of the form ∇f(x) = Ax + b.
@@ -1830,6 +1983,19 @@ def compute_hessian(
     return hessian
 
 
+def _eval_sparse_row(
+    x: NDArray[np.floating],
+    funcs: list[Callable],
+    nnz_indices: NDArray[np.intp],
+    size: int,
+) -> NDArray[np.floating]:
+    """Evaluate a sparse Jacobian row: only compute non-zero columns."""
+    result = np.zeros(size, dtype=np.float64)
+    for k, idx in enumerate(nnz_indices):
+        result[idx] = funcs[k](x)
+    return result
+
+
 def compile_jacobian(
     exprs: list[Expression],
     variables: list[Variable],
@@ -1906,7 +2072,44 @@ def compile_jacobian(
             processed_rows.append(None)
             continue
 
-        # 2. Compute symbolic derivatives for this row
+        # 2. Use sparsity analysis to avoid redundant gradient computation
+        sparsity = analyze_gradient_sparsity(expr, variables)
+
+        # 2a. If sparsity analysis found constant gradients, use them directly
+        if sparsity.is_constant:
+            vals = np.zeros(n, dtype=np.float64)
+            if sparsity.constant_values is not None:
+                vals[sparsity.nnz_indices] = sparsity.constant_values
+            row_fns.append(lambda x, v=vals: v)
+            processed_rows.append(vals)
+            continue
+
+        # 2b. Compute symbolic derivatives only for non-zero columns
+        if sparsity.nnz < n:
+            # Sparse row: only differentiate w.r.t. variables that appear
+            nnz_idx = sparsity.nnz_indices
+            sparse_row = [gradient(expr, variables[j]) for j in nnz_idx]
+
+            # Check if all computed gradients are constant
+            if all(isinstance(e, Constant) for e in sparse_row):
+                vals = np.zeros(n, dtype=np.float64)
+                for k, j in enumerate(nnz_idx):
+                    vals[j] = float(cast(Constant, sparse_row[k]).value)
+                row_fns.append(lambda x, v=vals: v)
+                processed_rows.append(vals)
+                continue
+
+            # Compile only non-zero columns, fill zeros for the rest
+            compiled_sparse = [compile_expression(e, variables) for e in sparse_row]
+            row_fns.append(
+                lambda x, funcs=compiled_sparse, idx=nnz_idx, sz=n: _eval_sparse_row(
+                    x, funcs, idx, sz
+                )
+            )
+            processed_rows.append(None)
+            continue
+
+        # 2c. Dense row: compute all symbolic derivatives
         if hasattr(expr, "jacobian_row"):
             row = expr.jacobian_row(variables)
             if row is None:
