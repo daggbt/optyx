@@ -66,3 +66,6 @@ profile_*.py
 dense*.py
 
 setup_*.py
+
+benchmarks_be*.txt
+benchmarks_af*.txt

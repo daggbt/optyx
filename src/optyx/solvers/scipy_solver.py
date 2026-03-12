@@ -10,7 +10,7 @@ import warnings
 from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
-from scipy.optimize import minimize
+from scipy.optimize import Bounds, minimize
 
 from optyx.core.errors import IntegerVariableError, NoObjectiveError
 
@@ -122,11 +122,12 @@ def solve_scipy(
     scipy_constraints = cache["scipy_constraints"]
 
     # Recompute bounds each time to ensure updates to variable properties are respected
-    bounds = []
-    for v in variables:
-        lb = v.lb if v.lb is not None else -np.inf
-        ub = v.ub if v.ub is not None else np.inf
-        bounds.append((lb, ub))
+    lb_arr = np.empty(n)
+    ub_arr = np.empty(n)
+    for i, v in enumerate(variables):
+        lb_arr[i] = v.lb if v.lb is not None else -np.inf
+        ub_arr[i] = v.ub if v.ub is not None else np.inf
+    bounds = Bounds(lb=lb_arr, ub=ub_arr)
 
     def objective(x: np.ndarray) -> float:
         return float(obj_fn(x))
@@ -191,7 +192,7 @@ def solve_scipy(
             method=method,
             jac=gradient if use_gradient else None,
             hess=hess_fn if hess_fn is not None else None,
-            bounds=bounds if bounds and method in BOUNDS_METHODS else None,
+            bounds=bounds if method in BOUNDS_METHODS else None,
             constraints=scipy_constraints if scipy_constraints else (),
             tol=tol,
             options=options if options else None,
@@ -364,14 +365,6 @@ def _build_solver_cache(problem: Problem, variables: list) -> dict[str, Any]:
 
     cache["obj_fn"] = compile_expression(obj_expr, variables)
     cache["grad_fn"] = compile_jacobian([obj_expr], variables)
-
-    # Build bounds
-    bounds = []
-    for v in variables:
-        lb = v.lb if v.lb is not None else -np.inf
-        ub = v.ub if v.ub is not None else np.inf
-        bounds.append((lb, ub))
-    cache["bounds"] = bounds
 
     # Build constraints for SciPy
     scipy_constraints = []
