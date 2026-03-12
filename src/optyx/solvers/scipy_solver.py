@@ -345,7 +345,7 @@ def _build_solver_cache(problem: Problem, variables: list) -> dict[str, Any]:
     Returns:
         Dict containing compiled callables and constraint data.
     """
-    from optyx.core.autodiff import compile_jacobian
+    from optyx.core.autodiff import compile_jacobian, compile_sparse_jacobian
     from optyx.core.compiler import compile_expression
     from optyx.core.optimizer import flatten_expression
 
@@ -368,6 +368,9 @@ def _build_solver_cache(problem: Problem, variables: list) -> dict[str, Any]:
 
     # Build constraints for SciPy
     scipy_constraints = []
+    constraint_exprs = []
+    constraint_fns = []
+    constraint_senses = []
 
     for c in problem.constraints:
         c_expr = c.expr
@@ -376,6 +379,10 @@ def _build_solver_cache(problem: Problem, variables: list) -> dict[str, Any]:
         c_expr = flatten_expression(c_expr)
         c_fn = compile_expression(c_expr, variables)
         c_jac_fn = compile_jacobian([c_expr], variables)
+
+        constraint_exprs.append(c_expr)
+        constraint_fns.append(c_fn)
+        constraint_senses.append(c.sense)
 
         if c.sense == ">=":
             # f(x) >= 0 → SciPy ineq: f(x) >= 0 (return f(x))
@@ -405,5 +412,13 @@ def _build_solver_cache(problem: Problem, variables: list) -> dict[str, Any]:
             )
 
     cache["scipy_constraints"] = scipy_constraints
+
+    # Build batched sparse constraint Jacobian for trust-constr
+    # This enables O(nnz) memory and computation for sparse constraint systems
+    if constraint_exprs:
+        sparse_jac_fn = compile_sparse_jacobian(constraint_exprs, variables)
+        cache["sparse_constraint_jac_fn"] = sparse_jac_fn
+        cache["constraint_fns"] = constraint_fns
+        cache["constraint_senses"] = constraint_senses
 
     return cache

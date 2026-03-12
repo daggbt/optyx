@@ -2153,6 +2153,195 @@ def compile_jacobian(
     return jacobian_fn
 
 
+def compile_sparse_jacobian(
+    exprs: list[Expression],
+    variables: list[Variable],
+    density_threshold: float = 0.5,
+):
+    """Compile the Jacobian for fast evaluation, returning sparse output.
+
+    For sparse constraint systems (nnz << m*n), returns scipy.sparse.csr_matrix
+    with O(nnz) memory instead of O(m*n).  Falls back to dense for high-density
+    Jacobians.
+
+    Args:
+        exprs: List of expressions (rows of the Jacobian).
+        variables: List of variables (columns of the Jacobian).
+        density_threshold: If overall Jacobian density exceeds this, fall
+            back to the dense compile_jacobian (default 0.5).
+
+    Returns:
+        A callable that takes a 1D array and returns the Jacobian.
+        Output is scipy.sparse.csr_matrix for sparse problems, or a dense
+        2D ndarray for high-density problems.
+    """
+    import numpy as np
+    from scipy.sparse import csr_matrix
+    from optyx.core.compiler import compile_expression
+    from optyx.core.expressions import Constant
+
+    m = len(exprs)
+    n = len(variables)
+
+    if m == 0 or n == 0:
+        empty = csr_matrix((m, n), dtype=np.float64)
+        return lambda x, _e=empty: _e
+
+    # Analyze sparsity for all rows
+    row_sparsities = analyze_jacobian_sparsity(exprs, variables)
+
+    total_nnz = sum(sp.nnz for sp in row_sparsities)
+    density = total_nnz / (m * n) if m * n > 0 else 1.0
+
+    # Fall back to dense if overall density is high
+    if density > density_threshold:
+        return compile_jacobian(exprs, variables)
+
+    # Build sparse Jacobian compilation
+    # For each row we determine: constant, variable-sparse, or needs full computation
+    # Then at eval time we assemble COO-style data and convert to CSR.
+
+    # Pre-compute constant rows and compile variable rows
+    row_infos: list[dict] = []
+
+    for i in range(m):
+        sp = row_sparsities[i]
+
+        if sp.is_constant:
+            # Constant row — data known at compile time
+            if sp.nnz == 0 or sp.constant_values is None:
+                row_infos.append({"type": "zero"})
+            else:
+                row_infos.append(
+                    {
+                        "type": "constant",
+                        "cols": sp.nnz_indices.copy(),
+                        "vals": sp.constant_values.copy(),
+                    }
+                )
+            continue
+
+        if sp.nnz == 0:
+            row_infos.append({"type": "zero"})
+            continue
+
+        # Variable sparse row: compile only non-zero partials
+        nnz_idx = sp.nnz_indices
+        grad_exprs = [gradient(exprs[i], variables[j]) for j in nnz_idx]
+
+        # Double-check if computed gradients turned out constant
+        if all(isinstance(e, Constant) for e in grad_exprs):
+            vals = np.array(
+                [float(cast(Constant, e).value) for e in grad_exprs], dtype=np.float64
+            )
+            row_infos.append(
+                {
+                    "type": "constant",
+                    "cols": nnz_idx.copy(),
+                    "vals": vals,
+                }
+            )
+            continue
+
+        compiled_fns = [compile_expression(e, variables) for e in grad_exprs]
+        row_infos.append(
+            {
+                "type": "variable",
+                "cols": nnz_idx.copy(),
+                "fns": compiled_fns,
+            }
+        )
+
+    # Check if ALL rows are constant — pre-build the entire matrix
+    if all(info["type"] in ("constant", "zero") for info in row_infos):
+        # Build the constant sparse matrix once
+        rows_list, cols_list, data_list = [], [], []
+        for i, info in enumerate(row_infos):
+            if info["type"] == "constant":
+                k = len(info["cols"])
+                rows_list.append(np.full(k, i, dtype=np.int32))
+                cols_list.append(info["cols"])
+                data_list.append(info["vals"])
+
+        if rows_list:
+            all_rows = np.concatenate(rows_list)
+            all_cols = np.concatenate(cols_list)
+            all_data = np.concatenate(data_list)
+        else:
+            all_rows = np.array([], dtype=np.int32)
+            all_cols = np.array([], dtype=np.intp)
+            all_data = np.array([], dtype=np.float64)
+
+        from scipy.sparse import coo_matrix
+
+        const_jac = coo_matrix((all_data, (all_rows, all_cols)), shape=(m, n)).tocsr()
+
+        return lambda x, _j=const_jac: _j
+
+    # Pre-compute constant contributions (rows + cols + data that don't change)
+    const_rows, const_cols, const_data = [], [], []
+    var_row_indices = []
+    for i, info in enumerate(row_infos):
+        if info["type"] == "constant":
+            k = len(info["cols"])
+            const_rows.append(np.full(k, i, dtype=np.int32))
+            const_cols.append(info["cols"])
+            const_data.append(info["vals"])
+        elif info["type"] == "variable":
+            var_row_indices.append(i)
+
+    # Pre-concatenate constant parts
+    if const_rows:
+        c_rows = np.concatenate(const_rows)
+        c_cols = np.concatenate(const_cols)
+        c_data = np.concatenate(const_data)
+    else:
+        c_rows = np.array([], dtype=np.int32)
+        c_cols = np.array([], dtype=np.intp)
+        c_data = np.array([], dtype=np.float64)
+
+    # Pre-compute static structure for variable rows (row indices and column indices)
+    var_row_idx_arrays = []
+    var_col_arrays = []
+    var_fn_lists = []
+    for i in var_row_indices:
+        info = row_infos[i]
+        k = len(info["cols"])
+        var_row_idx_arrays.append(np.full(k, i, dtype=np.int32))
+        var_col_arrays.append(info["cols"])
+        var_fn_lists.append(info["fns"])
+
+    if var_row_idx_arrays:
+        v_rows = np.concatenate(var_row_idx_arrays)
+        v_cols = np.concatenate(var_col_arrays)
+    else:
+        v_rows = np.array([], dtype=np.int32)
+        v_cols = np.array([], dtype=np.intp)
+
+    n_const = len(c_data)
+    n_var = len(v_cols)
+
+    from scipy.sparse import coo_matrix
+
+    def sparse_jacobian_fn(x):
+        # Evaluate variable rows
+        v_data = np.empty(n_var, dtype=np.float64)
+        offset = 0
+        for fns in var_fn_lists:
+            for fn in fns:
+                v_data[offset] = fn(x)
+                offset += 1
+
+        # Combine constant + variable data
+        all_rows = np.concatenate([c_rows, v_rows]) if n_const > 0 else v_rows
+        all_cols = np.concatenate([c_cols, v_cols]) if n_const > 0 else v_cols
+        all_data = np.concatenate([c_data, v_data]) if n_const > 0 else v_data
+
+        return coo_matrix((all_data, (all_rows, all_cols)), shape=(m, n)).tocsr()
+
+    return sparse_jacobian_fn
+
+
 def compile_hessian(
     expr: Expression,
     variables: list[Variable],
