@@ -370,6 +370,11 @@ class AffineGradientPattern:
     linear_term: NDArray[np.floating] | None  # A matrix (n×n)
     constant_term: NDArray[np.floating] | None  # b vector (n,)
     vector: Any  # VectorVariable (Any to avoid circular import issues)
+    # Structured metadata to avoid O(n²) diagonal detection in compile_vector_gradient
+    # "scaled_identity" | "diagonal" | "general" | None (when linear_term is None)
+    linear_type: str | None = None
+    linear_scale: float = 0.0  # For scaled_identity: the scale factor
+    linear_diag: NDArray[np.floating] | None = None  # For diagonal: diagonal values
 
 
 def detect_affine_gradient_pattern(
@@ -417,20 +422,23 @@ def detect_affine_gradient_pattern(
     # Case: x.dot(x) => grad = 2*x (A=2I, b=None)
     if isinstance(expr, DotProduct):
         if isinstance(expr.left, VectorVariable) and expr.left is expr.right:
-            n = expr.left.size
             return AffineGradientPattern(
-                linear_term=np.eye(n) * 2.0,
+                linear_term=None,
                 constant_term=None,
                 vector=expr.left,
+                linear_type="scaled_identity",
+                linear_scale=2.0,
             )
 
     # Case: QuadraticForm(x, Q) => grad = (Q + Q.T)x (A=Q+Q', b=None)
     if isinstance(expr, QuadraticForm) and isinstance(expr.vector, VectorVariable):
         Q = expr.matrix
+        A = Q + Q.T
         return AffineGradientPattern(
-            linear_term=Q + Q.T,
+            linear_term=A,
             constant_term=None,
             vector=expr.vector,
+            linear_type="general",
         )
 
     # Recursive combinations
@@ -476,14 +484,41 @@ def _combine_patterns(
     p1: AffineGradientPattern, p2: AffineGradientPattern, op: str
 ) -> AffineGradientPattern:
     """Combine two patterns (A1, b1) and (A2, b2)."""
+    # Combine constant terms (always O(n) at most)
     if op == "+":
-        A = _safe_add(p1.linear_term, p2.linear_term)
         b = _safe_add(p1.constant_term, p2.constant_term)
-    else:  # "-"
-        A = _safe_sub(p1.linear_term, p2.linear_term)
+    else:
         b = _safe_sub(p1.constant_term, p2.constant_term)
 
-    return AffineGradientPattern(A, b, p1.vector)
+    # Fast path: combine structured linear terms without materializing O(n²) matrices
+    lt1 = p1.linear_type
+    lt2 = p2.linear_type
+
+    if lt1 is None and lt2 is None:
+        # Both have no linear term
+        return AffineGradientPattern(None, b, p1.vector)
+
+    if lt1 == "scaled_identity" and lt2 == "scaled_identity":
+        s1 = p1.linear_scale
+        s2 = p2.linear_scale if op == "+" else -p2.linear_scale
+        return AffineGradientPattern(None, b, p1.vector, "scaled_identity", s1 + s2)
+
+    if lt1 is None and lt2 == "scaled_identity":
+        s2 = p2.linear_scale if op == "+" else -p2.linear_scale
+        return AffineGradientPattern(None, b, p1.vector, "scaled_identity", s2)
+
+    if lt1 == "scaled_identity" and lt2 is None:
+        return AffineGradientPattern(
+            None, b, p1.vector, "scaled_identity", p1.linear_scale
+        )
+
+    # General case: materialize and combine (O(n²) for general matrices)
+    if op == "+":
+        A = _safe_add(_materialize_linear(p1), _materialize_linear(p2))
+    else:
+        A = _safe_sub(_materialize_linear(p1), _materialize_linear(p2))
+
+    return AffineGradientPattern(A, b, p1.vector, "general" if A is not None else None)
 
 
 def _safe_add(
@@ -510,18 +545,36 @@ def _safe_sub(
     return t1 - t2
 
 
+def _materialize_linear(p: AffineGradientPattern) -> NDArray[np.floating] | None:
+    """Get the full linear_term matrix, materializing from metadata if needed."""
+    if p.linear_term is not None:
+        return p.linear_term
+    if p.linear_type == "scaled_identity":
+        n = p.vector.size
+        return np.eye(n) * p.linear_scale
+    if p.linear_type == "diagonal" and p.linear_diag is not None:
+        return np.diag(p.linear_diag)
+    return None
+
+
 def _negate_pattern(p: AffineGradientPattern) -> AffineGradientPattern:
     """Return new pattern negated."""
     A = -p.linear_term if p.linear_term is not None else None
     b = -p.constant_term if p.constant_term is not None else None
-    return AffineGradientPattern(A, b, p.vector)
+    lt = p.linear_type
+    ls = -p.linear_scale
+    ld = -p.linear_diag if p.linear_diag is not None else None
+    return AffineGradientPattern(A, b, p.vector, lt, ls, ld)
 
 
 def _scale_pattern(p: AffineGradientPattern, c: float) -> AffineGradientPattern:
     """Return new pattern scaled by c."""
     A = c * p.linear_term if p.linear_term is not None else None
     b = c * p.constant_term if p.constant_term is not None else None
-    return AffineGradientPattern(A, b, p.vector)
+    lt = p.linear_type
+    ls = c * p.linear_scale
+    ld = c * p.linear_diag if p.linear_diag is not None else None
+    return AffineGradientPattern(A, b, p.vector, lt, ls, ld)
 
 
 @lru_cache(maxsize=4096)

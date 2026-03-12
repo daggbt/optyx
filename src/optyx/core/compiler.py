@@ -609,8 +609,27 @@ def compile_vector_gradient(
             if v1.name != v2.name:
                 return None
 
-    A = pattern.linear_term
     b = pattern.constant_term
+    lt = pattern.linear_type
+
+    # Fast path: use structured metadata to avoid O(n²) matrix operations
+    if lt == "scaled_identity":
+        scale = pattern.linear_scale
+        if b is None:
+            return lambda x, _s=scale: _s * x
+        else:
+            b_val = b
+            return lambda x, _s=scale, _b=b_val: _s * x + _b
+
+    if lt == "diagonal":
+        diag = pattern.linear_diag
+        if b is None:
+            return lambda x, _d=diag: _d * x  # type: ignore
+        else:
+            b_val = b
+            return lambda x, _d=diag, _b=b_val: _d * x + _b  # type: ignore
+
+    A = pattern.linear_term
 
     # Cases
     if A is None and b is None:
@@ -618,22 +637,41 @@ def compile_vector_gradient(
         return lambda x: zeros
 
     if A is None:
-        # Gradient is constant b
-        # Ensure b is sanitized/copied if needed, but usually fine
-        # Pyright issue: b is known to be NDArray here because checks passed?
-        # Actually b is NDArray | None. We know it is not None because of previous check (A is None and b is None -> return zeros).
-        # So here b is NDArray.
         b_val = b  # capture for closure
         return lambda x: b_val  # type: ignore
 
     if b is None:
-        # Gradient is A @ x
+        # Gradient is A @ x — A is a general matrix (O(n²) checks only for general)
+        if lt != "general":
+            # Unknown type, try diagonal detection
+            A_diag = np.diagonal(A)
+            A_is_diag = np.count_nonzero(A - np.diag(A_diag)) == 0
+
+            if A_is_diag:
+                if np.all(A_diag == A_diag[0]):
+                    scale = float(A_diag[0])
+                    return lambda x, _s=scale: _s * x
+                return lambda x, _d=A_diag.copy(): _d * x
+
         def grad_Ax(x: NDArray[np.floating]) -> NDArray[np.floating]:
             return A @ x  # type: ignore
 
         return grad_Ax
 
-    # Gradient is A @ x + b
+    # b is not None, A is not None
+    if lt != "general":
+        A_diag = np.diagonal(A)
+        A_is_diag = np.count_nonzero(A - np.diag(A_diag)) == 0
+
+        if A_is_diag:
+            if np.all(A_diag == A_diag[0]):
+                scale = float(A_diag[0])
+                b_val = b
+                return lambda x, _s=scale, _b=b_val: _s * x + _b
+            b_val = b
+            d = A_diag.copy()
+            return lambda x, _d=d, _b=b_val: _d * x + _b
+
     def grad_Ax_b(x: NDArray[np.floating]) -> NDArray[np.floating]:
         return A @ x + b
 
