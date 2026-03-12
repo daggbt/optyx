@@ -357,6 +357,159 @@ def _estimate_tree_depth(
         return depth
 
 
+# =============================================================================
+# Sparsity Analysis
+# =============================================================================
+
+
+@dataclass
+class SparsityPattern:
+    """Describes which gradient elements are structurally non-zero.
+
+    Enables O(nnz) gradient/Jacobian computation by identifying which
+    variables an expression depends on, without computing values.
+
+    Attributes:
+        nnz_indices: Sorted array of indices (into the variables list) that
+            have non-zero partial derivatives.
+        size: Total number of variables (length of full gradient vector).
+        is_constant: True if all non-zero gradients are constants (e.g. linear expr).
+        constant_values: If is_constant, the non-zero gradient values at nnz_indices.
+            None if gradients are not all constant.
+    """
+
+    nnz_indices: NDArray[np.intp]
+    size: int
+    is_constant: bool
+    constant_values: NDArray[np.floating] | None
+
+    @property
+    def nnz(self) -> int:
+        """Number of structurally non-zero elements."""
+        return len(self.nnz_indices)
+
+    @property
+    def density(self) -> float:
+        """Fraction of non-zero elements (0.0 to 1.0)."""
+        return self.nnz / self.size if self.size > 0 else 0.0
+
+    @property
+    def is_dense(self) -> bool:
+        """True if all elements are non-zero."""
+        return self.nnz == self.size
+
+
+def analyze_gradient_sparsity(
+    expr: Expression,
+    variables: list[Variable],
+) -> SparsityPattern:
+    """Analyze which gradient elements are structurally non-zero.
+
+    Determines which variables the expression depends on by walking the
+    expression tree, then optionally checks if those gradients are constant
+    (for linear expressions).
+
+    Args:
+        expr: The expression to analyze.
+        variables: List of variables defining the gradient vector ordering.
+
+    Returns:
+        SparsityPattern describing which gradient elements are non-zero.
+    """
+    from optyx.core.expressions import Constant, get_all_variables
+
+    n = len(variables)
+    expr_vars = get_all_variables(expr)
+
+    # Build name→index map for the variable list
+    var_index: dict[str, int] = {v.name: i for i, v in enumerate(variables)}
+
+    # Find which variables from the list appear in the expression
+    nnz_list: list[int] = []
+    for v in expr_vars:
+        idx = var_index.get(v.name)
+        if idx is not None:
+            nnz_list.append(idx)
+
+    nnz_indices = np.array(sorted(nnz_list), dtype=np.intp)
+
+    # Check if all non-zero gradients are constant (linear expression)
+    is_constant = False
+    constant_values = None
+
+    if len(nnz_indices) > 0:
+        # Fast path: if the expression is linear (degree <= 1), all gradients
+        # are guaranteed constant.
+        if expr.is_linear():
+            is_constant = True
+            # Use extract_all_linear_coefficients for O(n) single-pass extraction
+            # instead of n separate gradient computations
+            from optyx.analysis import extract_all_linear_coefficients
+
+            var_index_map: dict[str, int] = {v.name: i for i, v in enumerate(variables)}
+            try:
+                full_coeffs = extract_all_linear_coefficients(expr, var_index_map, n)
+                constant_values = full_coeffs[nnz_indices]
+            except Exception:
+                # Fallback: compute gradients individually
+                const_vals: list[float] = []
+                for idx in nnz_indices:
+                    g = gradient(expr, variables[idx])
+                    if isinstance(g, Constant):
+                        const_vals.append(float(g.value))
+                    elif not g.get_variables():
+                        const_vals.append(float(g.evaluate({})))
+                    else:
+                        is_constant = False
+                        break
+                if is_constant:
+                    constant_values = np.array(const_vals, dtype=np.float64)
+        else:
+            # For non-linear expressions, only check constancy for sparse rows
+            # (dense non-linear rows won't benefit from constant detection)
+            if len(nnz_indices) < n:
+                const_vals = []
+                all_constant = True
+                for idx in nnz_indices:
+                    g = gradient(expr, variables[idx])
+                    if isinstance(g, Constant):
+                        const_vals.append(float(g.value))
+                    elif not g.get_variables():
+                        const_vals.append(float(g.evaluate({})))
+                    else:
+                        all_constant = False
+                        break
+                if all_constant:
+                    is_constant = True
+                    constant_values = np.array(const_vals, dtype=np.float64)
+
+    return SparsityPattern(
+        nnz_indices=nnz_indices,
+        size=n,
+        is_constant=is_constant,
+        constant_values=constant_values,
+    )
+
+
+def analyze_jacobian_sparsity(
+    exprs: list[Expression],
+    variables: list[Variable],
+) -> list[SparsityPattern]:
+    """Analyze the sparsity structure of the full Jacobian matrix.
+
+    Returns per-row sparsity patterns describing which columns of each
+    Jacobian row are structurally non-zero.
+
+    Args:
+        exprs: List of m expressions (rows of the Jacobian).
+        variables: List of n variables (columns of the Jacobian).
+
+    Returns:
+        List of m SparsityPattern objects, one per row.
+    """
+    return [analyze_gradient_sparsity(expr, variables) for expr in exprs]
+
+
 @dataclass
 class AffineGradientPattern:
     """Represents a gradient of the form ∇f(x) = Ax + b.
@@ -1830,6 +1983,19 @@ def compute_hessian(
     return hessian
 
 
+def _eval_sparse_row(
+    x: NDArray[np.floating],
+    funcs: list[Callable],
+    nnz_indices: NDArray[np.intp],
+    size: int,
+) -> NDArray[np.floating]:
+    """Evaluate a sparse Jacobian row: only compute non-zero columns."""
+    result = np.zeros(size, dtype=np.float64)
+    for k, idx in enumerate(nnz_indices):
+        result[idx] = funcs[k](x)
+    return result
+
+
 def compile_jacobian(
     exprs: list[Expression],
     variables: list[Variable],
@@ -1906,7 +2072,44 @@ def compile_jacobian(
             processed_rows.append(None)
             continue
 
-        # 2. Compute symbolic derivatives for this row
+        # 2. Use sparsity analysis to avoid redundant gradient computation
+        sparsity = analyze_gradient_sparsity(expr, variables)
+
+        # 2a. If sparsity analysis found constant gradients, use them directly
+        if sparsity.is_constant:
+            vals = np.zeros(n, dtype=np.float64)
+            if sparsity.constant_values is not None:
+                vals[sparsity.nnz_indices] = sparsity.constant_values
+            row_fns.append(lambda x, v=vals: v)
+            processed_rows.append(vals)
+            continue
+
+        # 2b. Compute symbolic derivatives only for non-zero columns
+        if sparsity.nnz < n:
+            # Sparse row: only differentiate w.r.t. variables that appear
+            nnz_idx = sparsity.nnz_indices
+            sparse_row = [gradient(expr, variables[j]) for j in nnz_idx]
+
+            # Check if all computed gradients are constant
+            if all(isinstance(e, Constant) for e in sparse_row):
+                vals = np.zeros(n, dtype=np.float64)
+                for k, j in enumerate(nnz_idx):
+                    vals[j] = float(cast(Constant, sparse_row[k]).value)
+                row_fns.append(lambda x, v=vals: v)
+                processed_rows.append(vals)
+                continue
+
+            # Compile only non-zero columns, fill zeros for the rest
+            compiled_sparse = [compile_expression(e, variables) for e in sparse_row]
+            row_fns.append(
+                lambda x, funcs=compiled_sparse, idx=nnz_idx, sz=n: _eval_sparse_row(
+                    x, funcs, idx, sz
+                )
+            )
+            processed_rows.append(None)
+            continue
+
+        # 2c. Dense row: compute all symbolic derivatives
         if hasattr(expr, "jacobian_row"):
             row = expr.jacobian_row(variables)
             if row is None:
@@ -1948,6 +2151,195 @@ def compile_jacobian(
         return _sanitize_derivatives(result)
 
     return jacobian_fn
+
+
+def compile_sparse_jacobian(
+    exprs: list[Expression],
+    variables: list[Variable],
+    density_threshold: float = 0.5,
+):
+    """Compile the Jacobian for fast evaluation, returning sparse output.
+
+    For sparse constraint systems (nnz << m*n), returns scipy.sparse.csr_matrix
+    with O(nnz) memory instead of O(m*n).  Falls back to dense for high-density
+    Jacobians.
+
+    Args:
+        exprs: List of expressions (rows of the Jacobian).
+        variables: List of variables (columns of the Jacobian).
+        density_threshold: If overall Jacobian density exceeds this, fall
+            back to the dense compile_jacobian (default 0.5).
+
+    Returns:
+        A callable that takes a 1D array and returns the Jacobian.
+        Output is scipy.sparse.csr_matrix for sparse problems, or a dense
+        2D ndarray for high-density problems.
+    """
+    import numpy as np
+    from scipy.sparse import csr_matrix
+    from optyx.core.compiler import compile_expression
+    from optyx.core.expressions import Constant
+
+    m = len(exprs)
+    n = len(variables)
+
+    if m == 0 or n == 0:
+        empty = csr_matrix((m, n), dtype=np.float64)
+        return lambda x, _e=empty: _e
+
+    # Analyze sparsity for all rows
+    row_sparsities = analyze_jacobian_sparsity(exprs, variables)
+
+    total_nnz = sum(sp.nnz for sp in row_sparsities)
+    density = total_nnz / (m * n) if m * n > 0 else 1.0
+
+    # Fall back to dense if overall density is high
+    if density > density_threshold:
+        return compile_jacobian(exprs, variables)
+
+    # Build sparse Jacobian compilation
+    # For each row we determine: constant, variable-sparse, or needs full computation
+    # Then at eval time we assemble COO-style data and convert to CSR.
+
+    # Pre-compute constant rows and compile variable rows
+    row_infos: list[dict] = []
+
+    for i in range(m):
+        sp = row_sparsities[i]
+
+        if sp.is_constant:
+            # Constant row — data known at compile time
+            if sp.nnz == 0 or sp.constant_values is None:
+                row_infos.append({"type": "zero"})
+            else:
+                row_infos.append(
+                    {
+                        "type": "constant",
+                        "cols": sp.nnz_indices.copy(),
+                        "vals": sp.constant_values.copy(),
+                    }
+                )
+            continue
+
+        if sp.nnz == 0:
+            row_infos.append({"type": "zero"})
+            continue
+
+        # Variable sparse row: compile only non-zero partials
+        nnz_idx = sp.nnz_indices
+        grad_exprs = [gradient(exprs[i], variables[j]) for j in nnz_idx]
+
+        # Double-check if computed gradients turned out constant
+        if all(isinstance(e, Constant) for e in grad_exprs):
+            vals = np.array(
+                [float(cast(Constant, e).value) for e in grad_exprs], dtype=np.float64
+            )
+            row_infos.append(
+                {
+                    "type": "constant",
+                    "cols": nnz_idx.copy(),
+                    "vals": vals,
+                }
+            )
+            continue
+
+        compiled_fns = [compile_expression(e, variables) for e in grad_exprs]
+        row_infos.append(
+            {
+                "type": "variable",
+                "cols": nnz_idx.copy(),
+                "fns": compiled_fns,
+            }
+        )
+
+    # Check if ALL rows are constant — pre-build the entire matrix
+    if all(info["type"] in ("constant", "zero") for info in row_infos):
+        # Build the constant sparse matrix once
+        rows_list, cols_list, data_list = [], [], []
+        for i, info in enumerate(row_infos):
+            if info["type"] == "constant":
+                k = len(info["cols"])
+                rows_list.append(np.full(k, i, dtype=np.int32))
+                cols_list.append(info["cols"])
+                data_list.append(info["vals"])
+
+        if rows_list:
+            all_rows = np.concatenate(rows_list)
+            all_cols = np.concatenate(cols_list)
+            all_data = np.concatenate(data_list)
+        else:
+            all_rows = np.array([], dtype=np.int32)
+            all_cols = np.array([], dtype=np.intp)
+            all_data = np.array([], dtype=np.float64)
+
+        from scipy.sparse import coo_matrix
+
+        const_jac = coo_matrix((all_data, (all_rows, all_cols)), shape=(m, n)).tocsr()
+
+        return lambda x, _j=const_jac: _j
+
+    # Pre-compute constant contributions (rows + cols + data that don't change)
+    const_rows, const_cols, const_data = [], [], []
+    var_row_indices = []
+    for i, info in enumerate(row_infos):
+        if info["type"] == "constant":
+            k = len(info["cols"])
+            const_rows.append(np.full(k, i, dtype=np.int32))
+            const_cols.append(info["cols"])
+            const_data.append(info["vals"])
+        elif info["type"] == "variable":
+            var_row_indices.append(i)
+
+    # Pre-concatenate constant parts
+    if const_rows:
+        c_rows = np.concatenate(const_rows)
+        c_cols = np.concatenate(const_cols)
+        c_data = np.concatenate(const_data)
+    else:
+        c_rows = np.array([], dtype=np.int32)
+        c_cols = np.array([], dtype=np.intp)
+        c_data = np.array([], dtype=np.float64)
+
+    # Pre-compute static structure for variable rows (row indices and column indices)
+    var_row_idx_arrays = []
+    var_col_arrays = []
+    var_fn_lists = []
+    for i in var_row_indices:
+        info = row_infos[i]
+        k = len(info["cols"])
+        var_row_idx_arrays.append(np.full(k, i, dtype=np.int32))
+        var_col_arrays.append(info["cols"])
+        var_fn_lists.append(info["fns"])
+
+    if var_row_idx_arrays:
+        v_rows = np.concatenate(var_row_idx_arrays)
+        v_cols = np.concatenate(var_col_arrays)
+    else:
+        v_rows = np.array([], dtype=np.int32)
+        v_cols = np.array([], dtype=np.intp)
+
+    n_const = len(c_data)
+    n_var = len(v_cols)
+
+    from scipy.sparse import coo_matrix
+
+    def sparse_jacobian_fn(x):
+        # Evaluate variable rows
+        v_data = np.empty(n_var, dtype=np.float64)
+        offset = 0
+        for fns in var_fn_lists:
+            for fn in fns:
+                v_data[offset] = fn(x)
+                offset += 1
+
+        # Combine constant + variable data
+        all_rows = np.concatenate([c_rows, v_rows]) if n_const > 0 else v_rows
+        all_cols = np.concatenate([c_cols, v_cols]) if n_const > 0 else v_cols
+        all_data = np.concatenate([c_data, v_data]) if n_const > 0 else v_data
+
+        return coo_matrix((all_data, (all_rows, all_cols)), shape=(m, n)).tocsr()
+
+    return sparse_jacobian_fn
 
 
 def compile_hessian(

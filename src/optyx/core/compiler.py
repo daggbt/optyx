@@ -757,6 +757,93 @@ def compile_gradient(
     return symbolic_gradient
 
 
+def compile_sparse_gradient(
+    expr: "Expression",
+    variables: list["Variable"],
+) -> Callable[["NDArray[np.floating]"], Any]:
+    """Compile a gradient that returns a sparse row vector (1×n csr_matrix).
+
+    Uses sparsity analysis to only compute non-zero partial derivatives,
+    returning a scipy.sparse.csr_matrix of shape (1, n) with O(nnz) memory.
+
+    For constant gradients (linear expressions), returns a pre-built sparse
+    matrix. For variable gradients, compiles only the non-zero columns.
+
+    Args:
+        expr: The expression to differentiate.
+        variables: Ordered list of variables.
+
+    Returns:
+        A callable that returns the gradient as a (1, n) csr_matrix.
+    """
+    from scipy.sparse import csr_matrix
+    from optyx.core.autodiff import analyze_gradient_sparsity, gradient as sym_gradient
+
+    n = len(variables)
+    sparsity = analyze_gradient_sparsity(expr, variables)
+
+    # Constant gradient: return pre-built sparse matrix
+    if sparsity.is_constant:
+        if sparsity.nnz == 0:
+            const_sparse = csr_matrix((1, n), dtype=np.float64)
+        else:
+            data = sparsity.constant_values
+            indices = sparsity.nnz_indices.copy()
+            indptr = np.array([0, len(indices)], dtype=np.int32)
+            const_sparse = csr_matrix((data, indices, indptr), shape=(1, n))
+
+        return lambda x, _m=const_sparse: _m
+
+    nnz_idx = sparsity.nnz_indices
+
+    if len(nnz_idx) == 0:
+        zero_sparse = csr_matrix((1, n), dtype=np.float64)
+        return lambda x, _m=zero_sparse: _m
+
+    # Compile only the non-zero columns
+    grad_exprs = [sym_gradient(expr, variables[j]) for j in nnz_idx]
+    compiled_fns = [compile_expression(e, variables) for e in grad_exprs]
+
+    def sparse_gradient(x: "NDArray[np.floating]") -> Any:
+        data = np.array([f(x) for f in compiled_fns], dtype=np.float64)
+        return csr_matrix((data, nnz_idx, np.array([0, len(nnz_idx)])), shape=(1, n))
+
+    return sparse_gradient
+
+
+# Default density threshold for switching between sparse and dense
+_SPARSE_DENSITY_THRESHOLD = 0.5
+
+
+def compile_gradient_with_sparsity(
+    expr: "Expression",
+    variables: list["Variable"],
+    density_threshold: float = _SPARSE_DENSITY_THRESHOLD,
+) -> Callable[["NDArray[np.floating]"], Any]:
+    """Compile gradient, choosing sparse or dense format based on sparsity.
+
+    Analyzes the expression's sparsity pattern and returns:
+    - A sparse gradient (csr_matrix) if density <= threshold
+    - A dense gradient (ndarray) if density > threshold
+
+    Args:
+        expr: The expression to differentiate.
+        variables: Ordered list of variables.
+        density_threshold: Density above which dense format is used (default 0.5).
+
+    Returns:
+        A callable returning either a (1, n) csr_matrix or (n,) ndarray.
+    """
+    from optyx.core.autodiff import analyze_gradient_sparsity
+
+    sparsity = analyze_gradient_sparsity(expr, variables)
+
+    if sparsity.density <= density_threshold:
+        return compile_sparse_gradient(expr, variables)
+    else:
+        return compile_gradient(expr, variables)
+
+
 def _compile_vectorized_power_gradient(
     expr: "VectorPowerSum",
     variables: list["Variable"],
