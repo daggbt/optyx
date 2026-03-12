@@ -1024,6 +1024,11 @@ class LinearProgramExtractor:
         # Use batch extraction - O(n) instead of O(n²)
         c = extract_all_linear_coefficients(problem.objective, var_index, n)
 
+        # Add Variable.obj contributions (linear objective coefficients set at creation)
+        for i, var in enumerate(variables):
+            if var.obj != 0.0:
+                c[i] += var.obj
+
         sense = "min" if problem.sense == "minimize" else "max"
         return c, sense, variables
 

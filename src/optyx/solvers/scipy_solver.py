@@ -127,7 +127,7 @@ def solve_scipy(
     for i, v in enumerate(variables):
         lb_arr[i] = v.lb if v.lb is not None else -np.inf
         ub_arr[i] = v.ub if v.ub is not None else np.inf
-    bounds = Bounds(lb=lb_arr, ub=ub_arr)
+    bounds = Bounds(lb=lb_arr, ub=ub_arr)  # type: ignore[arg-type]  # scipy stubs are wrong, Bounds accepts arrays
 
     def objective(x: np.ndarray) -> float:
         return float(obj_fn(x))
@@ -357,6 +357,17 @@ def _build_solver_cache(problem: Problem, variables: list) -> dict[str, Any]:
         raise NoObjectiveError(
             suggestion="Call minimize() or maximize() on the problem first.",
         )
+
+    # Add Variable.obj contributions (linear objective coefficients set at creation)
+    obj_vars = [v for v in variables if v.obj != 0.0]
+    if obj_vars:
+        from optyx.core.expressions import Constant
+
+        obj_contrib = Constant(0.0)
+        for v in obj_vars:
+            obj_contrib = obj_contrib + Constant(v.obj) * v
+        obj_expr = obj_expr + obj_contrib
+
     if problem.sense == "maximize":
         obj_expr = -obj_expr  # Negate for maximization
 
