@@ -11,8 +11,11 @@ Provides a fluent API for building optimization problems:
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Literal, Iterable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Literal, Iterable
 from types import TracebackType
+
+import numpy as np
 
 from optyx.core.errors import (
     InvalidOperationError,
@@ -21,11 +24,22 @@ from optyx.core.errors import (
 )
 
 if TYPE_CHECKING:
+    from numpy.typing import NDArray
     from optyx.analysis import LPData
     from optyx.constraints import Constraint
     from optyx.core.expressions import Expression, Variable
     from optyx.core.vectors import VectorVariable
     from optyx.solution import Solution
+
+
+@dataclass
+class _MatrixConstraint:
+    """Stores a batch of linear constraints in matrix form: A @ x sense b."""
+
+    A: Any  # NDArray or scipy.sparse matrix
+    b: NDArray[np.floating]
+    sense: Literal["<=", ">=", "=="]
+    variables: list[Variable]  # The VectorVariable's individual variables
 
 
 # Threshold for "small" problems where gradient-free methods are faster
@@ -211,6 +225,7 @@ class Problem:
         self._objective: Expression | None = None
         self._sense: Literal["minimize", "maximize"] = "minimize"
         self._constraints: list[Constraint] = []
+        self._matrix_constraints: list[_MatrixConstraint] = []
         self._variables: list[Variable] | None = None  # Cached
         # Solver cache for compiled callables (reused across solve() calls)
         self._solver_cache: dict | None = None
@@ -307,6 +322,67 @@ class Problem:
                 message=reason,
                 constraint_expr=str(constraint),
             )
+        self._invalidate_caches()
+        return self
+
+    def subject_to_matrix(
+        self,
+        A: Any,
+        x: VectorVariable,
+        sense: Literal["<=", ">=", "=="],
+        b: Any,
+    ) -> Problem:
+        """Add matrix constraints A @ x {<=, >=, ==} b.
+
+        Accepts dense numpy arrays or scipy.sparse matrices. These constraints
+        bypass expression tree building entirely, enabling efficient large-scale
+        LP with sparse constraint matrices.
+
+        Args:
+            A: Constraint coefficient matrix (m, n). Can be numpy ndarray or
+                scipy.sparse matrix (csr_matrix, csc_matrix, etc.).
+            x: VectorVariable of size n.
+            sense: Constraint sense - "<=", ">=", or "==".
+            b: Right-hand side vector (m,). Can be list, tuple, or ndarray.
+
+        Returns:
+            Self for method chaining.
+
+        Raises:
+            ValueError: If dimensions don't match or sense is invalid.
+
+        Example:
+            >>> x = VectorVariable("x", 1000, lb=0)
+            >>> A = scipy.sparse.random(500, 1000, density=0.01, format="csr")
+            >>> b = np.ones(500)
+            >>> prob.subject_to_matrix(A, x, "<=", b)
+        """
+        from scipy import sparse as sp
+
+        b_arr = np.asarray(b, dtype=np.float64).ravel()
+
+        # Validate dimensions
+        if sp.issparse(A):
+            m, n = A.shape
+        else:
+            A = np.asarray(A, dtype=np.float64)
+            m, n = A.shape
+
+        if n != x.size:
+            raise ValueError(f"A has {n} columns but x has {x.size} variables")
+        if m != len(b_arr):
+            raise ValueError(f"A has {m} rows but b has {len(b_arr)} elements")
+        if sense not in ("<=", ">=", "=="):
+            raise ValueError(f"sense must be '<=', '>=', or '==', got '{sense}'")
+
+        self._matrix_constraints.append(
+            _MatrixConstraint(
+                A=A,
+                b=b_arr,
+                sense=sense,
+                variables=list(x._variables),
+            )
+        )
         self._invalidate_caches()
         return self
 
@@ -469,6 +545,9 @@ class Problem:
         for constraint in self._constraints:
             all_vars.update(constraint.get_variables())
 
+        for mc in self._matrix_constraints:
+            all_vars.update(mc.variables)
+
         self._variables = sorted(all_vars, key=_natural_sort_key)
         return self._variables
 
@@ -480,7 +559,10 @@ class Problem:
     @property
     def n_constraints(self) -> int:
         """Number of constraints."""
-        return len(self._constraints)
+        n = len(self._constraints)
+        for mc in self._matrix_constraints:
+            n += mc.A.shape[0]
+        return n
 
     def get_bounds(self) -> list[tuple[float | None, float | None]]:
         """Get variable bounds as a list of (lb, ub) tuples.
@@ -515,6 +597,7 @@ class Problem:
                 self._is_linear_cache = False
                 return False
 
+        # Matrix constraints are always linear by definition
         self._is_linear_cache = True
         return True
 
