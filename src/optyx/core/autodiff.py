@@ -1952,7 +1952,7 @@ def compute_hessian(
                 c_val = expr.right
                 sub_expr = expr.left
 
-            if c_val is not None:
+            if c_val is not None and sub_expr is not None:
                 H_sub = compute_hessian(sub_expr, variables)
                 hessian = []
                 for i in range(n):
