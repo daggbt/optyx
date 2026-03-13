@@ -5,45 +5,40 @@ import pytest
 import numpy as np
 
 from optyx import Variable
-from optyx.core.errors import IntegerVariableError
 from optyx.problem import Problem
 
 
 class TestIntegerBinaryWarning:
-    """Tests for warnings when using integer/binary variables with SciPy."""
+    """Tests for integer/binary variable handling.
 
-    def test_binary_variable_emits_warning(self):
-        """Binary variables should emit a warning about relaxation."""
+    With MIP support, linear problems with integer vars are routed to milp().
+    Nonlinear problems with integer vars raise ValueError (MINLP not supported).
+    """
+
+    def test_binary_variable_solves_via_milp(self):
+        """Binary variables in LP are solved via milp()."""
+        x = Variable("x", domain="binary")
+        prob = Problem().minimize(x)
+        sol = prob.solve()
+
+        assert sol.is_optimal
+        assert abs(sol["x"]) < 1e-6
+
+    def test_integer_variable_solves_via_milp(self):
+        """Integer variables in LP are solved via milp()."""
+        x = Variable("x", lb=0, ub=10, domain="integer")
+        prob = Problem().minimize(x)
+        sol = prob.solve()
+
+        assert sol.is_optimal
+        assert abs(sol["x"]) < 1e-6
+
+    def test_nonlinear_integer_raises(self):
+        """Nonlinear + integer variables raises ValueError (MINLP)."""
         x = Variable("x", domain="binary")
         prob = Problem().minimize((x - 0.5) ** 2)
 
-        with pytest.warns(UserWarning, match="integer/binary domains"):
-            sol = prob.solve()
-
-        assert sol.is_optimal
-        # Solution is relaxed to continuous [0, 1]
-        assert 0 <= sol["x"] <= 1
-
-    def test_integer_variable_emits_warning(self):
-        """Integer variables should emit a warning about relaxation."""
-        x = Variable("x", lb=0, ub=10, domain="integer")
-        prob = Problem().minimize((x - 3.7) ** 2)
-
-        with pytest.warns(UserWarning, match="integer/binary domains"):
-            sol = prob.solve()
-
-        assert sol.is_optimal
-        # Solution is relaxed, not rounded to integer
-        assert abs(sol["x"] - 3.7) < 1e-4
-
-    def test_warning_lists_variable_names(self):
-        """Warning should list all affected variable names."""
-        a = Variable("a", domain="binary")
-        b = Variable("b", domain="integer", lb=0, ub=5)
-        c = Variable("c")  # continuous, no warning
-        prob = Problem().minimize(a + b + c**2)
-
-        with pytest.warns(UserWarning, match=r"\[a, b\]"):
+        with pytest.raises(ValueError, match="nonlinear"):
             prob.solve()
 
     def test_continuous_no_warning(self):
@@ -61,20 +56,20 @@ class TestIntegerBinaryWarning:
 class TestStrictMode:
     """Tests for strict mode enforcement of integer/binary variables."""
 
-    def test_strict_mode_raises_for_binary(self):
-        """strict=True should raise IntegerVariableError for binary variables."""
+    def test_strict_mode_ok_for_milp(self):
+        """strict=True still works for linear MIP (no error)."""
         x = Variable("x", domain="binary")
-        prob = Problem().minimize((x - 0.5) ** 2)
+        prob = Problem().minimize(x)
 
-        with pytest.raises(IntegerVariableError, match="integer/binary"):
-            prob.solve(strict=True)
+        sol = prob.solve(strict=True)
+        assert sol.is_optimal
 
-    def test_strict_mode_raises_for_integer(self):
-        """strict=True should raise IntegerVariableError for integer variables."""
+    def test_nonlinear_integer_raises_regardless_of_strict(self):
+        """Nonlinear + integer raises ValueError regardless of strict flag."""
         x = Variable("x", lb=0, ub=10, domain="integer")
         prob = Problem().minimize((x - 3.7) ** 2)
 
-        with pytest.raises(IntegerVariableError, match="integer/binary"):
+        with pytest.raises(ValueError, match="nonlinear"):
             prob.solve(strict=True)
 
     def test_strict_mode_ok_for_continuous(self):
@@ -86,24 +81,24 @@ class TestStrictMode:
         sol = prob.solve(strict=True)
         assert sol.is_optimal
 
-    def test_strict_false_still_warns(self):
-        """strict=False (default) should still emit warning."""
+    def test_milp_default_mode_solves(self):
+        """Default mode (strict=False) solves MILP correctly."""
         x = Variable("x", domain="binary")
-        prob = Problem().minimize((x - 0.5) ** 2)
+        prob = Problem().minimize(x)
 
-        with pytest.warns(UserWarning, match="integer/binary domains"):
-            sol = prob.solve(strict=False)
-
+        sol = prob.solve(strict=False)
         assert sol.is_optimal
 
-    def test_error_message_includes_variable_names(self):
-        """Error message should list affected variable names."""
+    def test_milp_linear_with_multiple_integer_vars(self):
+        """Multiple integer/binary vars in LP all route to milp()."""
         a = Variable("a", domain="binary")
         b = Variable("b", domain="integer", lb=0, ub=5)
         prob = Problem().minimize(a + b)
 
-        with pytest.raises(IntegerVariableError, match=r"\['a', 'b'\]"):
-            prob.solve(strict=True)
+        sol = prob.solve()
+        assert sol.is_optimal
+        assert abs(sol["a"]) < 1e-6
+        assert abs(sol["b"]) < 1e-6
 
 
 class TestUnconstrainedOptimization:

@@ -48,11 +48,29 @@ from optyx.solution import Solution, SolverStatus
 
 __version__ = version("optyx")
 
+
+def BinaryVariable(name: str, **kwargs) -> Variable:
+    """Create a binary (0/1) variable.
+
+    Shorthand for ``Variable(name, domain='binary', lb=0, ub=1)``.
+    """
+    return Variable(name, domain="binary", **kwargs)
+
+
+def IntegerVariable(name: str, lb=None, ub=None, **kwargs) -> Variable:
+    """Create an integer variable.
+
+    Shorthand for ``Variable(name, domain='integer', lb=lb, ub=ub)``.
+    """
+    return Variable(name, domain="integer", lb=lb, ub=ub, **kwargs)
+
 __all__ = [
     # Core
     "Expression",
     "Variable",
     "Constant",
+    "BinaryVariable",
+    "IntegerVariable",
     "VectorVariable",
     "MatrixVariable",
     # Parameters

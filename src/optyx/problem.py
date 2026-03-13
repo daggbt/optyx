@@ -715,7 +715,23 @@ class Problem:
 
                 return solve_lp(self, strict=strict, **kwargs)
             else:
+                # Check for MIQP/MINLP (nonlinear + integer vars)
+                has_integers = any(
+                    v.domain in ("integer", "binary") for v in self.variables
+                )
+                if has_integers:
+                    raise ValueError(
+                        "Mixed-integer nonlinear programming (MINLP) is not supported. "
+                        "scipy.optimize.milp() only handles linear objectives and constraints. "
+                        "Use continuous relaxation or a dedicated MINLP solver."
+                    )
                 method = self._auto_select_method()
+
+        # Handle explicit milp request
+        if method == "milp":
+            from optyx.solvers.lp_solver import solve_lp
+
+            return solve_lp(self, strict=strict, **kwargs)
 
         # Handle explicit linprog request
         if method == "linprog":
