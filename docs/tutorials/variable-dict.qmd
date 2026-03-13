@@ -1,0 +1,92 @@
+---
+title: "Dict-Indexed Variables"
+description: "Model named entities like products, locations or time-slots directly using VariableDict"
+date: last-modified
+---
+
+## Introduction
+
+In many real-world problems (diet optimization, logistics, shifts), decisions are naturally indexed by strings or categorical data rather than flat integers. `VariableDict` allows you to manage arrays of decision variables using robust dictionary-like indexing.
+
+## Creating a VariableDict
+
+Supply a base name and a list of keys:
+
+```{python}
+from optyx import VariableDict
+
+foods = ["Apple", "Banana", "Carrot", "Donut"]
+buy = VariableDict("buy", keys=foods, lb=0)
+
+# Access individual variables by key
+print(buy["Apple"])   # Equivalent to Variable("buy[Apple]", lb=0)
+```
+
+You can also pass dictionary objects as bounds to impose key-specific constraints without rewriting your loop:
+
+```{python}
+# We MUST buy at least 2 apples, and maximum 5 donuts
+lower_bounds = {"Apple": 2}
+upper_bounds = {"Donut": 5}
+
+buy2 = VariableDict(
+    "buy", 
+    keys=foods, 
+    lb=lower_bounds, # Optyx automatically falls back to 0 or -inf for unlisted keys
+    ub=upper_bounds
+)
+```
+
+## Vectorized Aggregations
+
+Just like `VectorVariable`, `VariableDict` exposes native aggregation methods that avoid constructing deep loop-based expression trees.
+
+### Weighted Sums (`.prod()`)
+
+If you have a dictionary of coefficients (like costs or weights), `.prod()` operates exactly like a dot-product. Unlisted keys are assumed to have a 0 coefficient.
+
+```{python}
+from optyx import Problem
+
+costs = {"Apple": 0.50, "Banana": 0.30, "Carrot": 0.20, "Donut": 1.50}
+
+prob = Problem("diet")
+# Effectively: 0.5*buy[Apple] + 0.3*buy[Banana] + ...
+prob.minimize(buy.prod(costs))
+```
+
+### Subsetting (`.sum()`)
+
+You can sum all elements, or sum over a specific subset of keys using `.sum(keys=...)`. 
+
+```{python}
+calories = {"Apple": 95, "Banana": 105, "Carrot": 25, "Donut": 400}
+
+# Total calories must be >= 1000
+prob.subject_to(buy.prod(calories) >= 1000)
+
+# Limit sugary foods to at most 1 item
+sugary_items = ["Donut"]
+prob.subject_to(buy.sum(sugary_items) <= 1)
+```
+
+## Extracting Solutions
+
+When you solve the problem, you don't need to manually string concatenate to pull your results back out. You can extract the whole dictionary back using the Solution mapping, or the `.to_dict(sol)` method:
+
+```{python}
+sol = prob.solve()
+
+# Getting values as a standard python dict: {"Apple": 2.5, "Banana": ...}
+results = buy.to_dict(sol)
+
+print("Optimal Diet:")
+for food, quantity in results.items():
+    if quantity > 1e-4:
+        print(f"{food}: {quantity:.2f}")
+```
+
+## Use Cases
+
+`VariableDict` pairs powerfully with the new `domain="binary"` and `domain="integer"` parameters. Use them to cleanly implement job-shop schedules (`keys=[f"{job}_{machine}" for job in jobs for machine in machines]`), stock picking assignments, or supply chain routes.
+

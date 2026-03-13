@@ -17,6 +17,10 @@ quartodoc:
       desc: "Fundamental building blocks for optimization models"
       contents:
         - core.expressions.Variable
+        - BinaryVariable
+        - IntegerVariable
+        - BinaryVariable
+        - IntegerVariable
         - core.expressions.Constant
         - core.expressions.Expression
     
@@ -24,6 +28,8 @@ quartodoc:
       desc: "High-dimensional decision variables for scalable optimization"
       contents:
         - core.vectors.VectorVariable
+        - core.variable_dict.VariableDict
+        - core.variable_dict.VariableDict
         - core.vectors.VectorExpression
         - core.vectors.DotProduct
         - core.vectors.L2Norm
@@ -50,6 +56,8 @@ quartodoc:
         - problem.Problem
         - solution.Solution
         - solution.SolverStatus
+        - solution.SolverProgress
+        - solution.SolverProgress
     
     - title: Mathematical Functions
       desc: "Transcendental and special functions for expressions"
@@ -111,6 +119,14 @@ website:
             href: tutorials/vectors.qmd
           - text: "Matrix Variables"
             href: tutorials/matrices.qmd
+          - text: "Integer Programming"
+            href: tutorials/integer-programming.qmd
+          - text: "Variable Dict"
+            href: tutorials/variable-dict.qmd
+          - text: "Integer Programming"
+            href: tutorials/integer-programming.qmd
+          - text: "Variable Dict"
+            href: tutorials/variable-dict.qmd
           - text: "Performance Guide"
             href: tutorials/performance.qmd
       - text: "Examples"

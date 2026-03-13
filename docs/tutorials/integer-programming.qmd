@@ -1,0 +1,126 @@
+---
+title: "Mixed-Integer Linear Programming (MILP)"
+description: "Solve problems requiring discrete answers with binary and integer variables"
+date: last-modified
+---
+
+## Overview
+
+Sometimes variables can't take fractional values. You can't drill half a shaft, dispatch 3.2 trucks, or open 0.7 of a warehouse. Optyx automatically detects integer and binary variables and routes them to the **MILP solver** (via `scipy.optimize.milp()` using the HiGHS backend).
+
+::: {.callout-note}
+## Support Boundary
+Optyx v1.3.0 supports **Mixed-Integer Linear Programming (MILP)**. This means your objective and constraints must be purely *linear*. Mixed-Integer Quadratic Programming (MIQP) or general MINLP are not currently supported and will raise an `UnsupportedOperationError`.
+:::
+
+## Creating Integer & Binary Variables
+
+Optyx provides explicit constructor functions for convenience.
+
+```{python}
+from optyx import Problem, IntegerVariable, BinaryVariable, VectorVariable
+
+# Single variables
+x = IntegerVariable("x", lb=0, ub=10)
+y = BinaryVariable("y")  # Equivalent to domain='binary', bounds [0, 1]
+
+# Vectors of discrete variables
+allocations = VectorVariable("qty", 5, domain="integer", lb=0, ub=100)
+open_facilities = VectorVariable("open", 10, domain="binary")
+```
+
+## Example: The Knapsack Problem
+
+The classic binary problem: maximize total value while respecting a weight capacity.
+
+```{python}
+import numpy as np
+from optyx import Problem, VectorVariable
+
+np.random.seed(42)
+n = 10
+values = np.random.randint(10, 100, size=n).astype(float)
+weights = np.random.randint(5, 50, size=n).astype(float)
+capacity = 120.0
+
+# Define a binary variable for each item
+take = VectorVariable("take", n, domain="binary")
+
+sol = (
+    Problem("knapsack")
+    .maximize(values @ take)
+    .subject_to(weights @ take <= capacity)
+    .solve()
+)
+
+print(f"Status: {sol.status.name}")
+print(f"Total Value: {sol.objective_value:.1f}")
+
+# Find which items we took (value > 0.5 avoids precise float matching)
+taken_items = [i for i in range(n) if sol[f"take[{i}]"] > 0.5]
+print(f"Items packed: {taken_items}")
+```
+
+## Example: Facility Location (Mixed Types)
+
+This problem mixes binary variables (opening a facility) with continuous variables (transporting goods).
+
+```{python}
+from optyx import Problem, VectorVariable, BinaryVariable, Variable
+
+# 3 potential warehouses, 4 customers
+fixed_costs = np.array([1000, 1200, 1500])
+capacities = np.array([500, 600, 800])
+demand = np.array([200, 300, 150, 250])
+
+# Transport cost matrix (warehouse i to customer j)
+transport_costs = np.array([
+    [2.5, 3.1, 4.0, 1.2],
+    [3.2, 1.5, 2.8, 3.4],
+    [1.8, 2.4, 2.0, 2.2]
+])
+
+prob = Problem("facility_location")
+
+# Binary decisions: open warehouse i?
+y = [BinaryVariable(f"open_{i}") for i in range(3)]
+
+# Continuous decisions: amount shipped from warehouse i to customer j
+x = [[Variable(f"ship_{i}_{j}", lb=0) for j in range(4)] for i in range(3)]
+
+# Objective: minimize fixed costs + transport costs
+obj = sum(fixed_costs[i] * y[i] for i in range(3))
+for i in range(3):
+    for j in range(4):
+        obj = obj + transport_costs[i, j] * x[i][j]
+prob.minimize(obj)
+
+# Demand satisfaction (each customer gets what they need)
+for j in range(4):
+    prob.subject_to(sum(x[i][j] for i in range(3)) >= demand[j])
+
+# Capacity constraint: can only ship if facility is open!
+for i in range(3):
+    prob.subject_to(sum(x[i][j] for j in range(4)) <= capacities[i] * y[i])
+
+sol = prob.solve()
+
+# MILP solves provide gap reporting
+print(f"Optimal cost: ${sol.objective_value:.2f}")
+print(f"MIP Gap: {sol.mip_gap}")
+print(f"Best Bound: {sol.best_bound}")
+
+for i in range(3):
+    if sol[f"open_{i}"] > 0.5:
+        print(f"Warehouse {i} is OPEN")
+```
+
+## Solution Metadata
+
+When running an MILP, Optyx populates additional metadata fields on the `Solution` object (originating from the underlying HiGHS solver):
+- `sol.mip_gap`: The relative mip gap at termination. A gap of `0.0` signifies proven optimality.
+- `sol.best_bound`: The best discovered dual bound.
+
+## Sparse Constraints in MILP
+
+Large combinatorial formulations can use sparse constraints as well. The internal translation correctly delegates sparse equality and inequality matrices to the solver. See the [Performance guide](performance.qmd) for more details on `subject_to_matrix()`.
