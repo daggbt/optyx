@@ -1224,6 +1224,51 @@ class LinearProgramExtractor:
 
 
 # =============================================================================
+# Issue #106: Quadratic Coefficient Extraction
+# =============================================================================
+
+
+def extract_quadratic_coefficients(
+    expr: Expression,
+    variables: list[Variable],
+) -> NDArray[np.floating]:
+    """Extract the quadratic coefficient matrix from a quadratic expression.
+
+    For an expression of the form x'Qx + c'x + d, returns the matrix Q
+    such that the quadratic part is sum_{i,j} Q[i,j] * x_i * x_j.
+
+    Args:
+        expr: A quadratic expression.
+        variables: List of variables in the desired ordering.
+
+    Returns:
+        Symmetric (n, n) matrix of quadratic coefficients.
+
+    Raises:
+        NonLinearError: If the expression is not quadratic.
+    """
+    from optyx.io import _is_at_most_quadratic, _collect_quadratic_coefficients
+
+    if not _is_at_most_quadratic(expr):
+        raise NonLinearError(
+            expression=repr(expr)[:100],
+            context="quadratic coefficient extraction",
+            suggestion="Ensure the expression is at most quadratic.",
+        )
+
+    from optyx.io import _collect_quadratic_coefficients
+
+    n = len(variables)
+    var_index = {v.name: i for i, v in enumerate(variables)}
+    Q = np.zeros((n, n), dtype=np.float64)
+    _collect_quadratic_coefficients(expr, var_index, Q, 1.0)
+
+    # Symmetrize: Q_sym = (Q + Q.T) / 2
+    Q_sym = (Q + Q.T) / 2.0
+    return Q_sym
+
+
+# =============================================================================
 # Issue #32: Constraint Helpers and Classification
 # =============================================================================
 
