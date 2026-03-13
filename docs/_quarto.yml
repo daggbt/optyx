@@ -121,6 +121,10 @@ website:
             href: examples/fleet-dispatch.qmd
           - text: "Mine Scheduling"
             href: examples/mine-scheduling.qmd
+          - text: "Mine Production Planning"
+            href: examples/mine-production-planning.qmd
+          - text: "Mine Equipment (MILP)"
+            href: examples/mine-equipment-milp.qmd
           - text: "Road Maintenance"
             href: examples/road-maintenance.qmd
           - text: "Rosenbrock Function"

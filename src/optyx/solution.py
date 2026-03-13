@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from optyx.core.expressions import Variable
     from optyx.core.vectors import VectorVariable
     from optyx.core.matrices import MatrixVariable
+    from optyx.core.variable_dict import VariableDict
 else:
     from optyx.core.expressions import Variable
 
@@ -149,15 +150,17 @@ class Solution:
 
     def __getitem__(
         self, var: Variable | VectorVariable | MatrixVariable | str
-    ) -> float | NDArray[np.floating]:
+    ) -> float | NDArray[np.floating] | dict[str, float]:
         """Get the optimal value of a variable.
 
         For scalar Variable: returns float.
         For VectorVariable: returns 1D numpy array.
         For MatrixVariable: returns 2D numpy array.
+        For VariableDict: returns dict mapping keys to float values.
 
         Args:
-            var: Variable, VectorVariable, MatrixVariable, or variable name.
+            var: Variable, VectorVariable, MatrixVariable, VariableDict,
+                or variable name.
 
         Returns:
             The optimal value(s).
@@ -176,8 +179,11 @@ class Solution:
         # Import here to avoid circular imports
         from optyx.core.vectors import VectorVariable
         from optyx.core.matrices import MatrixVariable
+        from optyx.core.variable_dict import VariableDict
 
-        if isinstance(var, VectorVariable):
+        if isinstance(var, VariableDict):
+            return self._get_variable_dict(var)
+        elif isinstance(var, VectorVariable):
             return self._get_vector(var)
         elif isinstance(var, MatrixVariable):
             return self._get_matrix(var)
@@ -203,6 +209,20 @@ class Solution:
         for i, v in enumerate(vec._variables):
             result[i] = self.values[v.name]
         return result
+
+    def _get_variable_dict(self, vd: VariableDict) -> dict[str, float]:
+        """Extract VariableDict values as a dict mapping keys to floats.
+
+        Args:
+            vd: VariableDict to extract.
+
+        Returns:
+            Dict mapping each key to its optimal value.
+
+        Raises:
+            KeyError: If any variable not found in solution.
+        """
+        return {key: self.values[var.name] for key, var in vd.items()}
 
     def _get_matrix(self, mat: MatrixVariable) -> NDArray[np.floating]:
         """Extract MatrixVariable values as 2D numpy array.
