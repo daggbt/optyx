@@ -233,6 +233,8 @@ class Problem:
         self._lp_cache: LPData | None = None
         # Cached linearity check result (None = not computed, True/False = result)
         self._is_linear_cache: bool | None = None
+        # Warm start: last solution array (used as x0 on re-solve)
+        self._last_solution: NDArray[np.floating] | None = None
 
     def _invalidate_caches(self) -> None:
         """Invalidate all cached data when problem is modified."""
@@ -240,6 +242,21 @@ class Problem:
         self._solver_cache = None
         self._lp_cache = None
         self._is_linear_cache = None
+
+    def _invalidate_constraint_caches(self) -> None:
+        """Invalidate only constraint-related caches.
+
+        Preserves objective/gradient compiled callables in the solver cache
+        so they don't need to be recompiled when only constraints change.
+        """
+        self._variables = None
+        self._lp_cache = None
+        self._is_linear_cache = None
+        # Remove only constraint keys from solver cache, keeping obj_fn/grad_fn/hess_fn
+        if self._solver_cache is not None:
+            for key in ("scipy_constraints", "sparse_constraint_jac_fn",
+                        "constraint_fns", "constraint_senses"):
+                self._solver_cache.pop(key, None)
 
     def minimize(self, expr: Expression | float | int) -> Problem:
         """Set the objective function to minimize.
@@ -322,7 +339,52 @@ class Problem:
                 message=reason,
                 constraint_expr=str(constraint),
             )
-        self._invalidate_caches()
+        self._invalidate_constraint_caches()
+        return self
+
+    def remove_constraint(self, index_or_name: int | str) -> Problem:
+        """Remove a constraint by index or name.
+
+        Args:
+            index_or_name: If int, removes the constraint at that index.
+                If str, removes the first constraint with that name.
+
+        Returns:
+            Self for method chaining.
+
+        Raises:
+            IndexError: If integer index is out of range.
+            KeyError: If no constraint with the given name is found.
+
+        Example:
+            >>> prob.subject_to((x + y <= 10).name == "cap")
+            >>> prob.remove_constraint("cap")
+            >>> prob.remove_constraint(0)  # Remove first constraint
+        """
+        if isinstance(index_or_name, int):
+            idx = index_or_name
+            if idx < 0 or idx >= len(self._constraints):
+                raise IndexError(
+                    f"Constraint index {idx} out of range "
+                    f"(problem has {len(self._constraints)} constraints)"
+                )
+            self._constraints.pop(idx)
+        elif isinstance(index_or_name, str):
+            name = index_or_name
+            for i, c in enumerate(self._constraints):
+                if c.name == name:
+                    self._constraints.pop(i)
+                    break
+            else:
+                raise KeyError(
+                    f"No constraint named '{name}' found. "
+                    f"Named constraints: {[c.name for c in self._constraints if c.name]}"
+                )
+        else:
+            raise TypeError(
+                f"Expected int or str, got {type(index_or_name).__name__}"
+            )
+        self._invalidate_constraint_caches()
         return self
 
     def subject_to_matrix(
@@ -383,7 +445,7 @@ class Problem:
                 variables=list(x._variables),
             )
         )
-        self._invalidate_caches()
+        self._invalidate_constraint_caches()
         return self
 
     def __enter__(self) -> Problem:
@@ -400,13 +462,14 @@ class Problem:
         pass
 
     def reset(self) -> None:
-        """Reset the problem solver state (clears caches).
+        """Reset the problem solver state (clears caches and warm start).
 
         Forces a complete re-analysis and re-compilation of the problem
-        on the next solve() call. Useful for benchmarking or ensuring
-        clean state.
+        on the next solve() call. Also clears any stored warm start state,
+        forcing a cold start on the next solve.
         """
         self._invalidate_caches()
+        self._last_solution = None
 
     def _validate_expression(
         self, expr: Expression | float | int, context: str
@@ -670,6 +733,7 @@ class Problem:
         self,
         method: str = "auto",
         strict: bool = False,
+        warm_start: bool = True,
         **kwargs,
     ) -> Solution:
         """Solve the optimization problem.
@@ -694,6 +758,9 @@ class Problem:
                 that the solver cannot handle exactly (e.g., integer/binary
                 variables with SciPy). If False (default), emit a warning and
                 use the best available approximation.
+            warm_start: If True (default), use the previous solution as the
+                initial point for re-solving. Only applies to NLP methods.
+                Call reset() to clear warm start state.
             **kwargs: Additional arguments passed to the solver.
 
         Returns:
@@ -713,7 +780,9 @@ class Problem:
             if self._is_linear_problem():
                 from optyx.solvers.lp_solver import solve_lp
 
-                return solve_lp(self, strict=strict, **kwargs)
+                solution = solve_lp(self, strict=strict, **kwargs)
+                self._store_solution(solution)
+                return solution
             else:
                 # Check for MIQP/MINLP (nonlinear + integer vars)
                 has_integers = any(
@@ -731,24 +800,42 @@ class Problem:
         if method == "milp":
             from optyx.solvers.lp_solver import solve_lp
 
-            return solve_lp(self, strict=strict, **kwargs)
+            solution = solve_lp(self, strict=strict, **kwargs)
+            self._store_solution(solution)
+            return solution
 
         # Handle explicit linprog request
         if method == "linprog":
             from optyx.solvers.lp_solver import solve_lp
 
-            return solve_lp(self, strict=strict, **kwargs)
+            solution = solve_lp(self, strict=strict, **kwargs)
+            self._store_solution(solution)
+            return solution
 
         # Route HiGHS methods to LP solver
         if method in ("highs", "highs-ds", "highs-ipm"):
             from optyx.solvers.lp_solver import solve_lp
 
-            return solve_lp(self, method=method, strict=strict, **kwargs)
+            solution = solve_lp(self, method=method, strict=strict, **kwargs)
+            self._store_solution(solution)
+            return solution
 
         # Use scipy solver for NLP methods
         from optyx.solvers.scipy_solver import solve_scipy
 
-        return solve_scipy(self, method=method, strict=strict, **kwargs)
+        solution = solve_scipy(
+            self, method=method, strict=strict,
+            warm_start=warm_start, **kwargs,
+        )
+        self._store_solution(solution)
+        return solution
+
+    def _store_solution(self, solution: Solution) -> None:
+        """Store solution values for warm starting subsequent solves."""
+        if solution.values:
+            variables = self.variables
+            x = np.array([solution.values.get(v.name, 0.0) for v in variables])
+            self._last_solution = x
 
     def __repr__(self) -> str:
         obj_str = "not set" if self._objective is None else f"{self._sense}"
