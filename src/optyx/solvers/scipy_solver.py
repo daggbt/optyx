@@ -19,6 +19,15 @@ if TYPE_CHECKING:
     from optyx.solution import Solution
 
 
+class _EarlyTermination(Exception):
+    """Raised inside SciPy callback to terminate optimization early."""
+
+    def __init__(self, x: np.ndarray, iteration: int, message: str) -> None:
+        self.x = x
+        self.iteration = iteration
+        self.message = message
+
+
 def solve_scipy(
     problem: Problem,
     method: str = "SLSQP",
@@ -28,6 +37,8 @@ def solve_scipy(
     use_hessian: bool = True,
     strict: bool = False,
     warm_start: bool = True,
+    callback: Callable | None = None,
+    time_limit: float | None = None,
     **kwargs: Any,
 ) -> Solution:
     """Solve an optimization problem using SciPy.
@@ -50,6 +61,10 @@ def solve_scipy(
             emit a warning and relax to continuous.
         warm_start: If True (default), use the previous solution stored on the
             Problem as the initial point when x0 is not explicitly provided.
+        callback: Optional function receiving a SolverProgress object each
+            iteration.  Return True to terminate early.
+        time_limit: Maximum wall-clock seconds for the solve.  Terminates
+            early with SolverStatus.TERMINATED when exceeded.
         **kwargs: Additional arguments passed to scipy.optimize.minimize.
 
     Returns:
@@ -192,6 +207,17 @@ def solve_scipy(
     # Determine if gradient should be passed (not for derivative-free methods)
     use_gradient = method not in DERIVATIVE_FREE_METHODS
 
+    # Build composite callback for user callback and/or time_limit
+    scipy_callback = _build_scipy_callback(
+        callback=callback,
+        time_limit=time_limit,
+        start_time=start_time,
+        obj_fn=obj_fn,
+        scipy_constraints=scipy_constraints,
+        sense=problem.sense,
+        method=method,
+    )
+
     try:
         # Temporarily override warning handling during solve
         warnings.showwarning = warning_handler
@@ -206,7 +232,22 @@ def solve_scipy(
             constraints=scipy_constraints if scipy_constraints else (),
             tol=tol,
             options=options if options else None,
+            callback=scipy_callback,
             **kwargs,
+        )
+    except _EarlyTermination as et:
+        warnings.showwarning = old_showwarning
+        solve_time = time.perf_counter() - start_time
+        obj_value = float(obj_fn(et.x))
+        if problem.sense == "maximize":
+            obj_value = -obj_value
+        return Solution(
+            status=SolverStatus.TERMINATED,
+            objective_value=obj_value,
+            values={v.name: float(et.x[i]) for i, v in enumerate(variables)},
+            iterations=et.iteration,
+            message=et.message,
+            solve_time=solve_time,
         )
     except Exception as e:
         warnings.showwarning = old_showwarning
@@ -261,6 +302,8 @@ def solve_scipy(
             maxiter=maxiter,
             use_hessian=use_hessian,
             strict=strict,
+            callback=callback,
+            time_limit=time_limit,
             **kwargs,
         )
 
@@ -510,3 +553,95 @@ def _rebuild_constraint_cache(
         cache.pop("sparse_constraint_jac_fn", None)
         cache.pop("constraint_fns", None)
         cache.pop("constraint_senses", None)
+
+
+def _compute_constraint_violation(
+    x: np.ndarray,
+    scipy_constraints: list[dict[str, Any]],
+) -> float:
+    """Compute maximum constraint violation for current iterate."""
+    max_violation = 0.0
+    for c in scipy_constraints:
+        val = c["fun"](x)
+        if c["type"] == "ineq":
+            # ineq means val >= 0; violation is max(0, -val)
+            violation = max(0.0, -val)
+        else:
+            # eq means val == 0; violation is |val|
+            violation = abs(val)
+        max_violation = max(max_violation, violation)
+    return max_violation
+
+
+def _build_scipy_callback(
+    *,
+    callback: Callable | None,
+    time_limit: float | None,
+    start_time: float,
+    obj_fn: Callable,
+    scipy_constraints: list[dict[str, Any]],
+    sense: str,
+    method: str,
+) -> Callable | None:
+    """Build a SciPy-compatible callback combining user callback and time limit.
+
+    Returns None if neither callback nor time_limit is provided.
+    """
+    if callback is None and time_limit is None:
+        return None
+
+    from optyx.solution import SolverProgress
+
+    # Mutable iteration counter
+    state = {"iteration": 0}
+
+    def _unified_callback(xk, *args):
+        """Callback invoked by SciPy at each iteration.
+
+        For trust-constr, args[0] is an OptimizeResult with state info.
+        For other methods, only xk (current x) is provided.
+        """
+        state["iteration"] += 1
+        elapsed = time.perf_counter() - start_time
+
+        # Get current x — trust-constr passes OptimizeResult as first arg
+        if hasattr(xk, "x"):
+            # trust-constr passes OptimizeResult object
+            x = np.asarray(xk.x)
+        else:
+            x = np.asarray(xk)
+
+        # Compute objective value (undo negation for maximize)
+        obj_val = float(obj_fn(x))
+        if sense == "maximize":
+            obj_val = -obj_val
+
+        # Compute constraint violation
+        cv = _compute_constraint_violation(x, scipy_constraints)
+
+        # Check time limit first
+        if time_limit is not None and elapsed >= time_limit:
+            raise _EarlyTermination(
+                x=x,
+                iteration=state["iteration"],
+                message=f"Time limit ({time_limit:.1f}s) exceeded",
+            )
+
+        # Invoke user callback
+        if callback is not None:
+            progress = SolverProgress(
+                iteration=state["iteration"],
+                objective_value=obj_val,
+                constraint_violation=cv,
+                elapsed_time=elapsed,
+                x=x.copy(),
+            )
+            stop = callback(progress)
+            if stop is True:
+                raise _EarlyTermination(
+                    x=x,
+                    iteration=state["iteration"],
+                    message="Terminated by user callback",
+                )
+
+    return _unified_callback

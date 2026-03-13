@@ -129,6 +129,8 @@ website:
             href: examples/road-maintenance.qmd
           - text: "Modify and Re-solve"
             href: examples/modify-and-resolve.qmd
+          - text: "Solver Callbacks"
+            href: examples/solver-callbacks.qmd
           - text: "Rosenbrock Function"
             href: examples/rosenbrock.qmd
           - text: "---"

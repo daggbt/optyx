@@ -45,7 +45,7 @@ from optyx.core.functions import (
 )
 from optyx.constraints import Constraint
 from optyx.problem import Problem
-from optyx.solution import Solution, SolverStatus
+from optyx.solution import Solution, SolverStatus, SolverProgress
 
 __version__ = version("optyx")
 
@@ -113,6 +113,7 @@ __all__ = [
     "Problem",
     "Solution",
     "SolverStatus",
+    "SolverProgress",
     # Utilities
     "increased_recursion_limit",
 ]

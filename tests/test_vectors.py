@@ -22,6 +22,7 @@ from optyx.core.vectors import (
     norm,
 )
 from optyx.core.expressions import Variable
+from optyx.problem import Problem
 
 
 class TestVectorVariableCreation:
@@ -822,6 +823,72 @@ class TestLinearCombination:
         lc = LinearCombination(coeffs, x)
         assert "LinearCombination" in repr(lc)
         assert "3 coeffs" in repr(lc)
+
+
+class TestVectorSlicing:
+    """Tests for VectorVariable slicing and vectorized expressions."""
+
+    def test_slice_returns_vector_variable(self):
+        x = VectorVariable("x", 5)
+        s = x[1:4]
+        assert isinstance(s, VectorVariable)
+        assert s.size == 3
+
+    def test_slice_negative_index(self):
+        x = VectorVariable("x", 5)
+        head = x[:-1]
+        tail = x[1:]
+        assert head.size == 4
+        assert tail.size == 4
+
+    def test_slice_arithmetic(self):
+        x = VectorVariable("x", 4)
+        head = x[:-1]
+        tail = x[1:]
+        diff = tail - head
+        vals = diff.evaluate(
+            {"x[0]": 1.0, "x[1]": 3.0, "x[2]": 6.0, "x[3]": 10.0}
+        )
+        np.testing.assert_array_almost_equal(vals, [2.0, 3.0, 4.0])
+
+    def test_vectorized_rosenbrock_solves(self):
+        """Vectorized Rosenbrock via slicing should converge to global min."""
+        n = 5
+        v = VectorVariable("v", n, lb=-5, ub=5)
+        prob = Problem("rosenbrock_vec")
+        v_head = v[:-1]
+        v_tail = v[1:]
+        obj = ((1 - v_head) ** 2 + 100 * (v_tail - v_head ** 2) ** 2).sum()
+        prob.minimize(obj)
+        sol = prob.solve(method="SLSQP")
+        assert sol.status.value == "optimal"
+        assert sol.objective_value < 1e-6
+        # All variables should be near 1.0
+        for var in v:
+            assert abs(sol.values[var.name] - 1.0) < 0.01
+
+    def test_vectorized_matches_loop(self):
+        """Vectorized and loop-based Rosenbrock should give same result."""
+        n = 4
+        v = VectorVariable("v", n, lb=-5, ub=5)
+
+        # Loop
+        p1 = Problem()
+        obj1 = sum(
+            (1 - v[i]) ** 2 + 100 * (v[i + 1] - v[i] ** 2) ** 2
+            for i in range(n - 1)
+        )
+        p1.minimize(obj1)
+        s1 = p1.solve(method="SLSQP")
+
+        # Vectorized
+        p2 = Problem()
+        head, tail = v[:-1], v[1:]
+        obj2 = ((1 - head) ** 2 + 100 * (tail - head ** 2) ** 2).sum()
+        p2.minimize(obj2)
+        s2 = p2.solve(method="SLSQP")
+
+        assert abs(s1.objective_value - s2.objective_value) < 1e-6
 
 
 class TestNumpyIntegration:

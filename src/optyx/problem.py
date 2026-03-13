@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, Iterable
+from typing import TYPE_CHECKING, Any, Callable, Literal, Iterable
 from types import TracebackType
 
 import numpy as np
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from optyx.constraints import Constraint
     from optyx.core.expressions import Expression, Variable
     from optyx.core.vectors import VectorVariable
-    from optyx.solution import Solution
+    from optyx.solution import Solution, SolverProgress
 
 
 @dataclass
@@ -734,6 +734,8 @@ class Problem:
         method: str = "auto",
         strict: bool = False,
         warm_start: bool = True,
+        callback: Callable[[SolverProgress], bool | None] | None = None,
+        time_limit: float | None = None,
         **kwargs,
     ) -> Solution:
         """Solve the optimization problem.
@@ -761,6 +763,13 @@ class Problem:
             warm_start: If True (default), use the previous solution as the
                 initial point for re-solving. Only applies to NLP methods.
                 Call reset() to clear warm start state.
+            callback: Optional function called at each solver iteration with a
+                SolverProgress object. Return True to terminate early
+                (solution will have SolverStatus.TERMINATED). Only applies
+                to NLP methods (SciPy).
+            time_limit: Maximum wall-clock time in seconds. If exceeded, the
+                solver terminates early with SolverStatus.TERMINATED. Only
+                applies to NLP methods (SciPy).
             **kwargs: Additional arguments passed to the solver.
 
         Returns:
@@ -825,7 +834,8 @@ class Problem:
 
         solution = solve_scipy(
             self, method=method, strict=strict,
-            warm_start=warm_start, **kwargs,
+            warm_start=warm_start, callback=callback,
+            time_limit=time_limit, **kwargs,
         )
         self._store_solution(solution)
         return solution
