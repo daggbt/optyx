@@ -22,18 +22,18 @@ buy = VariableDict("buy", keys=foods, lb=0)
 print(buy["Apple"])   # Equivalent to Variable("buy[Apple]", lb=0)
 ```
 
-You can also pass dictionary objects as bounds to impose key-specific constraints without rewriting your loop:
+You can also pass a dictionary of bounds to set per-key limits. When using a dict, you must provide an entry for every key:
 
 ```{python}
-# We MUST buy at least 2 apples, and maximum 5 donuts
-lower_bounds = {"Apple": 2}
-upper_bounds = {"Donut": 5}
+# Per-key bounds: every key must be listed
+lower_bounds = {"Apple": 2, "Banana": 0, "Carrot": 0, "Donut": 0}
+upper_bounds = {"Apple": 10, "Banana": 10, "Carrot": 10, "Donut": 5}
 
 buy2 = VariableDict(
     "buy", 
     keys=foods, 
-    lb=lower_bounds, # Optyx automatically falls back to 0 or -inf for unlisted keys
-    ub=upper_bounds
+    lb=lower_bounds,
+    ub=upper_bounds,
 )
 ```
 
@@ -72,13 +72,13 @@ prob.subject_to(buy.sum(sugary_items) <= 1)
 
 ## Extracting Solutions
 
-When you solve the problem, you don't need to manually string concatenate to pull your results back out. You can extract the whole dictionary back using the Solution mapping, or the `.to_dict(sol)` method:
+When you solve the problem, you can extract solution values by iterating over the `VariableDict` keys:
 
 ```{python}
 sol = prob.solve()
 
-# Getting values as a standard python dict: {"Apple": 2.5, "Banana": ...}
-results = buy.to_dict(sol)
+# Extract values using standard key iteration
+results = {key: sol[f"buy[{key}]"] for key in buy.keys()}
 
 print("Optimal Diet:")
 for food, quantity in results.items():

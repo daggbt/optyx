@@ -118,6 +118,7 @@ for i in range(3):
 ## Solution Metadata
 
 When running an MILP, Optyx populates additional metadata fields on the `Solution` object (originating from the underlying HiGHS solver):
+
 - `sol.mip_gap`: The relative mip gap at termination. A gap of `0.0` signifies proven optimality.
 - `sol.best_bound`: The best discovered dual bound.
 
