@@ -856,6 +856,50 @@ class Problem:
             f"n_constraints={self.n_constraints})"
         )
 
+    def write(self, filename: str) -> None:
+        """Export the problem to LP file format.
+
+        Writes the problem formulation to a human-readable .lp file,
+        compatible with solvers like CPLEX, Gurobi, GLPK, and HiGHS.
+
+        Supports linear and quadratic objectives, linear constraints,
+        variable bounds, and integer/binary variable types.
+
+        Args:
+            filename: Path to the output .lp file.
+
+        Raises:
+            InvalidOperationError: If the problem contains nonlinear
+                expressions that cannot be represented in LP format.
+            NoObjectiveError: If no objective has been set.
+
+        Example:
+            >>> x = Variable("x", lb=0)
+            >>> y = Variable("y", lb=0)
+            >>> prob = Problem("example")
+            >>> prob.minimize(2 * x + 3 * y)
+            >>> prob.subject_to(x + y >= 1)
+            >>> prob.write("example.lp")
+        """
+        from optyx.io import write_lp
+
+        write_lp(self, filename)
+
+    def to_lp(self) -> str:
+        """Return the LP format string representation of the problem.
+
+        Like write(), but returns the string instead of writing to a file.
+
+        Returns:
+            The LP format string.
+
+        Raises:
+            InvalidOperationError: If the problem contains nonlinear expressions.
+        """
+        from optyx.io import format_lp
+
+        return format_lp(self)
+
     def summary(self) -> str:
         """Return a human-readable summary of the optimization problem.
 

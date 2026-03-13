@@ -131,6 +131,8 @@ website:
             href: examples/modify-and-resolve.qmd
           - text: "Solver Callbacks"
             href: examples/solver-callbacks.qmd
+          - text: "LP Export"
+            href: examples/lp-export.qmd
           - text: "Rosenbrock Function"
             href: examples/rosenbrock.qmd
           - text: "---"

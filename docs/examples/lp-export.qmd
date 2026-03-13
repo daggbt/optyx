@@ -1,0 +1,91 @@
+---
+title: "LP Format Export"
+description: "Export optimization models to the standard LP file format"
+---
+
+Export models to `.lp` files for use with external solvers like CPLEX, Gurobi,
+GLPK, and HiGHS.
+
+## Linear Program
+
+```{python}
+from optyx import Problem, Variable
+
+x = Variable("x", lb=0)
+y = Variable("y", lb=0)
+
+prob = Problem("simple_lp")
+prob.minimize(2 * x + 3 * y)
+prob.subject_to(x + y >= 1)
+prob.subject_to(x - y <= 5)
+
+print(prob.to_lp())
+```
+
+Use `prob.write("model.lp")` to save directly to a file.
+
+## Quadratic Program
+
+Quadratic objectives use the standard `[ ... ] / 2` notation.
+
+```{python}
+from optyx import VectorVariable, quadratic_form
+import numpy as np
+
+w = VectorVariable("w", 3, lb=0, ub=1)
+Q = np.array([[2, 1, 0], [1, 3, 1], [0, 1, 2]], dtype=float)
+c = np.array([1.0, 2.0, 3.0])
+
+prob = Problem("portfolio")
+prob.minimize(quadratic_form(w, Q) + c @ w)
+prob.subject_to(w.sum().eq(1))
+
+print(prob.to_lp())
+```
+
+## Mixed-Integer Program
+
+Integer and binary variables are listed in `Generals` and `Binaries` sections.
+
+```{python}
+from optyx import BinaryVariable, IntegerVariable
+
+x = IntegerVariable("x", lb=0, ub=10)
+y = BinaryVariable("y")
+z = Variable("z", lb=0)
+
+prob = Problem("mip")
+prob.maximize(3 * x + 5 * y + z)
+prob.subject_to(x + 2 * y + z <= 15)
+prob.subject_to(x + y >= 2)
+
+print(prob.to_lp())
+```
+
+## Supported Features
+
+| Feature | Support |
+|---------|---------|
+| Linear objectives | ✓ |
+| Quadratic objectives | ✓ |
+| `<=`, `>=`, `==` constraints | ✓ |
+| Variable bounds | ✓ |
+| Free variables | ✓ |
+| Integer variables (Generals) | ✓ |
+| Binary variables (Binaries) | ✓ |
+| Matrix constraints | ✓ |
+| Sparse matrix constraints | ✓ |
+| Nonlinear objectives | ✗ (raises error) |
+
+## `SolverProgress` Fields
+
+The `Problem.to_lp()` method returns the LP string, while `Problem.write(path)`
+writes it to a file.
+
+```python
+# String representation
+lp_string = prob.to_lp()
+
+# Write to file
+prob.write("model.lp")
+```
