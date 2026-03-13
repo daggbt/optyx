@@ -316,7 +316,12 @@ def _build_vector_evaluator(
     var_indices: dict[str, int],
 ) -> Callable[[NDArray[np.floating]], NDArray[np.floating]]:
     """Build an evaluator for a vector (returns array of values)."""
-    from optyx.core.vectors import VectorBinaryOp, VectorExpression, VectorVariable
+    from optyx.core.vectors import (
+        ElementwisePower,
+        VectorBinaryOp,
+        VectorExpression,
+        VectorVariable,
+    )
 
     if isinstance(vec, VectorVariable):
         indices = np.array([var_indices[v.name] for v in vec._variables])
@@ -327,6 +332,10 @@ def _build_vector_evaluator(
         right_fn = _build_vector_evaluator(vec.right, var_indices)
         np_op = vec._NUMPY_OPS[vec.op]
         return lambda x, lf=left_fn, rf=right_fn, op=np_op: op(lf(x), rf(x))
+    elif isinstance(vec, ElementwisePower):
+        base_fn = _build_vector_evaluator(vec.vector, var_indices)
+        p = vec.power
+        return lambda x, bf=base_fn, pw=p: bf(x) ** pw
     elif isinstance(vec, VectorExpression):
         elem_fns = [_build_evaluator(e, var_indices) for e in vec._expressions]
         n_elems = len(elem_fns)

@@ -38,6 +38,25 @@ class SolverStatus(Enum):
 
 
 @dataclass
+class SolverProgress:
+    """Snapshot of solver state passed to user callbacks during optimization.
+
+    Attributes:
+        iteration: Current iteration number.
+        objective_value: Current objective function value (in original sense).
+        constraint_violation: Maximum constraint violation (0.0 if feasible).
+        elapsed_time: Wall-clock time since solve started (seconds).
+        x: Current variable values as a numpy array.
+    """
+
+    iteration: int
+    objective_value: float
+    constraint_violation: float
+    elapsed_time: float
+    x: NDArray[np.floating]
+
+
+@dataclass
 class Solution:
     """Result of solving an optimization problem.
 

@@ -1172,6 +1172,8 @@ def _iter_vector_exprs(
     """Extract a list of scalar expressions from a vector operand."""
     if isinstance(vec, VectorVariable):
         return list(vec._variables)
+    if isinstance(vec, ElementwisePower):
+        return list(vec)  # __iter__ yields BinaryOp(var, Constant(power), "**")
     if isinstance(vec, VectorExpression):
         return list(
             vec._expressions
@@ -1188,6 +1190,9 @@ def _eval_vector(
     """Evaluate a vector operand to a numpy array."""
     if isinstance(vec, VectorVariable):
         return np.array([v.evaluate(values) for v in vec._variables])
+    if isinstance(vec, ElementwisePower):
+        base_vals = _eval_vector(vec.vector, values)
+        return base_vals ** vec.power
     if isinstance(vec, VectorBinaryOp):
         # Recursive numpy evaluation — no materialization
         left_vals = _eval_vector(vec.left, values)

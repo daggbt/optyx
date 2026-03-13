@@ -1291,6 +1291,8 @@ def _register_vector_gradient_rules() -> None:
         def _var_in_vector(v: Variable, vec: object) -> bool:
             if isinstance(vec, VectorVariable):
                 return any(var.name == v.name for var in vec._variables)
+            if hasattr(vec, "get_variables"):
+                return v in vec.get_variables()
             return False
 
         in_left = _var_in_vector(wrt, left)
@@ -1298,6 +1300,14 @@ def _register_vector_gradient_rules() -> None:
 
         if not in_left and not in_right:
             return Constant(0.0)
+
+        # Fast O(1) rules only apply when operands are simple
+        # (VectorVariable or scalar). For nested vector expressions,
+        # fall back to per-element differentiation.
+        left_simple = isinstance(left, (VectorVariable, int, float))
+        right_simple = isinstance(right, (VectorVariable, int, float))
+        if not (left_simple and right_simple):
+            return None  # type: ignore[return-value]
 
         if op == "+":
             val = (1.0 if in_left else 0.0) + (1.0 if in_right else 0.0)
