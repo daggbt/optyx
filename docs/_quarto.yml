@@ -127,6 +127,8 @@ website:
             href: examples/mine-equipment-milp.qmd
           - text: "Road Maintenance"
             href: examples/road-maintenance.qmd
+          - text: "Modify and Re-solve"
+            href: examples/modify-and-resolve.qmd
           - text: "Rosenbrock Function"
             href: examples/rosenbrock.qmd
           - text: "---"

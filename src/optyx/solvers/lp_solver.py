@@ -160,8 +160,11 @@ def solve_lp(
         linprog_kwargs["A_eq"] = lp_data.A_eq
         linprog_kwargs["b_eq"] = lp_data.b_eq
 
-    if lp_data.bounds:
-        linprog_kwargs["bounds"] = lp_data.bounds
+    # Always re-extract bounds from live variable properties to ensure
+    # updates to v.lb/v.ub are respected even when LP data is cached.
+    fresh_bounds = [(v.lb, v.ub) for v in variables]
+    if fresh_bounds:
+        linprog_kwargs["bounds"] = fresh_bounds
 
     # Merge user kwargs (allow overriding)
     linprog_kwargs.update(kwargs)

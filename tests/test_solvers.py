@@ -443,7 +443,7 @@ class TestSolverCaching:
         assert abs(sol1["y"] - sol2["y"]) < 1e-10
 
     def test_cache_invalidated_on_constraint_add(self):
-        """Adding a constraint should invalidate the cache."""
+        """Adding a constraint should selectively invalidate constraint cache."""
         x = Variable("x", lb=0)
         y = Variable("y", lb=0)
 
@@ -456,8 +456,11 @@ class TestSolverCaching:
         # Add a constraint
         prob.subject_to(x + y >= 1)
 
-        # Cache should be invalidated
-        assert prob._solver_cache is None
+        # Objective cache should be preserved (selective invalidation)
+        assert prob._solver_cache is not None
+        assert "obj_fn" in prob._solver_cache
+        # Constraint cache should be cleared
+        assert "scipy_constraints" not in prob._solver_cache
 
     def test_cache_invalidated_on_objective_change(self):
         """Changing objective should invalidate the cache."""

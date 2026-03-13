@@ -1,0 +1,206 @@
+---
+title: "Modify and Re-solve"
+description: "Adapting an optimization model to changing conditions without rebuilding"
+date: last-modified
+---
+
+## Overview
+
+Real-world optimization rarely involves a single solve. Conditions change — new regulations appear, equipment breaks down, capacity shifts — and the model must adapt. Optyx lets you **modify a problem in place** and re-solve without rebuilding from scratch.
+
+This example demonstrates:
+
+- **Adding and removing constraints** between solves
+- **Updating variable bounds** (tightening, relaxing, fixing)
+- **Warm starting** nonlinear solves from the previous solution
+- **Resetting** the solver state for a clean start
+
+---
+
+## Part 1: Linear Production Planning
+
+A factory produces two products with limited machine hours and raw materials. We solve the base plan, then adjust it as conditions change.
+
+### Setup
+
+```{python}
+from optyx import Variable, Problem
+from optyx.constraints import Constraint
+
+a = Variable("a", lb=0, ub=100)  # Units of product A
+b = Variable("b", lb=0, ub=100)  # Units of product B
+
+prob = Problem(name="factory_production")
+prob.maximize(5 * a + 8 * b)  # $5/unit A, $8/unit B
+
+# We use Constraint() with a name so we can remove them by name later.
+# For constraints you never need to remove, simple subject_to(expr) works fine.
+mh = Constraint(expr=(a + 2 * b - 120), sense="<=", name="machine_hours")
+prob.subject_to(mh)
+
+rm = Constraint(expr=(3 * a + 2 * b - 150), sense="<=", name="raw_material")
+prob.subject_to(rm)
+
+print(prob.summary())
+```
+
+### Base Case
+
+```{python}
+sol = prob.solve()
+print(f"Profit: ${sol.objective_value:.2f}")
+print(f"Product A: {sol.values['a']:.1f} units")
+print(f"Product B: {sol.values['b']:.1f} units")
+```
+
+### Add a Regulation
+
+A new regulation caps product B at 40 units. We add a **named** constraint so we can remove it later by name.
+
+```{python}
+reg = Constraint(expr=(b - 40), sense="<=", name="regulation_b")
+prob.subject_to(reg)
+
+sol = prob.solve()
+print(f"Profit: ${sol.objective_value:.2f}")
+print(f"Product A: {sol.values['a']:.1f} units")
+print(f"Product B: {sol.values['b']:.1f} units")
+```
+
+Profit drops because the high-margin product B is now capped.
+
+### Lift the Regulation
+
+The regulation is removed. We call `remove_constraint()` by name and re-solve.
+
+```{python}
+prob.remove_constraint("regulation_b")
+
+sol = prob.solve()
+print(f"Profit: ${sol.objective_value:.2f}")
+print(f"Product A: {sol.values['a']:.1f} units")
+print(f"Product B: {sol.values['b']:.1f} units")
+```
+
+Profit returns to the original optimum.
+
+### Increase Capacity
+
+The factory adds a second shift, increasing machine hours from 120 to 200. We remove the old constraint by name and add the updated one.
+
+```{python}
+prob.remove_constraint("machine_hours")  # Remove by name
+mh2 = Constraint(expr=(a + 2 * b - 200), sense="<=", name="machine_hours")
+prob.subject_to(mh2)
+
+sol = prob.solve()
+print(f"Profit: ${sol.objective_value:.2f}")
+print(f"Product A: {sol.values['a']:.1f} units")
+print(f"Product B: {sol.values['b']:.1f} units")
+```
+
+### Fix and Unfix Variables
+
+Product A's line goes down for maintenance. We fix `a = 0` by setting its bounds, then restore it.
+
+```{python}
+# Maintenance: shut down line A
+a.lb = 0
+a.ub = 0
+sol = prob.solve()
+print(f"During maintenance — Profit: ${sol.objective_value:.2f}")
+print(f"Product A: {sol.values['a']:.1f}, Product B: {sol.values['b']:.1f}")
+
+# Maintenance complete: restore line A
+a.lb = 0
+a.ub = 100
+sol = prob.solve()
+print(f"After maintenance  — Profit: ${sol.objective_value:.2f}")
+print(f"Product A: {sol.values['a']:.1f}, Product B: {sol.values['b']:.1f}")
+```
+
+::: {.callout-tip}
+## Bounds Are Always Fresh
+Variable bounds are re-read on every solve. Changing `v.lb` or `v.ub` between solves is always safe — no need to invalidate caches manually.
+:::
+
+---
+
+## Part 2: Warm Starting (Nonlinear)
+
+For nonlinear problems, Optyx automatically stores the previous solution and uses it as the starting point for the next solve. This can dramatically reduce iterations when the problem changes only slightly.
+
+### Setup
+
+```{python}
+x = Variable("x", lb=0, ub=10)
+y = Variable("y", lb=0, ub=10)
+
+nlp = Problem(name="warm_start_demo")
+nlp.minimize((x - 3) ** 2 + (y - 4) ** 2)
+nlp.subject_to(x + y >= 5)
+```
+
+### Initial Solve
+
+```{python}
+sol1 = nlp.solve(method="SLSQP")
+print(f"x = {sol1.values['x']:.4f}, y = {sol1.values['y']:.4f}")
+print(f"Objective: {sol1.objective_value:.6f}")
+print(f"Iterations: {sol1.iterations}")
+```
+
+### Re-solve with Warm Start
+
+Solving the same problem again starts from the previous solution, converging immediately.
+
+```{python}
+sol2 = nlp.solve(method="SLSQP")
+print(f"x = {sol2.values['x']:.4f}, y = {sol2.values['y']:.4f}")
+print(f"Iterations: {sol2.iterations}")
+```
+
+### Modify and Re-solve
+
+Add a tighter constraint. The warm start provides a nearby initial point.
+
+```{python}
+nlp.subject_to(x >= 4)
+sol3 = nlp.solve(method="SLSQP")
+print(f"x = {sol3.values['x']:.4f}, y = {sol3.values['y']:.4f}")
+print(f"Objective: {sol3.objective_value:.6f}")
+```
+
+Remove it and recover the original solution.
+
+```{python}
+nlp.remove_constraint(1)  # Remove x >= 4 (index 1)
+sol4 = nlp.solve(method="SLSQP")
+print(f"x = {sol4.values['x']:.4f}, y = {sol4.values['y']:.4f}")
+print(f"Objective: {sol4.objective_value:.6f}")
+```
+
+### Reset for a Cold Start
+
+Call `reset()` to clear the warm start state and all caches, forcing a fresh start.
+
+```{python}
+nlp.reset()
+sol5 = nlp.solve(method="SLSQP")
+print(f"x = {sol5.values['x']:.4f}, y = {sol5.values['y']:.4f}")
+print(f"Iterations: {sol5.iterations}")
+```
+
+---
+
+## Key Methods
+
+| Method | Description |
+|--------|-------------|
+| `prob.subject_to(c)` | Add a constraint |
+| `prob.remove_constraint(i)` | Remove constraint by index |
+| `prob.remove_constraint("name")` | Remove constraint by name |
+| `prob.solve(warm_start=True)` | Re-solve using previous solution (default) |
+| `prob.solve(warm_start=False)` | Re-solve with a fresh initial point |
+| `prob.reset()` | Clear caches and warm start state |
+| `v.lb = ...` / `v.ub = ...` | Update bounds (always respected) |

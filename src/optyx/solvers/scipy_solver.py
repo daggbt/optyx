@@ -27,6 +27,7 @@ def solve_scipy(
     maxiter: int | None = None,
     use_hessian: bool = True,
     strict: bool = False,
+    warm_start: bool = True,
     **kwargs: Any,
 ) -> Solution:
     """Solve an optimization problem using SciPy.
@@ -37,7 +38,8 @@ def solve_scipy(
             - "SLSQP": Sequential Least Squares Programming (default)
             - "trust-constr": Trust-region constrained optimization
             - "L-BFGS-B": Limited-memory BFGS with bounds (no constraints)
-        x0: Initial point. If None, uses midpoint of bounds or zeros.
+        x0: Initial point. If None, uses warm start (previous solution) when
+            available, otherwise midpoint of bounds or zeros.
         tol: Solver tolerance.
         maxiter: Maximum number of iterations.
         use_hessian: Whether to compute and pass the symbolic Hessian to methods
@@ -46,6 +48,8 @@ def solve_scipy(
         strict: If True, raise ValueError when the problem contains integer/binary
             variables that cannot be enforced by the solver. If False (default),
             emit a warning and relax to continuous.
+        warm_start: If True (default), use the previous solution stored on the
+            Problem as the initial point when x0 is not explicitly provided.
         **kwargs: Additional arguments passed to scipy.optimize.minimize.
 
     Returns:
@@ -115,6 +119,9 @@ def solve_scipy(
     if cache is None:
         cache = _build_solver_cache(problem, variables)
         problem._solver_cache = cache
+    elif "scipy_constraints" not in cache:
+        # Selective invalidation: objective cache preserved, rebuild constraints only
+        _rebuild_constraint_cache(cache, problem, variables)
 
     # Extract cached callables
     obj_fn = cache["obj_fn"]
@@ -154,9 +161,12 @@ def solve_scipy(
 
         hess_fn = _hess_fn
 
-    # Initial point
+    # Initial point: explicit x0 > warm start > computed
     if x0 is None:
-        x0 = _compute_initial_point(variables)
+        if warm_start and problem._last_solution is not None and len(problem._last_solution) == n:
+            x0 = problem._last_solution.copy()
+        else:
+            x0 = _compute_initial_point(variables)
 
     # Solver options
     options: dict[str, Any] = {}
@@ -433,3 +443,70 @@ def _build_solver_cache(problem: Problem, variables: list) -> dict[str, Any]:
         cache["constraint_senses"] = constraint_senses
 
     return cache
+
+
+def _rebuild_constraint_cache(
+    cache: dict[str, Any], problem: Problem, variables: list
+) -> None:
+    """Rebuild only the constraint portion of the solver cache.
+
+    Called when constraints have been added/removed but the objective
+    hasn't changed, so obj_fn/grad_fn/hess_fn are still valid.
+    """
+    from optyx.core.autodiff import compile_jacobian, compile_sparse_jacobian
+    from optyx.core.compiler import compile_expression
+    from optyx.core.optimizer import flatten_expression
+
+    scipy_constraints: list[dict[str, Any]] = []
+    constraint_exprs = []
+    constraint_fns = []
+    constraint_senses = []
+
+    for c in problem.constraints:
+        c_expr = c.expr
+        if c_expr is None:
+            continue
+        c_expr = flatten_expression(c_expr)
+        c_fn = compile_expression(c_expr, variables)
+        c_jac_fn = compile_jacobian([c_expr], variables)
+
+        constraint_exprs.append(c_expr)
+        constraint_fns.append(c_fn)
+        constraint_senses.append(c.sense)
+
+        if c.sense == ">=":
+            scipy_constraints.append(
+                {
+                    "type": "ineq",
+                    "fun": lambda x, fn=c_fn: float(fn(x)),
+                    "jac": lambda x, jfn=c_jac_fn: jfn(x).flatten(),
+                }
+            )
+        elif c.sense == "<=":
+            scipy_constraints.append(
+                {
+                    "type": "ineq",
+                    "fun": lambda x, fn=c_fn: -float(fn(x)),
+                    "jac": lambda x, jfn=c_jac_fn: -jfn(x).flatten(),
+                }
+            )
+        else:  # ==
+            scipy_constraints.append(
+                {
+                    "type": "eq",
+                    "fun": lambda x, fn=c_fn: float(fn(x)),
+                    "jac": lambda x, jfn=c_jac_fn: jfn(x).flatten(),
+                }
+            )
+
+    cache["scipy_constraints"] = scipy_constraints
+
+    if constraint_exprs:
+        sparse_jac_fn = compile_sparse_jacobian(constraint_exprs, variables)
+        cache["sparse_constraint_jac_fn"] = sparse_jac_fn
+        cache["constraint_fns"] = constraint_fns
+        cache["constraint_senses"] = constraint_senses
+    else:
+        cache.pop("sparse_constraint_jac_fn", None)
+        cache.pop("constraint_fns", None)
+        cache.pop("constraint_senses", None)
