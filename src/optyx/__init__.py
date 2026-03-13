@@ -8,6 +8,7 @@ from optyx.core.expressions import (
     Constant,
 )
 from optyx.core.vectors import VectorVariable
+from optyx.core.variable_dict import VariableDict
 from optyx.core.matrices import (
     MatrixVariable,
     MatrixVectorProduct,
@@ -72,6 +73,7 @@ __all__ = [
     "BinaryVariable",
     "IntegerVariable",
     "VectorVariable",
+    "VariableDict",
     "MatrixVariable",
     # Parameters
     "Parameter",

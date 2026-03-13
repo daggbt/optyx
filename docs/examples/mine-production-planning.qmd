@@ -1,0 +1,329 @@
+---
+title: "Mine Production Planning"
+description: "Ore zone extraction optimization using VariableDict for named decision variables"
+date: last-modified
+execute:
+  warning: false
+---
+
+## Overview
+
+This example demonstrates **`VariableDict`** — a dict-indexed variable collection where decision variables are keyed by descriptive string names rather than integer indices. This is a natural fit for mining problems where ore zones, pits, and stockpiles have names.
+
+We'll solve a **mine production planning** problem: choosing how much ore to extract from each zone to maximize profit while meeting mill blend grade targets and throughput constraints.
+
+### What is VariableDict?
+
+`VariableDict` creates a set of decision variables indexed by string keys, much like a Python dictionary. It's ideal when your variables correspond to **named entities** — ore zones, equipment, products — rather than numeric indices.
+
+Key methods demonstrated:
+
+| Method | Purpose |
+|---|---|
+| `VariableDict(name, keys, lb, ub)` | Create with per-key bounds |
+| `vd['key']` | Access individual variable |
+| `vd.sum()` | Sum all variables |
+| `vd.sum(subset)` | Sum a subset of variables |
+| `vd.prod(coefficients)` | Weighted sum (grade blending, costs) |
+| `vd.keys()`, `values()`, `items()` | Dict-like iteration |
+| `len(vd)`, `'key' in vd` | Length and membership |
+| `solution[vd]` | Extract all results as a dict |
+
+---
+
+## Problem Data
+
+An open-pit mining operation has five ore zones, each with different copper grades, extraction costs, and tonnage limits.
+
+```{python}
+from optyx import VariableDict, Problem
+
+# Ore zones
+zones = ["North Pit", "South Pit", "East Bench", "West Cutback", "Stockpile"]
+
+# Ore grade (% copper) per zone
+grade = {
+    "North Pit": 0.85,
+    "South Pit": 0.62,
+    "East Bench": 1.20,
+    "West Cutback": 0.45,
+    "Stockpile": 0.55,
+}
+
+# Extraction cost ($/tonne) per zone
+cost = {
+    "North Pit": 12.50,
+    "South Pit": 9.80,
+    "East Bench": 18.00,
+    "West Cutback": 8.50,
+    "Stockpile": 5.00,
+}
+
+# Revenue per unit of contained metal
+cu_price = 85.0  # $/unit grade-tonne
+
+# Maximum extractable tonnage per zone (kt)
+max_tonnes = {
+    "North Pit": 500,
+    "South Pit": 800,
+    "East Bench": 300,
+    "West Cutback": 600,
+    "Stockpile": 200,
+}
+
+# Mill constraints
+mill_capacity = 1500     # kt total throughput
+min_feed_grade = 0.60    # minimum blend grade (% Cu)
+max_feed_grade = 1.00    # maximum blend grade (% Cu)
+
+# Zone groups
+high_grade_zones = ["North Pit", "East Bench"]
+low_grade_zones = ["South Pit", "West Cutback", "Stockpile"]
+
+print(f"{'Zone':<18} {'Grade (%Cu)':>12} {'Cost ($/t)':>12} {'Max (kt)':>10}")
+print("-" * 55)
+for z in zones:
+    print(f"{z:<18} {grade[z]:>12.2f} {cost[z]:>12.2f} {max_tonnes[z]:>10}")
+print(f"\nMill capacity: {mill_capacity} kt")
+print(f"Feed grade window: {min_feed_grade}% – {max_feed_grade}% Cu")
+```
+
+---
+
+## Creating a VariableDict
+
+Unlike `VectorVariable` (indexed by integers), `VariableDict` uses **string keys**. Each zone becomes a named decision variable with its own bounds.
+
+```{python}
+# Create extraction variables with per-key upper bounds
+extract = VariableDict("extract", zones, lb=0, ub=max_tonnes)
+
+print(f"VariableDict: {extract}")
+print(f"Keys:         {extract.keys()}")
+print(f"Count:        {len(extract)} variables")
+```
+
+### Accessing Individual Variables
+
+Use `vd['key']` to access a specific zone's variable — just like a dictionary:
+
+```{python}
+print(f"extract['North Pit']  → {extract['North Pit']}")
+print(f"extract['East Bench'] → {extract['East Bench']}")
+```
+
+### Membership Testing
+
+```{python}
+print(f"'East Bench' in extract  → {'East Bench' in extract}")
+print(f"'Underground' in extract → {'Underground' in extract}")
+```
+
+---
+
+## Building the Model
+
+### Objective: Maximize Profit
+
+The profit for each zone is:
+
+$$
+\text{net}_z = (\text{cu\_price} \times \text{grade}_z - \text{cost}_z) \times \text{extract}_z
+$$
+
+We use **`prod()`** to compute weighted sums — the grade-weighted revenue and cost-weighted total:
+
+```{python}
+prob = Problem(name="mine_plan")
+
+# Revenue coefficients: cu_price × grade per zone
+revenue_coeffs = {z: cu_price * grade[z] for z in zones}
+
+# prod() computes the weighted sum: Σ coefficient[z] × extract[z]
+revenue = extract.prod(revenue_coeffs)
+total_cost = extract.prod(cost)
+
+prob.maximize(revenue - total_cost)
+
+print("Net profit per tonne by zone:")
+for z in zones:
+    net = revenue_coeffs[z] - cost[z]
+    print(f"  {z:<18} ${net:.2f}/t")
+```
+
+### Constraint 1: Mill Throughput
+
+**`sum()`** returns the sum over all keys — total extraction must fit the mill:
+
+```{python}
+prob.subject_to(extract.sum() <= mill_capacity)
+print(f"Total extraction ≤ {mill_capacity} kt")
+```
+
+### Constraint 2–3: Blend Grade Window
+
+The mill feed must meet grade specifications. We use **`prod(grade)`** for the grade-weighted tonnage:
+
+$$
+\text{grade}_{\min} \cdot \sum_z x_z \leq \sum_z g_z \cdot x_z \leq \text{grade}_{\max} \cdot \sum_z x_z
+$$
+
+```{python}
+prob.subject_to(extract.prod(grade) >= min_feed_grade * extract.sum())
+prob.subject_to(extract.prod(grade) <= max_feed_grade * extract.sum())
+print(f"Blend grade: {min_feed_grade}% ≤ avg ≤ {max_feed_grade}%")
+```
+
+### Constraint 4–5: Zone Group Requirements
+
+**`sum(subset)`** sums only selected keys — useful for grouping zones:
+
+```{python}
+# High-grade zones must contribute at least 300 kt
+prob.subject_to(extract.sum(high_grade_zones) >= 300)
+
+# Low-grade zones capped at 60% of total feed
+prob.subject_to(extract.sum(low_grade_zones) <= 0.6 * extract.sum())
+
+print(f"High-grade zones ({', '.join(high_grade_zones)}): ≥ 300 kt")
+print(f"Low-grade zones ({', '.join(low_grade_zones)}): ≤ 60% of feed")
+```
+
+### Constraint 6: Minimum Extraction
+
+Use **`items()`** to iterate over `(key, variable)` pairs and add per-zone constraints:
+
+```{python}
+min_extract = 50  # kt minimum per zone
+
+for key, var in extract.items():
+    prob.subject_to(var >= min_extract)
+
+print(f"Minimum {min_extract} kt per zone (equipment utilization)")
+```
+
+---
+
+## Solving
+
+```{python}
+import time
+
+start = time.time()
+sol = prob.solve()
+solve_time = (time.time() - start) * 1000
+
+print(f"Status: {sol.status.name}")
+print(f"Solve time: {solve_time:.1f}ms")
+```
+
+---
+
+## Results
+
+### Extracting All Values at Once
+
+**`solution[vd]`** returns a dictionary mapping each key to its optimal value:
+
+```{python}
+# Extract all results as a dict
+result = sol[extract]
+print(f"Type: {type(result).__name__}")
+print(f"Keys: {list(result.keys())}")
+```
+
+### Production Plan Summary
+
+```{python}
+print(f"\n{'Zone':<18} {'Extract (kt)':>14} {'Grade':>8} {'Revenue ($k)':>14} {'Cost ($k)':>12}")
+print("-" * 70)
+
+total_tonnes = 0
+total_metal = 0
+total_revenue = 0
+total_cost_val = 0
+
+for zone in zones:
+    t = result[zone]
+    metal = t * grade[zone]
+    rev = t * revenue_coeffs[zone]
+    cst = t * cost[zone]
+    total_tonnes += t
+    total_metal += metal
+    total_revenue += rev
+    total_cost_val += cst
+    print(f"{zone:<18} {t:>14.1f} {grade[zone]:>7.2f}% {rev:>14.1f} {cst:>12.1f}")
+
+print("-" * 70)
+blend_grade = total_metal / total_tonnes if total_tonnes > 0 else 0
+profit = total_revenue - total_cost_val
+print(f"{'TOTAL':<18} {total_tonnes:>14.1f} {blend_grade:>7.2f}% {total_revenue:>14.1f} {total_cost_val:>12.1f}")
+print(f"\nProfit: ${profit:,.0f}k")
+```
+
+### Key Metrics
+
+```{python}
+print(f"Blend grade:      {blend_grade:.3f}% Cu (target: {min_feed_grade}–{max_feed_grade}%)")
+print(f"Mill utilization: {total_tonnes / mill_capacity * 100:.1f}%")
+
+hg_total = sum(result[z] for z in high_grade_zones)
+lg_total = sum(result[z] for z in low_grade_zones)
+print(f"High-grade zones: {hg_total:.0f} kt ({hg_total / total_tonnes * 100:.0f}%)")
+print(f"Low-grade zones:  {lg_total:.0f} kt ({lg_total / total_tonnes * 100:.0f}%)")
+```
+
+### Individual Variable Access from Solution
+
+You can also extract a single zone's result by indexing the `VariableDict` first:
+
+```{python}
+# Access individual variable from solution
+east_bench_tonnes = sol[extract["East Bench"]]
+print(f"East Bench extraction: {east_bench_tonnes:.1f} kt")
+```
+
+---
+
+## Inspecting the VariableDict
+
+`VariableDict` provides several introspection methods:
+
+```{python}
+# get_variables() — list of underlying Variable objects
+all_vars = extract.get_variables()
+print(f"get_variables(): {len(all_vars)} Variable objects")
+
+# values() — variables in key order (like dict.values())
+print(f"values():        {[v.name for v in extract.values()]}")
+
+# keys() — list of keys
+print(f"keys():          {extract.keys()}")
+```
+
+---
+
+## Comparison: VariableDict vs VectorVariable
+
+| Feature | `VectorVariable` | `VariableDict` |
+|---|---|---|
+| **Index type** | Integer (0, 1, 2, ...) | String keys |
+| **Creation** | `VectorVariable("x", n)` | `VariableDict("x", keys)` |
+| **Access** | `x[0]`, `x[3]` | `x["North Pit"]` |
+| **Per-element bounds** | Array/scalar | Dict/scalar |
+| **Sum** | `x.sum()` | `vd.sum()`, `vd.sum(subset)` |
+| **Weighted sum** | `coeff @ x` (dot product) | `vd.prod(coeff_dict)` |
+| **Best for** | Homogeneous arrays, matrix ops | Named entities, readable models |
+
+Use `VectorVariable` when you have **large, uniform arrays** (1000+ variables). Use `VariableDict` when your variables represent **named entities** and readability matters.
+
+---
+
+## Summary
+
+`VariableDict` makes optimization models more readable by using descriptive string keys:
+
+- **`prod(coefficients)`** handles weighted sums for grade blending and cost calculations
+- **`sum(subset)`** enables constraints on zone groups without manual bookkeeping
+- **`items()`** provides natural iteration for per-entity constraints
+- **`solution[vd]`** extracts all results as a ready-to-use dictionary
