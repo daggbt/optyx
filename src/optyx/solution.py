@@ -63,6 +63,8 @@ class Solution:
     iterations: int | None = None
     message: str = ""
     solve_time: float | None = None
+    mip_gap: float | None = None
+    best_bound: float | None = None
 
     @property
     def is_optimal(self) -> bool:
@@ -88,6 +90,8 @@ class Solution:
             "iterations": self.iterations,
             "message": self.message,
             "solve_time": self.solve_time,
+            "mip_gap": self.mip_gap,
+            "best_bound": self.best_bound,
         }
 
     def to_json(self, path: str | None = None) -> str:
@@ -130,6 +134,8 @@ class Solution:
             iterations=data.get("iterations"),
             message=data.get("message", ""),
             solve_time=data.get("solve_time"),
+            mip_gap=data.get("mip_gap"),
+            best_bound=data.get("best_bound"),
         )
 
     def print_vars(self) -> None:

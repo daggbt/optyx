@@ -31,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import numpy as np
 from scipy.optimize import linprog, minimize
 
-from optyx import Variable, VectorVariable, Problem
+from optyx import Variable, VectorVariable, BinaryVariable, Problem
 from utils import RESULTS_DIR
 
 import matplotlib.pyplot as plt
@@ -70,8 +70,8 @@ class BenchmarkResult:
 
     @property
     def warm_total_ms(self) -> float:
-        """Total time for warm solve (build + cached solve)."""
-        return self.build_ms + self.warm_solve_ms
+        """Total time for warm solve (solve-only, excludes build)."""
+        return self.warm_solve_ms
 
     @property
     def cold_overhead(self) -> float:
@@ -80,8 +80,8 @@ class BenchmarkResult:
 
     @property
     def warm_overhead(self) -> float:
-        """Warm overhead vs SciPy."""
-        return self.warm_total_ms / self.scipy_ms if self.scipy_ms > 0 else float("inf")
+        """Warm overhead vs SciPy (solve-only, excludes build)."""
+        return self.warm_solve_ms / self.scipy_ms if self.scipy_ms > 0 else float("inf")
 
 
 @dataclass
@@ -119,8 +119,9 @@ def time_scipy_lp(
     times = []
     for _ in range(n_runs):
         start = time.perf_counter()
-        linprog(-c, A_ub=A, b_ub=b, bounds=bounds, method="highs")
+        res = linprog(-c, A_ub=A, b_ub=b, bounds=bounds, method="highs")
         times.append((time.perf_counter() - start) * 1000)
+        assert res.success, f"SciPy LP failed: {res.message}"
     return np.mean(times)
 
 
@@ -138,8 +139,9 @@ def time_scipy_nlp(n: int, n_runs: int = 5) -> float:
     for _ in range(n_runs):
         start = time.perf_counter()
         # Use L-BFGS-B to match optyx's auto-selected method for unconstrained NLP
-        minimize(obj, x0, jac=grad, method="L-BFGS-B")
+        res = minimize(obj, x0, jac=grad, method="L-BFGS-B")
         times.append((time.perf_counter() - start) * 1000)
+        assert res.success, f"SciPy NLP failed: {res.message}"
     return np.mean(times)
 
 
@@ -165,10 +167,35 @@ def time_scipy_constrained_nlp(n: int, n_runs: int = 5) -> float:
     times = []
     for _ in range(n_runs):
         start = time.perf_counter()
-        minimize(
+        res = minimize(
             obj, x0, jac=grad, method="SLSQP", constraints=constraints, bounds=bounds
         )
         times.append((time.perf_counter() - start) * 1000)
+        assert res.success, f"SciPy CQP failed: {res.message}"
+    return np.mean(times)
+
+
+def time_scipy_milp(
+    c: np.ndarray,
+    capacity: int,
+    n_runs: int = 5,
+) -> float:
+    """Time SciPy MILP solve (average of n_runs).
+
+    Single-constraint binary knapsack: max c'x s.t. sum(x) <= capacity, x in {0,1}.
+    """
+    from scipy.optimize import milp, LinearConstraint, Bounds
+
+    n = len(c)
+    bounds = Bounds(lb=np.zeros(n), ub=np.ones(n))
+    constraints = LinearConstraint(np.ones((1, n)), -np.inf, capacity)
+    integrality = np.ones(n, dtype=int)
+    times = []
+    for _ in range(n_runs):
+        start = time.perf_counter()
+        res = milp(-c, constraints=constraints, integrality=integrality, bounds=bounds)
+        times.append((time.perf_counter() - start) * 1000)
+        assert res.success, f"SciPy MILP failed: {res.message}"
     return np.mean(times)
 
 
@@ -192,9 +219,9 @@ def benchmark_lp_loop(
     prob.solve()
     cold_solve_ms = (time.perf_counter() - start) * 1000
 
-    # Time warm solves (3 runs)
+    # Time warm solves (5 runs)
     warm_times = []
-    for _ in range(3):
+    for _ in range(5):
         start = time.perf_counter()
         prob.solve()
         warm_times.append((time.perf_counter() - start) * 1000)
@@ -226,9 +253,9 @@ def benchmark_lp_vector(
     prob.solve()
     cold_solve_ms = (time.perf_counter() - start) * 1000
 
-    # Time warm solves (3 runs)
+    # Time warm solves (5 runs)
     warm_times = []
-    for _ in range(3):
+    for _ in range(5):
         start = time.perf_counter()
         prob.solve()
         warm_times.append((time.perf_counter() - start) * 1000)
@@ -256,9 +283,9 @@ def benchmark_nlp_loop(n: int) -> BenchmarkResult:
     prob.solve(x0=x0)
     cold_solve_ms = (time.perf_counter() - start) * 1000
 
-    # Time warm solves (3 runs)
+    # Time warm solves (5 runs)
     warm_times = []
-    for _ in range(3):
+    for _ in range(5):
         start = time.perf_counter()
         prob.solve(x0=x0)
         warm_times.append((time.perf_counter() - start) * 1000)
@@ -287,9 +314,9 @@ def benchmark_nlp_vector(n: int) -> BenchmarkResult:
     prob.solve(x0=x0)
     cold_solve_ms = (time.perf_counter() - start) * 1000
 
-    # Time warm solves (3 runs)
+    # Time warm solves (5 runs)
     warm_times = []
-    for _ in range(3):
+    for _ in range(5):
         start = time.perf_counter()
         prob.solve(x0=x0)
         warm_times.append((time.perf_counter() - start) * 1000)
@@ -318,9 +345,9 @@ def benchmark_cqp_loop(n: int) -> BenchmarkResult:
     prob.solve(x0=x0)
     cold_solve_ms = (time.perf_counter() - start) * 1000
 
-    # Time warm solves (3 runs)
+    # Time warm solves (5 runs)
     warm_times = []
-    for _ in range(3):
+    for _ in range(5):
         start = time.perf_counter()
         prob.solve(x0=x0)
         warm_times.append((time.perf_counter() - start) * 1000)
@@ -350,9 +377,9 @@ def benchmark_cqp_vector(n: int) -> BenchmarkResult:
     prob.solve(x0=x0)
     cold_solve_ms = (time.perf_counter() - start) * 1000
 
-    # Time warm solves (3 runs)
+    # Time warm solves (5 runs)
     warm_times = []
-    for _ in range(3):
+    for _ in range(5):
         start = time.perf_counter()
         prob.solve(x0=x0)
         warm_times.append((time.perf_counter() - start) * 1000)
@@ -364,10 +391,79 @@ def benchmark_cqp_vector(n: int) -> BenchmarkResult:
     return BenchmarkResult(n, build_ms, cold_solve_ms, warm_solve_ms, scipy_ms)
 
 
+def benchmark_milp_loop(
+    n: int, c: np.ndarray, capacity: int
+) -> BenchmarkResult:
+    """Benchmark MILP with loop-based variables (full end-to-end).
+
+    Single-constraint binary knapsack: max c'x s.t. sum(x) <= capacity, x in {0,1}.
+    """
+    # Time build phase
+    start = time.perf_counter()
+    x = np.array([BinaryVariable(f"x{i}") for i in range(n)])
+    prob = Problem(name=f"milp_loop_{n}")
+    prob.maximize(c @ x)
+    prob.subject_to(np.sum(x) <= capacity)
+    build_ms = (time.perf_counter() - start) * 1000
+
+    # Time cold solve
+    start = time.perf_counter()
+    prob.solve()
+    cold_solve_ms = (time.perf_counter() - start) * 1000
+
+    # Time warm solves (5 runs)
+    warm_times = []
+    for _ in range(5):
+        start = time.perf_counter()
+        prob.solve()
+        warm_times.append((time.perf_counter() - start) * 1000)
+    warm_solve_ms = np.mean(warm_times)
+
+    # SciPy baseline
+    scipy_ms = time_scipy_milp(c, capacity)
+
+    return BenchmarkResult(n, build_ms, cold_solve_ms, warm_solve_ms, scipy_ms)
+
+
+def benchmark_milp_vector(
+    n: int, c: np.ndarray, capacity: int
+) -> BenchmarkResult:
+    """Benchmark MILP with VectorVariable (full end-to-end).
+
+    Single-constraint binary knapsack: max c'x s.t. sum(x) <= capacity, x in {0,1}.
+    Uses a single binary VectorVariable to leverage efficient vectorized ops.
+    """
+    # Time build phase
+    start = time.perf_counter()
+    x = VectorVariable("x", n, domain="binary")
+    prob = Problem(name=f"milp_vec_{n}")
+    prob.maximize(c @ x)
+    prob.subject_to(x.sum() <= capacity)
+    build_ms = (time.perf_counter() - start) * 1000
+
+    # Time cold solve
+    start = time.perf_counter()
+    prob.solve()
+    cold_solve_ms = (time.perf_counter() - start) * 1000
+
+    # Time warm solves (5 runs)
+    warm_times = []
+    for _ in range(5):
+        start = time.perf_counter()
+        prob.solve()
+        warm_times.append((time.perf_counter() - start) * 1000)
+    warm_solve_ms = np.mean(warm_times)
+
+    # SciPy baseline
+    scipy_ms = time_scipy_milp(c, capacity)
+
+    return BenchmarkResult(n, build_ms, cold_solve_ms, warm_solve_ms, scipy_ms)
+
+
 def print_result(label: str, r: BenchmarkResult) -> None:
     """Print a benchmark result with full breakdown."""
     print(
-        f"  n={r.n:5d}: Build={r.build_ms:8.1f}ms, "
+        f"  {label:4s} n={r.n:5d}: Build={r.build_ms:8.1f}ms, "
         f"Cold={r.cold_solve_ms:8.1f}ms, Warm={r.warm_solve_ms:7.1f}ms | "
         f"SciPy={r.scipy_ms:7.1f}ms | "
         f"Cold overhead={r.cold_overhead:5.1f}x, Warm overhead={r.warm_overhead:5.1f}x"
@@ -382,7 +478,7 @@ def run_lp_scaling():
     print("\nMeasures: Build (vars + problem + constraints) + Solve")
     print("Compared against: SciPy linprog (no build phase)")
 
-    # Loop-based: limited to n=100 due to exponential cold solve time
+    # Loop-based: limited due to superlinear cold solve time
     loop_sizes = [10, 25, 50, 100, 200, 500]
     # VectorVariable: scale to n=5000 (LP solver dominates at larger sizes)
     vec_sizes = [10, 25, 50, 100, 200, 500, 1000, 2000, 5000]
@@ -402,7 +498,7 @@ def run_lp_scaling():
         loop_results.add(r)
         print_result("Loop", r)
 
-    print("\n--- VectorVariable (n ≤ 5,000) ---")
+    print(f"\n--- VectorVariable (n ≤ {max(vec_sizes):,}) ---")
     for n in vec_sizes:
         m = n // 2
         np.random.seed(42)
@@ -433,10 +529,10 @@ def run_nlp_scaling():
     print("\nObjective: min Σx²ᵢ - Σxᵢ (optimal at x* = 0.5)")
     print("Measures: Build + Solve (includes gradient compilation)")
 
-    # Loop-based: limited to n=100 due to exponential cold solve time
+    # Loop-based: limited to n=500 due to superlinear cold solve time
     loop_sizes = [10, 25, 50, 100, 200, 500]
-    # VectorVariable with vectorized ops: scale to n=10000 to test large problems
-    vec_sizes = [10, 25, 50, 100, 200, 500, 1000, 2000, 5000, 10000]
+    # VectorVariable with vectorized ops: scale to n=10,000
+    vec_sizes = [10, 25, 50, 100, 200, 500, 1000, 2000, 5000]
 
     loop_results = ScalingResults(label="NLP (Loop)")
     vec_results = ScalingResults(label="NLP (VectorVariable)")
@@ -472,7 +568,7 @@ def run_cqp_scaling():
     print("\nObjective: min Σx²ᵢ s.t. Σxᵢ ≥ 1, xᵢ ≥ 0")
     print("Measures: Build + Solve (includes gradient/Jacobian compilation)")
 
-    # Loop-based: limited to n=100 due to exponential cold solve time
+    # Loop-based: limited due to superlinear cold solve time
     loop_sizes = [10, 25, 50, 100, 200, 500]
     # VectorVariable: scale to n=5000 (SLSQP solver is O(n²), dominates at larger sizes)
     vec_sizes = [10, 25, 50, 100, 200, 500, 1000, 2000, 5000]
@@ -498,6 +594,54 @@ def run_cqp_scaling():
         vec_results,
         title="Constrained QP: End-to-End Time vs SciPy",
         save_path=RESULTS_DIR / "cqp_scaling_comparison.png",
+    )
+
+    return loop_results, vec_results
+
+
+def run_milp_scaling():
+    """Run MILP scaling benchmarks."""
+    print("\n" + "=" * 80)
+    print("MILP SCALING BENCHMARK (End-to-End)")
+    print("=" * 80)
+    print("\nMeasures: Build (vars + problem + constraints) + Solve")
+    print("Compared against: SciPy milp (no build phase)")
+    print("Problem: Single-constraint binary knapsack (sum(x) <= n//2)")
+
+    # Loop-based: push to n=500 to measure build overhead at scale
+    loop_sizes = [10, 25, 50, 100, 200, 500]
+    # VectorVariable: push to n=5000 to measure solve scaling
+    vec_sizes = [10, 25, 50, 100, 200, 500, 1000, 2000, 5000]
+
+    loop_results = ScalingResults(label="MILP (Loop)")
+    vec_results = ScalingResults(label="MILP (VectorVariable)")
+
+    print(f"\n--- Loop-based Variable (n ≤ {max(loop_sizes)}, slow cold solve) ---")
+    for n in loop_sizes:
+        np.random.seed(42)
+        c = np.random.rand(n)
+        capacity = n // 2  # Pick at most half the items
+
+        r = benchmark_milp_loop(n, c, capacity)
+        loop_results.add(r)
+        print_result("Loop", r)
+
+    print(f"\n--- VectorVariable (n ≤ {max(vec_sizes)}) ---")
+    for n in vec_sizes:
+        np.random.seed(42)
+        c = np.random.rand(n)
+        capacity = n // 2
+
+        r = benchmark_milp_vector(n, c, capacity)
+        vec_results.add(r)
+        print_result("Vec", r)
+
+    # Plot
+    plot_scaling_comparison(
+        loop_results,
+        vec_results,
+        title="MILP Scaling: End-to-End Time vs SciPy",
+        save_path=RESULTS_DIR / "milp_scaling_comparison.png",
     )
 
     return loop_results, vec_results
@@ -634,7 +778,7 @@ def plot_scaling_comparison(
 
     ax2.set_xlabel("Problem Size (n)", fontsize=11)
     ax2.set_ylabel("Overhead vs SciPy (×)", fontsize=11)
-    ax2.set_title("Overhead Ratio (log scale, lower is better)", fontsize=12)
+    ax2.set_title("Overhead Ratio (log scale, lower is better)\nWarm = solve-only (excludes build)", fontsize=11)
     ax2.set_xscale("log")
     ax2.set_yscale("log")
     ax2.legend(loc="upper right", fontsize=9)
@@ -670,8 +814,8 @@ def run_overhead_summary():
     warm_overheads.append(r.warm_overhead)
     print(f"LP (n={n}): Cold={r.cold_overhead:.1f}x, Warm={r.warm_overhead:.1f}x")
 
-    # Medium LP (n=500)
-    n, m = 500, 250
+    # Large LP (n=5000)
+    n, m = 5000, 1000
     c = np.random.rand(n)
     A = np.random.rand(m, n)
     b = np.sum(A, axis=1) * 0.5
@@ -689,12 +833,12 @@ def run_overhead_summary():
     warm_overheads.append(r.warm_overhead)
     print(f"NLP (n=50): Cold={r.cold_overhead:.1f}x, Warm={r.warm_overhead:.1f}x")
 
-    # Medium NLP (n=500)
-    r = benchmark_nlp_vector(500)
-    categories.append("NLP\nn=500")
+    # Large NLP (n=5000)
+    r = benchmark_nlp_vector(5000)
+    categories.append("NLP\nn=5000")
     cold_overheads.append(r.cold_overhead)
     warm_overheads.append(r.warm_overhead)
-    print(f"NLP (n=500): Cold={r.cold_overhead:.1f}x, Warm={r.warm_overhead:.1f}x")
+    print(f"NLP (n=5000): Cold={r.cold_overhead:.1f}x, Warm={r.warm_overhead:.1f}x")
 
     # Small CQP (n=50)
     r = benchmark_cqp_vector(50)
@@ -703,12 +847,35 @@ def run_overhead_summary():
     warm_overheads.append(r.warm_overhead)
     print(f"CQP (n=50): Cold={r.cold_overhead:.1f}x, Warm={r.warm_overhead:.1f}x")
 
-    # Medium CQP (n=500)
-    r = benchmark_cqp_vector(500)
-    categories.append("CQP\nn=500")
+    # Large CQP (n=5000)
+    r = benchmark_cqp_vector(5000)
+    categories.append("CQP\nn=5000")
     cold_overheads.append(r.cold_overhead)
     warm_overheads.append(r.warm_overhead)
-    print(f"CQP (n=500): Cold={r.cold_overhead:.1f}x, Warm={r.warm_overhead:.1f}x")
+    print(f"CQP (n=5000): Cold={r.cold_overhead:.1f}x, Warm={r.warm_overhead:.1f}x")
+
+    # Small MILP (n=50)
+    n = 50
+    np.random.seed(42)
+    c = np.random.rand(n)
+    capacity = n // 2
+
+    r = benchmark_milp_vector(n, c, capacity)
+    categories.append(f"MILP\nn={n}")
+    cold_overheads.append(r.cold_overhead)
+    warm_overheads.append(r.warm_overhead)
+    print(f"MILP (n={n}): Cold={r.cold_overhead:.1f}x, Warm={r.warm_overhead:.1f}x")
+
+    # Medium MILP (n=5000)
+    n = 5000
+    c = np.random.rand(n)
+    capacity = n // 2
+
+    r = benchmark_milp_vector(n, c, capacity)
+    categories.append(f"MILP\nn={n}")
+    cold_overheads.append(r.cold_overhead)
+    warm_overheads.append(r.warm_overhead)
+    print(f"MILP (n={n}): Cold={r.cold_overhead:.1f}x, Warm={r.warm_overhead:.1f}x")
 
     # Plot
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -806,6 +973,7 @@ def main():
             run_lp_scaling()
             run_nlp_scaling()
             run_cqp_scaling()
+            run_milp_scaling()
 
             # Run overhead summary
             run_overhead_summary()

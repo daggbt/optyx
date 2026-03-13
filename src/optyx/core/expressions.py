@@ -263,6 +263,10 @@ class Variable(Expression):
         self.domain = domain
         self.obj = float(obj)  # Linear objective coefficient
 
+        # Validate domain
+        if domain not in ("continuous", "integer", "binary"):
+            raise ValueError(f"Unknown domain: {domain!r}. Must be 'continuous', 'integer', or 'binary'.")
+
         # Pre-compute sort key for consistent ordering
         parts = _NUMBER_SPLIT_RE.split(name)
         self._sort_key = tuple(int(p) if p.isdigit() else p for p in parts)
