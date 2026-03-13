@@ -1,0 +1,94 @@
+---
+title: "What's New in v1.3.0"
+description: "Scalable expressions, MILP support, vectorized gradients, and modeling convenience"
+date: last-modified
+---
+
+## Optyx v1.3.0
+
+**Theme:** Scalable Expressions, Vectorized Gradients, Sparse Computation, Basic MIP, Modeling Convenience
+
+This release addresses critical scalability limitations discovered in v1.2.x benchmarks and adds major new capabilities.
+
+---
+
+### Mixed-Integer Linear Programming (MILP)
+
+Optyx now supports integer and binary decision variables, automatically routing problems with discrete variables to the MILP solver (SciPy's HiGHS backend via `scipy.optimize.milp()`).
+
+- **`BinaryVariable()`** and **`IntegerVariable()`** constructor aliases
+- **`VectorVariable(domain="binary")`** and **`VectorVariable(domain="integer")`** for vectorized discrete variables
+- **`Solution.mip_gap`** and **`Solution.best_bound`** for optimality reporting
+- Domain validation enforces correct bounds for binary variables
+- Clear error when attempting unsupported MIQP (quadratic + integer)
+
+See the [Integer Programming tutorial](tutorials/integer-programming.qmd) and the [Mine Equipment MILP example](examples/mine-equipment-milp.qmd).
+
+---
+
+### Vectorized Gradients & Scalability
+
+Cold-start performance for quadratic programs has been dramatically improved through automatic vectorized gradient detection.
+
+| Problem | v1.2.x (Cold) | v1.3.0 (Cold) |
+|---------|---------------|---------------|
+| CQP n=1,000 | 130 ms | < 50 ms |
+| CQP n=2,000 | 470 ms | ~ 200 ms |
+
+- **`VectorGradientPattern`** detects expressions with vectorizable gradient structure (∇f = Ax + b)
+- **`NarySum` / `NaryProduct`** flatten deep loop-built trees to O(1) depth
+- **`VectorBinaryOp`** preserves vector structure for element-wise operations
+
+See the [Performance & Scaling guide](tutorials/performance.qmd).
+
+---
+
+### Sparse Computation
+
+Large-scale LPs with 100,000+ variables are now practical.
+
+- **`Problem.subject_to_matrix(A, x, sense, b)`** accepts `scipy.sparse` matrices, bypassing symbolic expression construction entirely
+- Sparse Jacobian compilation reduces memory from O(m×n) to O(nnz)
+- n=100,000 LP with 1% density constraint matrix solves end-to-end
+
+---
+
+### Modeling Convenience
+
+- **`VariableDict`** — dict-indexed variables keyed by strings, with `.prod()` and `.sum(subset)` aggregation. See the [VariableDict tutorial](tutorials/variable-dict.qmd).
+- **`Expression.between(lb, ub)`** — range constraints in one call
+- **`subject_to()` accepts generators** — `prob.subject_to(x[i] >= 0 for i in range(n))`
+- **`Problem` context manager** — `with Problem() as p: ...`
+- **`Problem.reset()`** — clear solver cache and warm-start state
+- **`Problem.remove_constraint()`** — incremental model modification
+- **Warm starts** — re-solves automatically use the previous solution
+- **Bounds correctness fix** — variable bounds are never cached, enabling fix-and-dive patterns
+
+---
+
+### Solver Callbacks & Termination
+
+- **`SolverProgress`** dataclass with iteration, objective, violation, elapsed time, and current x
+- **`callback=`** parameter on `solve()` — return `True` to stop early
+- **`time_limit=`** parameter on `solve()` — wall-clock budget
+- **`SolverStatus.TERMINATED`** for callback-initiated stops
+
+See the [Solver Callbacks example](examples/solver-callbacks.qmd).
+
+---
+
+### Serialization & I/O
+
+- **`Problem.write("model.lp")`** — export to LP format (linear and quadratic objectives, constraints, bounds, integer/binary sections)
+- **`Solution.to_dict()`** and **`Solution.to_json()`** — solution serialization for logging and auditing
+
+See the [LP Export example](examples/lp-export.qmd).
+
+---
+
+### Per-Element Array Bounds & Fancy Indexing
+
+- **Array bounds on `VectorVariable`**: `VectorVariable("x", 3, lb=np.array([0, 0.5, 0.2]))`
+- **Fancy indexing**: `x[[0, 2, 5]]` returns a subset vector expression
+
+See the [Vector Variables tutorial](tutorials/vectors.qmd).
