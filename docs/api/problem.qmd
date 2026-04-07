@@ -102,37 +102,123 @@ Internally, maximization is converted to minimization by negating the objective.
 
 ### `.subject_to(constraint)`
 
-Add a constraint to the problem.
+Add one or more constraints to the problem. Accepts a single constraint, a list of constraints, or a generator expression.
 
 ```python
 prob.subject_to(constraint)
+prob.subject_to([c1, c2, c3])
+prob.subject_to(x[i] >= 0 for i in range(n))  # generator
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `constraint` | `Constraint` | An inequality or equality constraint |
+| `constraint` | `Constraint \| Iterable[Constraint]` | Constraint(s) to add |
 
 **Returns:** `self` (for chaining)
+
+### `.remove_constraint(index_or_name)`
+
+Remove a constraint by index or name.
+
+```python
+prob.remove_constraint(0)       # remove first constraint
+prob.remove_constraint("cap")   # remove by name
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `index_or_name` | `int \| str` | Index position or constraint name |
+
+**Returns:** `self` (for chaining)
+
+**Raises:** `IndexError` if index is out of range; `KeyError` if name not found.
+
+### `.subject_to_matrix(A, x, sense, b)`
+
+Add matrix constraints `A @ x {<=, >=, ==} b`, bypassing expression tree construction. Accepts dense NumPy arrays or `scipy.sparse` matrices for efficient large-scale LP.
+
+```python
+import scipy.sparse as sp
+
+A = sp.random(1000, 10000, density=0.01, format="csr")
+b = np.ones(1000)
+prob.subject_to_matrix(A, x, "<=", b)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `A` | `np.ndarray \| scipy.sparse` | Coefficient matrix (m × n) |
+| `x` | `VectorVariable` | Variable vector of size n |
+| `sense` | `"<=" \| ">=" \| "=="` | Constraint sense |
+| `b` | `np.ndarray` | Right-hand side vector (m,) |
+
+**Returns:** `self` (for chaining)
+
+### `.reset()`
+
+Clear solver caches and warm-start state, forcing cold re-analysis on the next `solve()`.
+
+```python
+prob.reset()
+```
+
+### `.write(filename)`
+
+Export the problem to LP file format. Supports linear and quadratic objectives, constraints, variable bounds, and integer/binary sections.
+
+```python
+prob.write("model.lp")
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `filename` | `str` | Output `.lp` file path |
+
+**Raises:** `InvalidOperationError` for nonlinear expressions.
+
+### `.to_lp()`
+
+Return the LP format string (same as `write()` but returns the string instead of writing to a file).
+
+```python
+lp_string = prob.to_lp()
+```
+
+**Returns:** `str` — the LP format representation.
+
+### Context Manager
+
+`Problem` supports `with` statements:
+
+```python
+with Problem() as p:
+    p.minimize(x**2 + y**2)
+    p.subject_to(x + y >= 1)
+    solution = p.solve()
+```
 
 ### `.solve(**kwargs)`
 
 Solve the optimization problem.
 
 ```python
-solution = prob.solve(method="auto", strict=False, x0=None, tol=None, maxiter=None)
+solution = prob.solve(method="auto", strict=False, warm_start=True,
+                      callback=None, time_limit=None, x0=None,
+                      tol=None, maxiter=None)
 ```
 
 | Parameter | Type | Description | Default |
 |-----------|------|-------------|---------|
-| `method` | `str` | Solver method | `"auto"` |
+| `method` | `str` | Solver method (see below) | `"auto"` |
 | `strict` | `bool` | Raise error for unsupported features | `False` |
-| `x0` | `np.ndarray | None` | Initial point | Auto-generated |
-| `tol` | `float | None` | Solver tolerance | Solver default |
-| `maxiter` | `int | None` | Maximum iterations | Solver default |
+| `warm_start` | `bool` | Reuse previous solution as initial point | `True` |
+| `callback` | `Callable[[SolverProgress], bool \| None] \| None` | Called each iteration; return `True` to stop | `None` |
+| `time_limit` | `float \| None` | Wall-clock time budget in seconds | `None` |
+| `x0` | `np.ndarray \| None` | Initial point | Auto-generated |
+| `tol` | `float \| None` | Solver tolerance | Solver default |
+| `maxiter` | `int \| None` | Maximum iterations | Solver default |
 
 **Returns:** [`Solution`](solution.qmd)
-
-**Raises:** `ValueError` if `strict=True` and the problem contains features the solver cannot handle (e.g., integer/binary variables with SciPy).
 
 **Automatic method selection (`method="auto"`):**
 
@@ -140,6 +226,7 @@ When `method="auto"` (default), Optyx automatically selects the best solver base
 
 | Problem Type | Selected Method |
 |--------------|-----------------|
+| Linear with integer/binary variables | `milp` (HiGHS MILP solver) |
 | Linear objective and constraints | `linprog` (HiGHS LP solver) |
 | Unconstrained, n ≤ 3 | `Nelder-Mead` |
 | Unconstrained, n > 1000 | `L-BFGS-B` |
@@ -153,6 +240,7 @@ When `method="auto"` (default), Optyx automatically selects the best solver base
 | Method | Bounds | Constraints | Gradient | Hessian | Description |
 |--------|--------|-------------|----------|---------|-------------|
 | `"auto"` | ✅ | ✅ | ✅ | ✅ | Automatic selection (default) |
+| `"milp"` | ✅ | ✅ (linear) | N/A | N/A | HiGHS MILP solver (integer/binary) |
 | `"linprog"` | ✅ | ✅ (linear) | N/A | N/A | HiGHS LP solver (for linear problems) |
 | `"SLSQP"` | ✅ | ✅ | ✅ | ❌ | Sequential Least Squares Programming |
 | `"trust-constr"` | ✅ | ✅ | ✅ | ✅ | Trust-region constrained optimization |
@@ -179,8 +267,8 @@ When `method="auto"` (default), Optyx automatically selects the best solver base
 
 ::: {.callout-note}
 ## Performance
-- **LP problems**: ~1x overhead vs raw SciPy (near parity)
-- **NLP problems**: ~1.4-2.2x overhead (autodiff cost, but exact gradients)
+- **LP problems**: ~1.1x overhead vs raw SciPy (near parity)
+- **CQP problems**: ~1.2-2.2x overhead (with exact Jacobians)
 - **Repeated solves**: 2x-900x speedup due to caching
 
 See the [Benchmarks](../benchmarks.qmd) page for detailed performance analysis.
@@ -193,17 +281,11 @@ See the [Benchmarks](../benchmarks.qmd) page for detailed performance analysis.
 Use `strict=True` to enforce that the solver can handle all problem features exactly:
 
 ```python
-# Default: warn and relax integer/binary to continuous
-solution = prob.solve()  # Works, but may produce fractional values
-
-# Strict: fail if problem can't be solved exactly
-solution = prob.solve(strict=True)  # Raises ValueError for integer/binary
+# Strict: fail early if problem can't be solved exactly
+solution = prob.solve(strict=True)  # Raises ValueError for unsupported configurations
 ```
 
-This is useful for production code where you want to ensure correctness:
-
-- **Prototyping:** Use `strict=False` (default) to quickly test ideas
-- **Production:** Use `strict=True` to catch unsupported configurations early
+This is useful for production code where you want to catch configurations that the solver cannot handle (e.g., nonlinear objectives with integer variables / MIQP).
 
 ---
 

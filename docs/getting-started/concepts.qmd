@@ -39,8 +39,8 @@ print(f"Binary bounds: [{binary.lb}, {binary.ub}]")
 | `ub` | Upper bound | `None` (unbounded) |
 | `domain` | Variable type: `"continuous"`, `"integer"`, `"binary"` | `"continuous"` |
 
-::: {.callout-warning}
-Integer and binary domains are currently relaxed to continuous values. True mixed-integer programming is planned for v2.0.
+::: {.callout-tip}
+Integer and binary domains are fully supported via `scipy.optimize.milp()` (HiGHS backend). See the [Integer Programming tutorial](../tutorials/integer-programming.qmd) for details.
 :::
 
 ## Expressions
