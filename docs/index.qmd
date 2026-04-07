@@ -77,11 +77,11 @@ We believe most optimization code is harder to write than it needs to be. Optyx 
 
 Optyx is young and opinionated. It's **not** a replacement for specialized tools:
 
-- Need MILP at scale? → Use Pyomo or Gurobi
+- Need large-scale MILP with cutting planes? → Use Pyomo or Gurobi
 - Need convex guarantees? → Use CVXPY  
 - Need maximum performance? → Use raw solver APIs
 
-But if you want readable optimization code that just works for most problems, keep reading.
+Optyx does support [MILP](tutorials/integer-programming.qmd) via HiGHS, [sparse LPs](tutorials/performance.qmd) with 100,000+ variables, and [solver callbacks](examples/solver-callbacks.qmd). But if you need industrial-grade MIP with custom branching strategies, a dedicated solver is the right choice.
 
 ---
 
@@ -680,10 +680,13 @@ Instant feedback for real-time applications.
 
 - **VectorVariable** — Create vectors of variables with `VectorVariable("x", 100)`
 - **MatrixVariable** — 2D variable arrays with row/column slicing
+- **VariableDict** — Dict-indexed variables keyed by strings, with `.prod()` and `.sum(subset)` aggregation. [Tutorial →](tutorials/variable-dict.qmd)
 - **Native gradient rules** — L2Norm, L1Norm, DotProduct compute gradients without loops
 - **Math-like quadratic forms** — `w.dot(Σ @ w)` for portfolio variance
 - **Parameter class** — Updatable constants for fast scenario analysis
 - **VectorParameter** — Array-valued parameters for bulk updates
+- **LP export** — `Problem.write("model.lp")` for model sharing and debugging. [Example →](examples/lp-export.qmd)
+- **Solution serialization** — `Solution.to_dict()` and `Solution.to_json()` for logging and auditing
 
 [Learn more about Vectors →](tutorials/vectors.qmd)
 

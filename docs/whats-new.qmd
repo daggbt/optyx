@@ -30,16 +30,17 @@ See the [Integer Programming tutorial](tutorials/integer-programming.qmd) and th
 
 Cold-start performance for quadratic programs has been dramatically improved through automatic vectorized gradient detection.
 
-| Problem | v1.2.x (Cold) | v1.3.0 (Cold) |
-|---------|---------------|---------------|
-| CQP n=1,000 | 130 ms | < 50 ms |
-| CQP n=2,000 | 470 ms | ~ 200 ms |
+| Problem | Cold Overhead vs SciPy | Warm Overhead vs SciPy |
+|---------|------------------------|------------------------|
+| CQP n=500 | 2.2x | 1.2x |
+| CQP n=1,000 | 1.8x | 1.2x |
+| CQP n=5,000 | 1.1x | 1.0x |
 
 - **`VectorGradientPattern`** detects expressions with vectorizable gradient structure (∇f = Ax + b)
 - **`NarySum` / `NaryProduct`** flatten deep loop-built trees to O(1) depth
 - **`VectorBinaryOp`** preserves vector structure for element-wise operations
 
-See the [Performance & Scaling guide](tutorials/performance.qmd).
+See the [Benchmarks](benchmarks.qmd) and the [Performance & Scaling guide](tutorials/performance.qmd).
 
 ---
 

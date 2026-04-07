@@ -19,8 +19,6 @@ quartodoc:
         - core.expressions.Variable
         - BinaryVariable
         - IntegerVariable
-        - BinaryVariable
-        - IntegerVariable
         - core.expressions.Constant
         - core.expressions.Expression
     
@@ -28,7 +26,6 @@ quartodoc:
       desc: "High-dimensional decision variables for scalable optimization"
       contents:
         - core.vectors.VectorVariable
-        - core.variable_dict.VariableDict
         - core.variable_dict.VariableDict
         - core.vectors.VectorExpression
         - core.vectors.DotProduct
@@ -56,7 +53,6 @@ quartodoc:
         - problem.Problem
         - solution.Solution
         - solution.SolverStatus
-        - solution.SolverProgress
         - solution.SolverProgress
     
     - title: Mathematical Functions

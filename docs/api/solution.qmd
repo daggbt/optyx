@@ -58,6 +58,10 @@ print(solution.values)
 | `.solve_time` | `float` | Time to solve (seconds) |
 | `.iterations` | `int` | Number of solver iterations |
 | `.message` | `str` | Solver message |
+| `.mip_gap` | `float \| None` | Relative optimality gap (MILP only) |
+| `.best_bound` | `float \| None` | Best dual bound (MILP only) |
+| `.is_optimal` | `bool` | `True` if status is `OPTIMAL` |
+| `.is_feasible` | `bool` | `True` if status is `OPTIMAL`, `MAX_ITERATIONS`, or `TERMINATED` |
 
 ### Examples
 
@@ -97,6 +101,7 @@ from optyx import SolverStatus
 | `SolverStatus.INFEASIBLE` | No feasible solution exists |
 | `SolverStatus.UNBOUNDED` | Objective can be improved indefinitely |
 | `SolverStatus.MAX_ITERATIONS` | Reached iteration limit |
+| `SolverStatus.TERMINATED` | Stopped early by callback or time limit |
 | `SolverStatus.FAILED` | Solver encountered an error |
 | `SolverStatus.NOT_SOLVED` | Problem has not been solved yet |
 
@@ -205,3 +210,71 @@ print(f"  Product Z: {solution['z']:.2f} units")
 print()
 print(f"Maximum Profit: ${solution.objective_value:.2f}")
 ```
+
+---
+
+## Serialization Methods
+
+### `.to_dict()`
+
+Convert the solution to a plain dictionary.
+
+```python
+data = solution.to_dict()
+```
+
+### `.to_json(path=None)`
+
+Serialize to JSON. Returns a string, or writes to `path` if provided.
+
+```python
+json_str = solution.to_json()          # returns string
+solution.to_json("solution.json")      # writes to file
+```
+
+### `Solution.from_json(json_str_or_path)`
+
+Reconstruct a Solution from a JSON string or file.
+
+```python
+restored = Solution.from_json("solution.json")
+restored = Solution.from_json('{"status": "optimal", ...}')
+```
+
+### `.print_vars()`
+
+Pretty-print status, objective, and all variable values.
+
+```python
+solution.print_vars()
+```
+
+---
+
+## SolverProgress
+
+The `SolverProgress` dataclass is passed to your callback function at each solver iteration.
+
+```python
+from optyx import SolverProgress
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `.iteration` | `int` | Current iteration number |
+| `.objective_value` | `float` | Current objective function value |
+| `.constraint_violation` | `float` | Max constraint violation (0.0 if feasible) |
+| `.elapsed_time` | `float` | Wall-clock seconds since solve started |
+| `.x` | `np.ndarray` | Current variable values |
+
+```python
+def my_callback(progress: SolverProgress) -> bool | None:
+    print(f"Iter {progress.iteration}: obj={progress.objective_value:.4f}")
+    if progress.elapsed_time > 10:
+        return True  # stop early
+    return None  # continue
+
+solution = prob.solve(callback=my_callback)
+```
+
+See the [Solver Callbacks example](../examples/solver-callbacks.qmd) for a full walkthrough.

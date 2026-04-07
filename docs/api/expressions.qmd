@@ -28,9 +28,9 @@ x = Variable(name, lb=None, ub=None, domain="continuous")
 | `ub` | `float | None` | Upper bound | `None` (unbounded) |
 | `domain` | `str` | One of `"continuous"`, `"integer"`, `"binary"` | `"continuous"` |
 
-::: {.callout-warning}
-## Integer/Binary Domains Relaxed
-The `"integer"` and `"binary"` domains are accepted but **relaxed to continuous values** when using the SciPy solver backend. A runtime warning is emitted when this occurs. For true mixed-integer programming, consider using PuLP or Pyomo.
+::: {.callout-tip}
+## Integer/Binary Domains Supported
+The `"integer"` and `"binary"` domains are fully supported for **linear** problems via `scipy.optimize.milp()` (HiGHS backend). Problems with integer/binary variables and a linear objective are automatically routed to the MILP solver. For nonlinear objectives with discrete variables (MIQP/MINLP), a clear error is raised. See the [Integer Programming tutorial](../tutorials/integer-programming.qmd).
 :::
 
 ### Properties

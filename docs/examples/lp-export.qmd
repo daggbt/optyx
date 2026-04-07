@@ -77,7 +77,7 @@ print(prob.to_lp())
 | Sparse matrix constraints | ✓ |
 | Nonlinear objectives | ✗ (raises error) |
 
-## `SolverProgress` Fields
+## Export Methods
 
 The `Problem.to_lp()` method returns the LP string, while `Problem.write(path)`
 writes it to a file.

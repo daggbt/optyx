@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-04-07
+
+### Added
+- **Mixed-Integer Linear Programming (MILP)**: `BinaryVariable`, `IntegerVariable`, and `VectorVariable(domain="binary"|"integer")` with automatic routing to SciPy's HiGHS backend via `scipy.optimize.milp()`.
+- **`VariableDict`**: Dict-indexed variables keyed by strings, with `.prod(costs)` weighted sums and `.sum(keys=subset)` aggregation.
+- **Sparse LP support**: `Problem.subject_to_matrix(A, x, sense, b)` accepts `scipy.sparse` matrices for industrial-scale LP with 100,000+ variables.
+- **Solver callbacks**: `SolverProgress` dataclass and `callback=` parameter on `solve()` for progress monitoring and early termination.
+- **Time limits**: `time_limit=` parameter on `solve()` for wall-clock budgets.
+- **LP export**: `Problem.write("model.lp")` exports linear/quadratic models in LP format.
+- **Solution serialization**: `Solution.to_dict()`, `Solution.to_json()`, and `Solution.from_json()` for logging and auditing.
+- **`Expression.between(lb, ub)`**: Range constraints in one call.
+- **Generator support in `subject_to()`**: `prob.subject_to(x[i] >= 0 for i in range(n))`.
+- **`Problem` context manager**: `with Problem() as p: ...` syntax.
+- **`Problem.remove_constraint()`**: Incremental model modification.
+- **`Problem.reset()`**: Clear solver cache and warm-start state.
+- **Warm starts**: Re-solves automatically use the previous solution as starting point.
+- **Per-element array bounds**: `VectorVariable("x", 3, lb=np.array([0, 0.5, 0.2]))`.
+- **Fancy indexing**: `x[[0, 2, 5]]` returns a subset vector expression.
+- **`Solution.mip_gap`** and **`Solution.best_bound`**: MILP optimality reporting.
+- **`Solution.is_optimal`** and **`Solution.is_feasible`**: Convenience status checks.
+- **`SolverStatus.TERMINATED`**: New status for callback-initiated stops.
+
+### Changed
+- **VectorGradientPattern**: Detects expressions with vectorizable gradient structure (∇f = Ax + b) for O(1) gradient compilation.
+- **NarySum / NaryProduct**: Flatten deep loop-built trees to O(1) depth, keeping memory layout flat regardless of sequential assignment length.
+- **VectorBinaryOp**: Preserves vector structure for element-wise operations.
+- **Sparse Jacobian compilation**: Reduces memory from O(m×n) to O(nnz) for constraint Jacobians.
+- **DotProduct fast-path**: O(1) variable extraction for `x.dot(x)` expressions.
+
+### Performance
+- **LP Overhead**: ~1.1x vs raw SciPy (near parity for VectorVariable)
+- **CQP Overhead**: ~1.2-2.2x vs raw SciPy (with exact Jacobians)
+- **Cache Speedup**: 2x-900x for repeated solves (larger problems benefit more)
+- **Rosenbrock**: 0.83x — exact gradients help complex optimization landscapes
+
 ## [1.2.4] - 2026-02-08
 
 ### Fixed
@@ -131,8 +166,8 @@ This patch release completes the v1.2.0 release. Due to an incomplete merge, sev
 - Cache invalidation is now centralized via `Problem._invalidate_caches()`.
 
 ### Performance
-- **LP Overhead**: ~0.94-1.15x vs raw SciPy (near parity)
-- **NLP Overhead**: ~1.4-2.2x vs raw SciPy with gradients
+- **LP Overhead**: ~1.1x vs raw SciPy (near parity for VectorVariable)
+- **CQP Overhead**: ~1.2-2.2x vs raw SciPy (with exact Jacobians)
 - **Cache Speedup**: 2x-900x for repeated solves (larger problems benefit more)
 - **Rosenbrock**: 0.83x - exact gradients help complex optimization landscapes
 

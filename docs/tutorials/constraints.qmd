@@ -176,16 +176,6 @@ If a variable or expression must be strictly bounded between two values, you can
 prob.subject_to((x + y).between(5, 10))
 ```
 
-
-### Range Constraints (Between)
-
-If a variable or expression must be strictly bounded between two values, you can use `.between(lb, ub)`. This saves you from writing (and evaluating) two separate constraints.
-
-```python
-# Instead of: prob.subject_to(x + y >= 5).subject_to(x + y <= 10)
-prob.subject_to((x + y).between(5, 10))
-```
-
 ## Handling Infeasibility
 
 ### Detecting Infeasible Problems

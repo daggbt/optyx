@@ -9,7 +9,7 @@ date: last-modified
 Optyx is designed to handle large optimization problems efficiently. With v1.3.0, Optyx has made massive strides in automatic acceleration for typical high-dimensional optimization problems.
 
 By the end of this tutorial, you'll understand:
-- How to achieve sub-50ms cold starts via vectorized gradients
+- How vectorized gradients achieve near-parity CQP cold starts (≤2x overhead vs SciPy)
 - The new scale of Sparse LP (100,000+ variables)
 - Native structure flattening for deep trees
 - Power-user utilities for edge cases
@@ -24,11 +24,11 @@ Optyx looks for common expressions and triggers **Vectorized Gradients**: O(1) m
 
 ### Equivalence Table & Benchmarks
 
-| Loop Pattern | Vectorized Equivalent | Performance (Cold Start n=1000) |
+| Loop Pattern | Vectorized Equivalent | Cold Overhead vs SciPy (n=1000) |
 |--------------|----------------------|---------------------------------|
-| `sum(c[i]*x[i] for i ...)` | `c @ x` | **< 10 ms** |
-| `sum(x[i]**2 for i ...)` | `x.dot(x)` | **~ 40 ms** |
-| double loop with `Q` | `x.dot(Q @ x)` | **~ 45 ms** |
+| `sum(c[i]*x[i] for i ...)` | `c @ x` | **~1.1x** (LP at parity) |
+| `sum(x[i]**2 for i ...)` | `x.dot(x)` | **~1.8x** (CQP near-parity) |
+| double loop with `Q` | `x.dot(Q @ x)` | **~2x** (quadratic form) |
 
 When Optyx encounters objects like `DotProduct` or `QuadraticForm`, the Jacobian compilation bypasses Python iteration entirely and applies pre-compiled numerical patterns like `nabla: 2x` or `nabla: Q+Q.T`.
 
@@ -49,11 +49,11 @@ import numpy as np
 from scipy import sparse as sp
 from optyx import Problem, VectorVariable
 
-n = 100_000
-m = 10_000
+n = 10_000
+m = 1_000
 density = 0.01
 
-# Assume a very large, sparse matrix constraints matrix
+# A large, sparse constraint matrix
 A_sparse = sp.random(m, n, density=density, format='csr', random_state=42)
 b = np.random.rand(m)
 c = np.random.rand(n)
@@ -63,10 +63,11 @@ x = VectorVariable('x', n, lb=0, ub=1)
 prob = Problem(name='sparse_lp')
 prob.maximize(c @ x)
 
-# Passes directly to HiGHS - solves in under 2 seconds!
+# Passes directly to HiGHS
 prob.subject_to_matrix(A_sparse, x, "<=", b)
 
-# sol = prob.solve()
+print(f"Variables: {n:,}, Constraints: {m:,}, Non-zeros: {A_sparse.nnz:,}")
+# For 100,000+ variables, the same pattern applies — just scale up n and m
 ```
 
 ---
