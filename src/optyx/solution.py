@@ -266,8 +266,8 @@ class Solution:
     def get(
         self,
         var: Variable | VectorVariable | MatrixVariable | str,
-        default: float | NDArray[np.floating] | None = None,
-    ) -> float | NDArray[np.floating] | None:
+        default: float | NDArray[np.floating] | dict[str, float] | None = None,
+    ) -> float | NDArray[np.floating] | dict[str, float] | None:
         """Get the optimal value of a variable with a default.
 
         For scalar Variable: returns float.
