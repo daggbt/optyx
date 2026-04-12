@@ -5,10 +5,10 @@
 [![PyPI](https://img.shields.io/pypi/v/optyx.svg)](https://pypi.org/project/optyx/)
 [![Python 3.12+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![CI](https://github.com/daggbt/optyx/actions/workflows/ci.yml/badge.svg)](https://github.com/daggbt/optyx/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/badge/docs-online-blue.svg)](https://daggbt.github.io/optyx/)
+[![CI](https://github.com/optyx-dev/optyx/actions/workflows/ci.yml/badge.svg)](https://github.com/optyx-dev/optyx/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-online-blue.svg)](https://optyx-dev.github.io/optyx/)
 
-📚 **[Documentation](https://daggbt.github.io/optyx/)** · 🚀 **[Quickstart](https://daggbt.github.io/optyx/getting-started/quickstart.html)** · 💡 **[Examples](https://daggbt.github.io/optyx/examples/portfolio.html)**
+📚 **[Documentation](https://optyx-dev.github.io/optyx/)** · 🚀 **[Quickstart](https://optyx-dev.github.io/optyx/getting-started/quickstart.html)** · 💡 **[Examples](https://optyx-dev.github.io/optyx/examples/portfolio.html)**
 
 <table>
 <tr>
@@ -191,7 +191,7 @@ solution = (
 | **Fast re-solve** | Cached compilation + warm starts, up to 900x speedup |
 | **Debuggable** | Inspect expression trees, understand your model |
 
-See the [documentation](https://daggbt.github.io/optyx/) for the full API reference, tutorials, and real-world examples.
+See the [documentation](https://optyx-dev.github.io/optyx/) for the full API reference, tutorials, and real-world examples.
 
 ---
 
@@ -204,20 +204,20 @@ Optyx is actively evolving:
 - **More solvers** — IPOPT integration for large-scale NLP
 - **Better debugging** — Infeasibility diagnostics and model inspection
 
-See the [roadmap](https://daggbt.github.io/optyx/contributing.html) for details.
+See the [roadmap](https://optyx-dev.github.io/optyx/contributing.html) for details.
 
 ---
 
 ## Contributing
 
 ```bash
-git clone https://github.com/daggbt/optyx.git
+git clone https://github.com/optyx-dev/optyx.git
 cd optyx
 uv sync
 uv run pytest
 ```
 
-Contributions welcome! See our [contributing guide](https://daggbt.github.io/optyx/contributing.html).
+Contributions welcome! See our [contributing guide](https://optyx-dev.github.io/optyx/contributing.html).
 
 ---
 

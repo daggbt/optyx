@@ -20,7 +20,7 @@ Thank you for your interest in contributing to Optyx! This guide will help you g
 
 ```bash
 # Clone the repository
-git clone https://github.com/daggbt/optyx.git
+git clone https://github.com/optyx-dev/optyx.git
 cd optyx
 
 # Create virtual environment and install dependencies
@@ -196,7 +196,7 @@ git push origin feature/your-feature-name
 
 ### 5. Open Pull Request
 
-- Go to [GitHub](https://github.com/daggbt/optyx/pulls)
+- Go to [GitHub](https://github.com/optyx-dev/optyx/pulls)
 - Click "New Pull Request"
 - Select your branch
 - Fill in the PR template

@@ -37,11 +37,11 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://daggbt.github.io/optyx/"
-Documentation = "https://daggbt.github.io/optyx/"
-Repository = "https://github.com/daggbt/optyx"
-Changelog = "https://github.com/daggbt/optyx/blob/main/CHANGELOG.md"
-Issues = "https://github.com/daggbt/optyx/issues"
+Homepage = "https://optyx-dev.github.io/optyx/"
+Documentation = "https://optyx-dev.github.io/optyx/"
+Repository = "https://github.com/optyx-dev/optyx"
+Changelog = "https://github.com/optyx-dev/optyx/blob/main/CHANGELOG.md"
+Issues = "https://github.com/optyx-dev/optyx/issues"
 
 [project.optional-dependencies]
 benchmarks = [
