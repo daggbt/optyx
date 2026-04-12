@@ -1256,8 +1256,6 @@ def extract_quadratic_coefficients(
             suggestion="Ensure the expression is at most quadratic.",
         )
 
-    from optyx.io import _collect_quadratic_coefficients
-
     n = len(variables)
     var_index = {v.name: i for i, v in enumerate(variables)}
     Q = np.zeros((n, n), dtype=np.float64)

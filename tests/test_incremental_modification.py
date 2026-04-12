@@ -22,6 +22,7 @@ from optyx.solution import SolverStatus
 # remove_constraint() tests
 # ---------------------------------------------------------------------------
 
+
 class TestRemoveConstraintByIndex:
     """Test removing constraints by integer index."""
 
@@ -119,8 +120,16 @@ class TestRemoveConstraintByName:
         prob = Problem()
         prob.minimize(x)
 
-        c1 = Constraint(expr=(x - 3).expr if hasattr(x - 3, "expr") else (x - 3), sense=">=", name="lower")
-        c2 = Constraint(expr=(x - 7).expr if hasattr(x - 7, "expr") else (x - 7), sense="<=", name="upper")
+        c1 = Constraint(
+            expr=(x - 3).expr if hasattr(x - 3, "expr") else (x - 3),
+            sense=">=",
+            name="lower",
+        )
+        c2 = Constraint(
+            expr=(x - 7).expr if hasattr(x - 7, "expr") else (x - 7),
+            sense="<=",
+            name="upper",
+        )
         prob.subject_to(c1)
         prob.subject_to(c2)
 
@@ -228,6 +237,7 @@ class TestRemoveConstraintCaching:
 # Warm start tests
 # ---------------------------------------------------------------------------
 
+
 class TestWarmStart:
     """Test warm start (using previous solution as initial point)."""
 
@@ -266,7 +276,7 @@ class TestWarmStart:
         prob = Problem()
         prob.minimize((x - 5) ** 2)
 
-        sol1 = prob.solve(method="SLSQP")
+        prob.solve(method="SLSQP")
         assert prob._last_solution is not None
 
         # With warm_start=False, x0 should be computed fresh (not from _last_solution)
@@ -310,7 +320,7 @@ class TestWarmStart:
         prob = Problem()
         prob.minimize((x - 5) ** 2)
 
-        sol1 = prob.solve(method="SLSQP")
+        prob.solve(method="SLSQP")
         assert prob._last_solution is not None
 
         # Pass explicit x0 — should use it instead of warm start
@@ -322,6 +332,7 @@ class TestWarmStart:
 # ---------------------------------------------------------------------------
 # reset() tests
 # ---------------------------------------------------------------------------
+
 
 class TestReset:
     """Test that reset() clears warm start state."""
@@ -345,7 +356,7 @@ class TestReset:
         prob = Problem()
         prob.minimize((x - 5) ** 2)
 
-        sol1 = prob.solve(method="SLSQP")
+        prob.solve(method="SLSQP")
         prob.reset()
         sol2 = prob.solve(method="SLSQP")
 
@@ -356,6 +367,7 @@ class TestReset:
 # ---------------------------------------------------------------------------
 # LP bounds freshness tests
 # ---------------------------------------------------------------------------
+
 
 class TestBoundsFreshness:
     """Test that LP solver always uses fresh bounds from variables."""
@@ -437,6 +449,7 @@ class TestBoundsFreshness:
 # NLP bounds freshness (already correct, but verify)
 # ---------------------------------------------------------------------------
 
+
 class TestNLPBoundsFreshness:
     """Verify NLP solver reads fresh bounds (was already correct)."""
 
@@ -456,6 +469,7 @@ class TestNLPBoundsFreshness:
 # ---------------------------------------------------------------------------
 # Incremental add/remove cycle tests
 # ---------------------------------------------------------------------------
+
 
 class TestIncrementalCycles:
     """Test repeated add/remove/solve cycles."""
@@ -540,6 +554,7 @@ class TestIncrementalCycles:
 # ---------------------------------------------------------------------------
 # Cache staleness tests
 # ---------------------------------------------------------------------------
+
 
 class TestNoCacheStaleness:
     """Ensure no stale cached data is ever used."""

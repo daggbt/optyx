@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 
 import numpy as np
 import pytest
@@ -19,6 +18,7 @@ from optyx import (
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def simple_nlp():
@@ -47,7 +47,7 @@ def slow_nlp():
     n = 20
     v = VectorVariable("v", n, lb=-5, ub=5)
     prob = Problem("slow_nlp")
-    obj = sum((1 - v[i])**2 + 100 * (v[i + 1] - v[i]**2)**2 for i in range(n - 1))
+    obj = sum((1 - v[i]) ** 2 + 100 * (v[i + 1] - v[i] ** 2) ** 2 for i in range(n - 1))
     prob.minimize(obj)
     return prob
 
@@ -55,6 +55,7 @@ def slow_nlp():
 # ---------------------------------------------------------------------------
 # SolverProgress dataclass tests
 # ---------------------------------------------------------------------------
+
 
 class TestSolverProgress:
     def test_fields(self):
@@ -75,6 +76,7 @@ class TestSolverProgress:
 # ---------------------------------------------------------------------------
 # Callback tests
 # ---------------------------------------------------------------------------
+
 
 class TestCallback:
     def test_callback_receives_progress(self, simple_nlp):
@@ -178,6 +180,7 @@ class TestCallback:
 # Early termination tests
 # ---------------------------------------------------------------------------
 
+
 class TestEarlyTermination:
     def test_callback_returns_true_terminates(self, simple_nlp):
         """Returning True from callback should terminate with TERMINATED status."""
@@ -269,6 +272,7 @@ class TestEarlyTermination:
 # Time limit tests
 # ---------------------------------------------------------------------------
 
+
 class TestTimeLimit:
     def test_time_limit_terminates(self, slow_nlp):
         """time_limit should terminate the solver."""
@@ -315,7 +319,9 @@ class TestTimeLimit:
         n = 20
         v = VectorVariable("v", n, lb=-5, ub=5)
         prob = Problem()
-        obj = sum((1 - v[i])**2 + 100 * (v[i + 1] - v[i]**2)**2 for i in range(n - 1))
+        obj = sum(
+            (1 - v[i]) ** 2 + 100 * (v[i + 1] - v[i] ** 2) ** 2 for i in range(n - 1)
+        )
         prob.minimize(obj)
         sol = prob.solve(method="L-BFGS-B", time_limit=0.001)
         assert sol.status == SolverStatus.TERMINATED
@@ -324,6 +330,7 @@ class TestTimeLimit:
 # ---------------------------------------------------------------------------
 # No callback / no time_limit (regression)
 # ---------------------------------------------------------------------------
+
 
 class TestNoCallback:
     def test_solve_without_callback(self, simple_nlp):
@@ -341,6 +348,7 @@ class TestNoCallback:
 # ---------------------------------------------------------------------------
 # Constraint violation reporting
 # ---------------------------------------------------------------------------
+
 
 class TestConstraintViolation:
     def test_feasible_has_zero_violation(self, simple_nlp):

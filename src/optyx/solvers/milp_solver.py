@@ -11,9 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from scipy.optimize import milp, LinearConstraint, Bounds
-from scipy.sparse import issparse
 
-from optyx.core.errors import SolverError
 from optyx.solution import Solution, SolverStatus
 
 if TYPE_CHECKING:
@@ -36,8 +34,6 @@ def solve_milp(
     Returns:
         Solution object with optimization results including mip_gap.
     """
-    n = len(variables)
-
     # Build objective coefficients (handle maximization)
     c = lp_data.c
     is_max = lp_data.sense == "max"
@@ -50,12 +46,8 @@ def solve_milp(
 
     # Build variable bounds (vectorized)
     raw_bounds = lp_data.bounds
-    lb_arr = np.array(
-        [b[0] if b[0] is not None else -np.inf for b in raw_bounds]
-    )
-    ub_arr = np.array(
-        [b[1] if b[1] is not None else np.inf for b in raw_bounds]
-    )
+    lb_arr = np.array([b[0] if b[0] is not None else -np.inf for b in raw_bounds])
+    ub_arr = np.array([b[1] if b[1] is not None else np.inf for b in raw_bounds])
     bounds = Bounds(lb=lb_arr, ub=ub_arr)
 
     # Build constraints for milp() using LinearConstraint
@@ -64,19 +56,15 @@ def solve_milp(
     if lp_data.A_ub is not None and lp_data.b_ub is not None:
         A_ub = lp_data.A_ub
         b_ub = lp_data.b_ub
-        m_ub = b_ub.shape[0] if hasattr(b_ub, 'shape') else len(b_ub)
+        m_ub = b_ub.shape[0] if hasattr(b_ub, "shape") else len(b_ub)
         # A_ub @ x <= b_ub  →  -inf <= A_ub @ x <= b_ub
-        constraints_list.append(
-            LinearConstraint(A_ub, np.full(m_ub, -np.inf), b_ub)
-        )
+        constraints_list.append(LinearConstraint(A_ub, np.full(m_ub, -np.inf), b_ub))
 
     if lp_data.A_eq is not None and lp_data.b_eq is not None:
         A_eq = lp_data.A_eq
         b_eq = lp_data.b_eq
         # A_eq @ x == b_eq  →  b_eq <= A_eq @ x <= b_eq
-        constraints_list.append(
-            LinearConstraint(A_eq, b_eq, b_eq)
-        )
+        constraints_list.append(LinearConstraint(A_eq, b_eq, b_eq))
 
     # Solve
     start_time = time.perf_counter()
@@ -119,17 +107,17 @@ def solve_milp(
 
     # Extract MIP gap if available
     mip_gap: float | None = None
-    if hasattr(result, 'mip_gap') and result.mip_gap is not None:
+    if hasattr(result, "mip_gap") and result.mip_gap is not None:
         mip_gap = float(result.mip_gap)
 
     # Extract best bound if available
     best_bound: float | None = None
-    if hasattr(result, 'mip_dual_bound') and result.mip_dual_bound is not None:
+    if hasattr(result, "mip_dual_bound") and result.mip_dual_bound is not None:
         best_bound = float(result.mip_dual_bound)
         if is_max:
             best_bound = -best_bound
 
-    message = result.message if hasattr(result, 'message') else ""
+    message = result.message if hasattr(result, "message") else ""
 
     return Solution(
         status=status,
@@ -153,7 +141,7 @@ def _map_milp_status(result: Any) -> SolverStatus:
     # 2: Infeasible
     # 3: Unbounded
     # 4: Error
-    status_code = getattr(result, 'status', -1)
+    status_code = getattr(result, "status", -1)
 
     if status_code == 1:
         return SolverStatus.MAX_ITERATIONS

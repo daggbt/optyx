@@ -54,7 +54,6 @@ def _compute_poly_degree(expr: Expression) -> int | None:
         DotProduct,
         LinearCombination,
         VectorSum,
-        VectorVariable,
         VectorPowerSum,
         VectorUnarySum,
         ElementwisePower,
@@ -250,7 +249,11 @@ def _write_objective(
 
     # Extract linear part
     linear_terms = _extract_linear_terms(obj, variables)
-    constant = extract_constant_term(obj) if is_linear(obj) else _extract_constant_from_quadratic(obj)
+    constant = (
+        extract_constant_term(obj)
+        if is_linear(obj)
+        else _extract_constant_from_quadratic(obj)
+    )
 
     # Extract quadratic part (if any)
     quad_terms: list[tuple[str, str, float]] = []
@@ -309,6 +312,7 @@ def _write_constraints(
 
             # Extract row coefficients
             from scipy import sparse as sp
+
             if sp.issparse(A):
                 row = A.getrow(row_idx)
                 indices = row.indices
@@ -422,9 +426,6 @@ def _extract_quadratic_terms(
     - Diagonal: x_i^2 has coefficient as-is
     - Off-diagonal: x_i * x_j has coefficient (summed for both orderings)
     """
-    from optyx.core.matrices import QuadraticForm
-    from optyx.core.vectors import DotProduct, VectorVariable, VectorPowerSum
-
     n = len(variables)
     var_index = {v.name: i for i, v in enumerate(variables)}
     Q = np.zeros((n, n), dtype=np.float64)
@@ -461,7 +462,6 @@ def _collect_quadratic_coefficients(
         DotProduct,
         VectorVariable,
         VectorPowerSum,
-        VectorExpression,
     )
 
     # Leaf nodes — no quadratic contribution
@@ -486,8 +486,11 @@ def _collect_quadratic_coefficients(
 
     # DotProduct: x.dot(x) = sum(x_i^2) when left is right
     if isinstance(expr, DotProduct):
-        if (isinstance(expr.left, VectorVariable) and isinstance(expr.right, VectorVariable)
-                and expr.left is expr.right):
+        if (
+            isinstance(expr.left, VectorVariable)
+            and isinstance(expr.right, VectorVariable)
+            and expr.left is expr.right
+        ):
             for v in expr.left._variables:
                 idx = var_index.get(v.name)
                 if idx is not None:
@@ -580,12 +583,18 @@ def _get_scalar_linear_coeff(expr: Expression, var: Variable) -> float:
     if isinstance(expr, BinaryOp):
         if expr.op == "*":
             if isinstance(expr.left, Constant):
-                return float(expr.left.value) * _get_scalar_linear_coeff(expr.right, var)
+                return float(expr.left.value) * _get_scalar_linear_coeff(
+                    expr.right, var
+                )
             if isinstance(expr.right, Constant):
-                return _get_scalar_linear_coeff(expr.left, var) * float(expr.right.value)
+                return _get_scalar_linear_coeff(expr.left, var) * float(
+                    expr.right.value
+                )
         if expr.op == "/":
             if isinstance(expr.right, Constant):
-                return _get_scalar_linear_coeff(expr.left, var) / float(expr.right.value)
+                return _get_scalar_linear_coeff(expr.left, var) / float(
+                    expr.right.value
+                )
     if isinstance(expr, UnaryOp) and expr.op == "neg":
         return -_get_scalar_linear_coeff(expr.operand, var)
     return 1.0
@@ -710,18 +719,28 @@ def _extract_constant_from_quadratic(expr: Expression) -> float:
         return 0.0
     if isinstance(expr, BinaryOp):
         if expr.op == "+":
-            return _extract_constant_from_quadratic(expr.left) + _extract_constant_from_quadratic(expr.right)
+            return _extract_constant_from_quadratic(
+                expr.left
+            ) + _extract_constant_from_quadratic(expr.right)
         if expr.op == "-":
-            return _extract_constant_from_quadratic(expr.left) - _extract_constant_from_quadratic(expr.right)
+            return _extract_constant_from_quadratic(
+                expr.left
+            ) - _extract_constant_from_quadratic(expr.right)
         if expr.op == "*":
             if isinstance(expr.left, Constant):
-                return float(expr.left.value) * _extract_constant_from_quadratic(expr.right)
+                return float(expr.left.value) * _extract_constant_from_quadratic(
+                    expr.right
+                )
             if isinstance(expr.right, Constant):
-                return _extract_constant_from_quadratic(expr.left) * float(expr.right.value)
+                return _extract_constant_from_quadratic(expr.left) * float(
+                    expr.right.value
+                )
             return 0.0
         if expr.op == "/":
             if isinstance(expr.right, Constant):
-                return _extract_constant_from_quadratic(expr.left) / float(expr.right.value)
+                return _extract_constant_from_quadratic(expr.left) / float(
+                    expr.right.value
+                )
             return 0.0
         if expr.op == "**":
             if isinstance(expr.right, Constant) and float(expr.right.value) == 0.0:

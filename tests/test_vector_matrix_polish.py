@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from optyx import Problem, Variable, VectorVariable
+from optyx import Problem, VectorVariable
 from optyx.core.matrices import MatrixVariable
 
 

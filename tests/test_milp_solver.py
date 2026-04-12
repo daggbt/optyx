@@ -1,6 +1,5 @@
 """Tests for MILP solver integration (scipy.optimize.milp)."""
 
-import numpy as np
 import pytest
 
 from optyx import Variable, BinaryVariable, IntegerVariable, VectorVariable
@@ -42,9 +41,9 @@ class TestMILPBinaryKnapsack:
         sol = prob.solve()
         assert sol.is_optimal
         for name in ["x1", "x2"]:
-            assert sol[name] == pytest.approx(0, abs=1e-6) or sol[name] == pytest.approx(
-                1, abs=1e-6
-            )
+            assert sol[name] == pytest.approx(0, abs=1e-6) or sol[
+                name
+            ] == pytest.approx(1, abs=1e-6)
 
 
 class TestMILPIntegerVariables:

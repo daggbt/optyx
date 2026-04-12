@@ -15,7 +15,6 @@ import scipy
 from optyx.core.errors import (
     NoObjectiveError,
     NonLinearError,
-    IntegerVariableError,
     SolverError,
 )
 

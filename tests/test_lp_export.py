@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import tempfile
 
 import numpy as np
 import pytest
@@ -19,7 +18,6 @@ from optyx import (
     sin,
     exp,
 )
-from optyx.io import write_lp, format_lp
 from optyx.analysis import extract_quadratic_coefficients
 from optyx.core.errors import InvalidOperationError, NoObjectiveError
 
@@ -92,11 +90,13 @@ class TestLPFormatStructure:
         lines = lp.split("\n")
 
         # Find section positions
-        minimize_idx = next(i for i, l in enumerate(lines) if l.strip() == "Minimize")
-        subject_idx = next(i for i, l in enumerate(lines) if l.strip() == "Subject To")
-        bounds_idx = next(i for i, l in enumerate(lines) if l.strip() == "Bounds")
-        generals_idx = next(i for i, l in enumerate(lines) if l.strip() == "Generals")
-        end_idx = next(i for i, l in enumerate(lines) if l.strip() == "End")
+        minimize_idx = next(i for i, ln in enumerate(lines) if ln.strip() == "Minimize")
+        subject_idx = next(
+            i for i, ln in enumerate(lines) if ln.strip() == "Subject To"
+        )
+        bounds_idx = next(i for i, ln in enumerate(lines) if ln.strip() == "Bounds")
+        generals_idx = next(i for i, ln in enumerate(lines) if ln.strip() == "Generals")
+        end_idx = next(i for i, ln in enumerate(lines) if ln.strip() == "End")
 
         assert minimize_idx < subject_idx < bounds_idx < generals_idx < end_idx
 
@@ -370,7 +370,7 @@ class TestMatrixConstraints:
         assert ">=" in lp
         # Zero coefficients should be omitted
         lines = lp.split("\n")
-        constraint_lines = [l for l in lines if l.strip().startswith("c")]
+        constraint_lines = [ln for ln in lines if ln.strip().startswith("c")]
         # First constraint should have x[0] and x[3]
         assert "x[0]" in constraint_lines[0]
         assert "x[3]" in constraint_lines[0]
@@ -584,6 +584,7 @@ class TestExtractQuadraticCoefficients:
     def test_nonlinear_raises(self):
         x = Variable("x")
         from optyx.core.errors import NonLinearError
+
         with pytest.raises(NonLinearError):
             extract_quadratic_coefficients(sin(x), [x])
 

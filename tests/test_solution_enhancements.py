@@ -11,10 +11,8 @@ import json
 import os
 import tempfile
 
-import numpy as np
-import pytest
 
-from optyx import Constant, Problem, Variable, VectorVariable
+from optyx import Problem, Variable
 from optyx.solution import Solution, SolverStatus
 
 
@@ -146,9 +144,7 @@ class TestSolutionFromJson:
             "values": {},
             "message": "no feasible solution",
         }
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(data, f)
             path = f.name
 
@@ -351,8 +347,13 @@ class TestSolverStatusTerminated:
     def test_all_statuses_in_enum(self):
         """All expected statuses exist in SolverStatus."""
         expected = {
-            "OPTIMAL", "INFEASIBLE", "UNBOUNDED",
-            "MAX_ITERATIONS", "TERMINATED", "FAILED", "NOT_SOLVED",
+            "OPTIMAL",
+            "INFEASIBLE",
+            "UNBOUNDED",
+            "MAX_ITERATIONS",
+            "TERMINATED",
+            "FAILED",
+            "NOT_SOLVED",
         }
         actual = {s.name for s in SolverStatus}
         assert expected == actual
@@ -402,6 +403,6 @@ class TestPrintVars:
         captured = capsys.readouterr()
         lines = captured.out.strip().split("\n")
         # Find variable lines (indented with "  ")
-        var_lines = [l.strip() for l in lines if l.startswith("  ")]
-        names = [l.split(":")[0] for l in var_lines]
+        var_lines = [ln.strip() for ln in lines if ln.startswith("  ")]
+        names = [ln.split(":")[0] for ln in var_lines]
         assert names == ["a", "m", "z"]
