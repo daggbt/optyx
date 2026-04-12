@@ -846,9 +846,7 @@ class TestVectorSlicing:
         head = x[:-1]
         tail = x[1:]
         diff = tail - head
-        vals = diff.evaluate(
-            {"x[0]": 1.0, "x[1]": 3.0, "x[2]": 6.0, "x[3]": 10.0}
-        )
+        vals = diff.evaluate({"x[0]": 1.0, "x[1]": 3.0, "x[2]": 6.0, "x[3]": 10.0})
         np.testing.assert_array_almost_equal(vals, [2.0, 3.0, 4.0])
 
     def test_vectorized_rosenbrock_solves(self):
@@ -858,7 +856,7 @@ class TestVectorSlicing:
         prob = Problem("rosenbrock_vec")
         v_head = v[:-1]
         v_tail = v[1:]
-        obj = ((1 - v_head) ** 2 + 100 * (v_tail - v_head ** 2) ** 2).sum()
+        obj = ((1 - v_head) ** 2 + 100 * (v_tail - v_head**2) ** 2).sum()
         prob.minimize(obj)
         sol = prob.solve(method="SLSQP")
         assert sol.status.value == "optimal"
@@ -875,8 +873,7 @@ class TestVectorSlicing:
         # Loop
         p1 = Problem()
         obj1 = sum(
-            (1 - v[i]) ** 2 + 100 * (v[i + 1] - v[i] ** 2) ** 2
-            for i in range(n - 1)
+            (1 - v[i]) ** 2 + 100 * (v[i + 1] - v[i] ** 2) ** 2 for i in range(n - 1)
         )
         p1.minimize(obj1)
         s1 = p1.solve(method="SLSQP")
@@ -884,7 +881,7 @@ class TestVectorSlicing:
         # Vectorized
         p2 = Problem()
         head, tail = v[:-1], v[1:]
-        obj2 = ((1 - head) ** 2 + 100 * (tail - head ** 2) ** 2).sum()
+        obj2 = ((1 - head) ** 2 + 100 * (tail - head**2) ** 2).sum()
         p2.minimize(obj2)
         s2 = p2.solve(method="SLSQP")
 

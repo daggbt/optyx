@@ -265,7 +265,9 @@ class Variable(Expression):
 
         # Validate domain
         if domain not in ("continuous", "integer", "binary"):
-            raise ValueError(f"Unknown domain: {domain!r}. Must be 'continuous', 'integer', or 'binary'.")
+            raise ValueError(
+                f"Unknown domain: {domain!r}. Must be 'continuous', 'integer', or 'binary'."
+            )
 
         # Pre-compute sort key for consistent ordering
         parts = _NUMBER_SPLIT_RE.split(name)

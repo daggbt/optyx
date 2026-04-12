@@ -1192,7 +1192,7 @@ def _eval_vector(
         return np.array([v.evaluate(values) for v in vec._variables])
     if isinstance(vec, ElementwisePower):
         base_vals = _eval_vector(vec.vector, values)
-        return base_vals ** vec.power
+        return base_vals**vec.power
     if isinstance(vec, VectorBinaryOp):
         # Recursive numpy evaluation — no materialization
         left_vals = _eval_vector(vec.left, values)

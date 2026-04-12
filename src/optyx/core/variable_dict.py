@@ -131,9 +131,7 @@ class VariableDict:
             result = result + self._variables[key]
         return result
 
-    def prod(
-        self, coefficients: Mapping[str, float] | Sequence[float]
-    ) -> Expression:
+    def prod(self, coefficients: Mapping[str, float] | Sequence[float]) -> Expression:
         """Weighted sum (inner product) of variables with coefficients.
 
         Args:

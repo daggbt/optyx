@@ -178,7 +178,11 @@ def solve_scipy(
 
     # Initial point: explicit x0 > warm start > computed
     if x0 is None:
-        if warm_start and problem._last_solution is not None and len(problem._last_solution) == n:
+        if (
+            warm_start
+            and problem._last_solution is not None
+            and len(problem._last_solution) == n
+        ):
             x0 = problem._last_solution.copy()
         else:
             x0 = _compute_initial_point(variables)

@@ -65,6 +65,7 @@ def IntegerVariable(name: str, lb=None, ub=None, **kwargs) -> Variable:
     """
     return Variable(name, domain="integer", lb=lb, ub=ub, **kwargs)
 
+
 __all__ = [
     # Core
     "Expression",

@@ -254,8 +254,12 @@ class Problem:
         self._is_linear_cache = None
         # Remove only constraint keys from solver cache, keeping obj_fn/grad_fn/hess_fn
         if self._solver_cache is not None:
-            for key in ("scipy_constraints", "sparse_constraint_jac_fn",
-                        "constraint_fns", "constraint_senses"):
+            for key in (
+                "scipy_constraints",
+                "sparse_constraint_jac_fn",
+                "constraint_fns",
+                "constraint_senses",
+            ):
                 self._solver_cache.pop(key, None)
 
     def minimize(self, expr: Expression | float | int) -> Problem:
@@ -381,9 +385,7 @@ class Problem:
                     f"Named constraints: {[c.name for c in self._constraints if c.name]}"
                 )
         else:
-            raise TypeError(
-                f"Expected int or str, got {type(index_or_name).__name__}"
-            )
+            raise TypeError(f"Expected int or str, got {type(index_or_name).__name__}")
         self._invalidate_constraint_caches()
         return self
 
@@ -833,9 +835,13 @@ class Problem:
         from optyx.solvers.scipy_solver import solve_scipy
 
         solution = solve_scipy(
-            self, method=method, strict=strict,
-            warm_start=warm_start, callback=callback,
-            time_limit=time_limit, **kwargs,
+            self,
+            method=method,
+            strict=strict,
+            warm_start=warm_start,
+            callback=callback,
+            time_limit=time_limit,
+            **kwargs,
         )
         self._store_solution(solution)
         return solution
