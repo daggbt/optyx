@@ -1,6 +1,7 @@
 """Accuracy benchmark: Gradient validation.
 
-Validates Optyx autodiff gradients against finite difference approximations.
+Validates Optyx autodiff gradients against finite difference approximations
+AND hand-derived analytical formulas.
 Target: < 1e-6 relative error.
 """
 
@@ -9,6 +10,8 @@ from __future__ import annotations
 import numpy as np
 
 from optyx import Variable, Problem, sin, cos, exp, log, sqrt
+from optyx.core.autodiff import compile_jacobian
+from optyx.core.optimizer import flatten_expression
 
 import sys
 
@@ -32,6 +35,20 @@ def finite_difference_gradient(
     return grad
 
 
+def _optyx_gradient(prob: Problem) -> callable:
+    """Compile the Optyx gradient for a problem's objective.
+
+    Returns a callable ``(x) -> 1-d gradient array``.
+    """
+    obj_expr = prob.objective
+    if prob.sense == "maximize":
+        obj_expr = -obj_expr  # type: ignore[operator]
+    obj_expr = flatten_expression(obj_expr)
+    variables = prob.variables
+    jac_fn = compile_jacobian([obj_expr], variables)
+    return lambda x: jac_fn(x).flatten()
+
+
 class TestPolynomialGradients:
     """Test gradients of polynomial expressions."""
 
@@ -43,16 +60,14 @@ class TestPolynomialGradients:
         prob = Problem()
         prob.minimize(x**2 + 2 * x * y + 3 * y**2)
 
-        # Get compiled gradient from solver cache
         variables = prob.variables
         var_names = [v.name for v in variables]
+        optyx_grad = _optyx_gradient(prob)
 
-        # Build equivalent numpy function
         def f(vals):
             v = dict(zip(var_names, vals))
             return v["x"] ** 2 + 2 * v["x"] * v["y"] + 3 * v["y"] ** 2
 
-        # Test at multiple points
         test_points = [
             np.array([1.0, 2.0]),
             np.array([0.5, -0.3]),
@@ -61,13 +76,15 @@ class TestPolynomialGradients:
 
         for point in test_points:
             fd_grad = finite_difference_gradient(f, point)
-
-            # Analytical gradient: [2x + 2y, 2x + 6y]
             x_val, y_val = point
             analytical_grad = np.array([2 * x_val + 2 * y_val, 2 * x_val + 6 * y_val])
+            ox_grad = optyx_grad(point)
 
-            error = np.linalg.norm(fd_grad - analytical_grad)
-            assert error < 1e-5, f"Gradient error at {point}: {error}"
+            error_fd = np.linalg.norm(fd_grad - analytical_grad)
+            assert error_fd < 1e-5, f"FD vs analytical error at {point}: {error_fd}"
+
+            error_ox = np.linalg.norm(ox_grad - analytical_grad)
+            assert error_ox < 1e-5, f"Optyx vs analytical error at {point}: {error_ox}"
 
     def test_cubic_gradient(self):
         """f(x) = x³ - 3x + 1"""
@@ -75,6 +92,7 @@ class TestPolynomialGradients:
 
         prob = Problem()
         prob.minimize(x**3 - 3 * x + 1)
+        optyx_grad = _optyx_gradient(prob)
 
         def f(vals):
             return vals[0] ** 3 - 3 * vals[0] + 1
@@ -83,11 +101,14 @@ class TestPolynomialGradients:
 
         for point in test_points:
             fd_grad = finite_difference_gradient(f, point)
-            # Analytical: 3x² - 3
             analytical = np.array([3 * point[0] ** 2 - 3])
+            ox_grad = optyx_grad(point)
 
-            error = np.abs(fd_grad[0] - analytical[0])
-            assert error < 1e-5, f"Gradient error at {point}: {error}"
+            error_fd = np.abs(fd_grad[0] - analytical[0])
+            assert error_fd < 1e-5, f"FD vs analytical error at {point}: {error_fd}"
+
+            error_ox = np.abs(ox_grad[0] - analytical[0])
+            assert error_ox < 1e-5, f"Optyx vs analytical error at {point}: {error_ox}"
 
 
 class TestTranscendentalGradients:
@@ -99,6 +120,7 @@ class TestTranscendentalGradients:
 
         prob = Problem()
         prob.minimize(sin(x) + cos(x))
+        optyx_grad = _optyx_gradient(prob)
 
         def f(vals):
             return np.sin(vals[0]) + np.cos(vals[0])
@@ -107,11 +129,14 @@ class TestTranscendentalGradients:
 
         for point in test_points:
             fd_grad = finite_difference_gradient(f, point)
-            # Analytical: cos(x) - sin(x)
             analytical = np.array([np.cos(point[0]) - np.sin(point[0])])
+            ox_grad = optyx_grad(point)
 
-            error = np.abs(fd_grad[0] - analytical[0])
-            assert error < 1e-5, f"Gradient error at {point}: {error}"
+            error_fd = np.abs(fd_grad[0] - analytical[0])
+            assert error_fd < 1e-5, f"FD vs analytical error at {point}: {error_fd}"
+
+            error_ox = np.abs(ox_grad[0] - analytical[0])
+            assert error_ox < 1e-5, f"Optyx vs analytical error at {point}: {error_ox}"
 
     def test_exp_gradient(self):
         """f(x,y) = exp(x) + exp(-y)"""
@@ -120,6 +145,7 @@ class TestTranscendentalGradients:
 
         prob = Problem()
         prob.minimize(exp(x) + exp(-y))
+        optyx_grad = _optyx_gradient(prob)
 
         def f(vals):
             return np.exp(vals[0]) + np.exp(-vals[1])
@@ -132,11 +158,14 @@ class TestTranscendentalGradients:
 
         for point in test_points:
             fd_grad = finite_difference_gradient(f, point)
-            # Analytical: [exp(x), -exp(-y)]
             analytical = np.array([np.exp(point[0]), -np.exp(-point[1])])
+            ox_grad = optyx_grad(point)
 
-            error = np.linalg.norm(fd_grad - analytical)
-            assert error < 1e-5, f"Gradient error at {point}: {error}"
+            error_fd = np.linalg.norm(fd_grad - analytical)
+            assert error_fd < 1e-5, f"FD vs analytical error at {point}: {error_fd}"
+
+            error_ox = np.linalg.norm(ox_grad - analytical)
+            assert error_ox < 1e-5, f"Optyx vs analytical error at {point}: {error_ox}"
 
     def test_log_gradient(self):
         """f(x) = log(x) + x*log(x)"""
@@ -144,6 +173,7 @@ class TestTranscendentalGradients:
 
         prob = Problem()
         prob.minimize(log(x) + x * log(x))
+        optyx_grad = _optyx_gradient(prob)
 
         def f(vals):
             return np.log(vals[0]) + vals[0] * np.log(vals[0])
@@ -152,11 +182,14 @@ class TestTranscendentalGradients:
 
         for point in test_points:
             fd_grad = finite_difference_gradient(f, point)
-            # Analytical: 1/x + log(x) + 1
             analytical = np.array([1 / point[0] + np.log(point[0]) + 1])
+            ox_grad = optyx_grad(point)
 
-            error = np.abs(fd_grad[0] - analytical[0])
-            assert error < 1e-5, f"Gradient error at {point}: {error}"
+            error_fd = np.abs(fd_grad[0] - analytical[0])
+            assert error_fd < 1e-5, f"FD vs analytical error at {point}: {error_fd}"
+
+            error_ox = np.abs(ox_grad[0] - analytical[0])
+            assert error_ox < 1e-5, f"Optyx vs analytical error at {point}: {error_ox}"
 
     def test_sqrt_gradient(self):
         """f(x,y) = sqrt(x² + y²)"""
@@ -165,6 +198,7 @@ class TestTranscendentalGradients:
 
         prob = Problem()
         prob.minimize(sqrt(x**2 + y**2))
+        optyx_grad = _optyx_gradient(prob)
 
         def f(vals):
             return np.sqrt(vals[0] ** 2 + vals[1] ** 2)
@@ -178,11 +212,14 @@ class TestTranscendentalGradients:
         for point in test_points:
             fd_grad = finite_difference_gradient(f, point, eps=1e-6)
             r = np.sqrt(point[0] ** 2 + point[1] ** 2)
-            # Analytical: [x/r, y/r]
             analytical = np.array([point[0] / r, point[1] / r])
+            ox_grad = optyx_grad(point)
 
-            error = np.linalg.norm(fd_grad - analytical)
-            assert error < 1e-4, f"Gradient error at {point}: {error}"
+            error_fd = np.linalg.norm(fd_grad - analytical)
+            assert error_fd < 1e-4, f"FD vs analytical error at {point}: {error_fd}"
+
+            error_ox = np.linalg.norm(ox_grad - analytical)
+            assert error_ox < 1e-4, f"Optyx vs analytical error at {point}: {error_ox}"
 
 
 class TestCompositeGradients:
@@ -195,6 +232,7 @@ class TestCompositeGradients:
 
         prob = Problem()
         prob.minimize((1 - x) ** 2 + 100 * (y - x**2) ** 2)
+        optyx_grad = _optyx_gradient(prob)
 
         def f(vals):
             x, y = vals
@@ -209,16 +247,19 @@ class TestCompositeGradients:
         for point in test_points:
             fd_grad = finite_difference_gradient(f, point)
             x, y = point
-            # Analytical: [-2(1-x) - 400x(y-x²), 200(y-x²)]
             analytical = np.array(
                 [
                     -2 * (1 - x) - 400 * x * (y - x**2),
                     200 * (y - x**2),
                 ]
             )
+            ox_grad = optyx_grad(point)
 
-            error = np.linalg.norm(fd_grad - analytical)
-            assert error < 1e-4, f"Gradient error at {point}: {error}"
+            error_fd = np.linalg.norm(fd_grad - analytical)
+            assert error_fd < 1e-4, f"FD vs analytical error at {point}: {error_fd}"
+
+            error_ox = np.linalg.norm(ox_grad - analytical)
+            assert error_ox < 1e-4, f"Optyx vs analytical error at {point}: {error_ox}"
 
     def test_mixed_expression_gradient(self):
         """f(x,y) = x*sin(y) + exp(x*y)"""
@@ -227,6 +268,7 @@ class TestCompositeGradients:
 
         prob = Problem()
         prob.minimize(x * sin(y) + exp(x * y))
+        optyx_grad = _optyx_gradient(prob)
 
         def f(vals):
             x, y = vals
@@ -241,16 +283,19 @@ class TestCompositeGradients:
         for point in test_points:
             fd_grad = finite_difference_gradient(f, point)
             x, y = point
-            # Analytical: [sin(y) + y*exp(xy), x*cos(y) + x*exp(xy)]
             analytical = np.array(
                 [
                     np.sin(y) + y * np.exp(x * y),
                     x * np.cos(y) + x * np.exp(x * y),
                 ]
             )
+            ox_grad = optyx_grad(point)
 
-            error = np.linalg.norm(fd_grad - analytical)
-            assert error < 1e-4, f"Gradient error at {point}: {error}"
+            error_fd = np.linalg.norm(fd_grad - analytical)
+            assert error_fd < 1e-4, f"FD vs analytical error at {point}: {error_fd}"
+
+            error_ox = np.linalg.norm(ox_grad - analytical)
+            assert error_ox < 1e-4, f"Optyx vs analytical error at {point}: {error_ox}"
 
 
 class TestConstraintGradients:
@@ -265,15 +310,25 @@ class TestConstraintGradients:
         prob.minimize(x**2 + y**2)
         prob.subject_to(2 * x + 3 * y >= 5)
 
+        # Compile Optyx constraint Jacobian
+        c_expr = prob.constraints[0].expr
+        c_expr = flatten_expression(c_expr)
+        variables = prob.variables
+        c_jac_fn = compile_jacobian([c_expr], variables)
+
         def g(vals):
             return 2 * vals[0] + 3 * vals[1] - 5
 
         point = np.array([1.0, 1.0])
         fd_grad = finite_difference_gradient(g, point)
         analytical = np.array([2.0, 3.0])
+        ox_grad = c_jac_fn(point).flatten()
 
-        error = np.linalg.norm(fd_grad - analytical)
-        assert error < 1e-6, f"Gradient error: {error}"
+        error_fd = np.linalg.norm(fd_grad - analytical)
+        assert error_fd < 1e-6, f"FD vs analytical error: {error_fd}"
+
+        error_ox = np.linalg.norm(ox_grad - analytical)
+        assert error_ox < 1e-6, f"Optyx vs analytical error: {error_ox}"
 
     def test_nonlinear_constraint_gradient(self):
         """g(x,y) = x² + y² - 1"""
@@ -283,6 +338,12 @@ class TestConstraintGradients:
         prob = Problem()
         prob.minimize(x + y)
         prob.subject_to(x**2 + y**2 <= 1)
+
+        # Compile Optyx constraint Jacobian
+        c_expr = prob.constraints[0].expr
+        c_expr = flatten_expression(c_expr)
+        variables = prob.variables
+        c_jac_fn = compile_jacobian([c_expr], variables)
 
         def g(vals):
             return vals[0] ** 2 + vals[1] ** 2 - 1
@@ -296,9 +357,13 @@ class TestConstraintGradients:
         for point in test_points:
             fd_grad = finite_difference_gradient(g, point)
             analytical = 2 * point
+            ox_grad = c_jac_fn(point).flatten()
 
-            error = np.linalg.norm(fd_grad - analytical)
-            assert error < 1e-5, f"Gradient error at {point}: {error}"
+            error_fd = np.linalg.norm(fd_grad - analytical)
+            assert error_fd < 1e-5, f"FD vs analytical error at {point}: {error_fd}"
+
+            error_ox = np.linalg.norm(ox_grad - analytical)
+            assert error_ox < 1e-5, f"Optyx vs analytical error at {point}: {error_ox}"
 
 
 if __name__ == "__main__":

@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import numpy as np
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
 from optyx.core.errors import ConstraintError
 
 if TYPE_CHECKING:
+    from numpy.typing import NDArray
     from optyx.core.expressions import Expression, Variable
 
 
@@ -103,6 +104,70 @@ class Constraint:
     def __repr__(self) -> str:
         name_str = f"'{self.name}': " if self.name else ""
         return f"Constraint({name_str}{self.expr} {self.sense} 0)"
+
+
+@dataclass(frozen=True)
+class MatrixConstraintBlock:
+    """Structured matrix constraint block: A @ x {<=, >=, ==} b.
+
+    This preserves the original matrix representation so LP/MILP extraction
+    can keep dense or sparse structure instead of expanding into many scalar
+    constraints.
+    """
+
+    A: Any
+    variables: tuple[Variable, ...]
+    sense: str
+    b: NDArray[np.floating]
+
+    def __post_init__(self):
+        if self.sense not in ("<=", ">=", "=="):
+            raise ConstraintError(
+                message=f"Invalid matrix constraint sense: {self.sense}. Use <=, >=, or ==.",
+                constraint_type=self.sense,
+            )
+
+
+def make_matrix_constraint_block(
+    A: Any,
+    x: Any,
+    sense: str,
+    b: Any,
+) -> MatrixConstraintBlock:
+    """Create a validated MatrixConstraintBlock from raw matrix data."""
+    from scipy import sparse as sp
+
+    from optyx.core.vectors import VectorVariable
+
+    if not isinstance(x, VectorVariable):
+        raise TypeError(
+            "Matrix constraints require a VectorVariable on the right-hand side."
+        )
+
+    b_arr = np.asarray(b, dtype=np.float64).ravel()
+
+    if sp.issparse(A):
+        m, n = A.shape
+        matrix = A
+    else:
+        matrix = np.asarray(A, dtype=np.float64)
+        if matrix.ndim != 2:
+            raise ValueError(f"A must be 2D, got array with ndim={matrix.ndim}")
+        m, n = matrix.shape
+
+    if n != x.size:
+        raise ValueError(f"A has {n} columns but x has {x.size} variables")
+    if m != len(b_arr):
+        raise ValueError(f"A has {m} rows but b has {len(b_arr)} elements")
+    if sense not in ("<=", ">=", "=="):
+        raise ValueError(f"sense must be '<=', '>=', or '==', got '{sense}'")
+
+    return MatrixConstraintBlock(
+        A=matrix,
+        variables=tuple(x._variables),
+        sense=sense,
+        b=b_arr,
+    )
 
 
 def _make_constraint(lhs: Expression, sense: str, rhs) -> Constraint:

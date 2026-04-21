@@ -7,7 +7,7 @@ than integers.
 
 from __future__ import annotations
 
-from typing import Iterator, Mapping, Sequence
+from typing import Iterator, Literal, Mapping, Sequence
 
 
 from optyx.core.expressions import Constant, Expression, Variable
@@ -45,7 +45,7 @@ class VariableDict:
         keys: Sequence[str],
         lb: float | Mapping[str, float] | None = None,
         ub: float | Mapping[str, float] | None = None,
-        domain: str = "continuous",
+        domain: Literal["continuous", "integer", "binary"] = "continuous",
     ) -> None:
         if not keys:
             raise ValueError("VariableDict requires at least one key.")
@@ -172,6 +172,19 @@ class VariableDict:
     def get_variables(self) -> list[Variable]:
         """Return all Variable objects in key order."""
         return [self._variables[k] for k in self._keys]
+
+    def to_dict(self, solution) -> dict[str, float]:
+        """Extract variable values from a solution as a ``{key: value}`` dict.
+
+        This is a convenience wrapper around ``solution[variable_dict]``.
+
+        Args:
+            solution: A :class:`~optyx.solution.Solution` object.
+
+        Returns:
+            Dict mapping each key to its optimal value.
+        """
+        return solution[self]
 
     def _resolve_keys(self, keys: Sequence[str] | None) -> list[str]:
         """Resolve and validate a key subset."""

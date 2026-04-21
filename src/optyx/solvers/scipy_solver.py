@@ -7,12 +7,16 @@ from __future__ import annotations
 
 import time
 import warnings
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 import numpy as np
-from scipy.optimize import Bounds, minimize
+from scipy.optimize import Bounds, LinearConstraint, NonlinearConstraint, minimize
 
-from optyx.core.errors import IntegerVariableError, NoObjectiveError
+from optyx.core.errors import (
+    IntegerVariableError,
+    NoObjectiveError,
+    UnsupportedOperationError,
+)
 
 if TYPE_CHECKING:
     from optyx.problem import Problem
@@ -56,9 +60,9 @@ def solve_scipy(
         use_hessian: Whether to compute and pass the symbolic Hessian to methods
             that support it (trust-constr, Newton-CG, etc.). Default True.
             Set to False if Hessian computation is too expensive.
-        strict: If True, raise ValueError when the problem contains integer/binary
-            variables that cannot be enforced by the solver. If False (default),
-            emit a warning and relax to continuous.
+        strict: Retained for API compatibility with Problem.solve(). Direct
+            SciPy solves always reject integer/binary domains because SciPy
+            cannot enforce them.
         warm_start: If True (default), use the previous solution stored on the
             Problem as the initial point when x0 is not explicitly provided.
         callback: Optional function receiving a SolverProgress object each
@@ -71,7 +75,10 @@ def solve_scipy(
         Solution object with optimization results.
 
     Raises:
-        ValueError: If strict=True and problem contains integer/binary variables.
+        IntegerVariableError: If a linear discrete model is sent directly to a
+            continuous SciPy solver.
+        UnsupportedOperationError: If a nonlinear discrete model (MIQP/MINLP)
+            reaches this solver directly.
     """
     from optyx.core.autodiff import compile_hessian
     from optyx.solution import Solution, SolverStatus
@@ -111,23 +118,29 @@ def solve_scipy(
             message="Problem has no variables",
         )
 
-    # Check for non-continuous domains
+    # Check for non-continuous domains — always raise for MINLP.
+    # The caller (Problem.solve) should have caught this already, but
+    # guard here as a safety net.
     non_continuous = [v for v in variables if v.domain != "continuous"]
     if non_continuous:
-        names = ", ".join(v.name for v in non_continuous)
-        if strict:
+        if problem._is_linear_problem():
             raise IntegerVariableError(
                 solver_name="SciPy",
                 variable_names=[v.name for v in non_continuous],
             )
-        else:
-            warnings.warn(
-                f"Variables [{names}] have integer/binary domains but will be relaxed "
-                f"to continuous. SciPy solver does not support integer programming. "
-                f"For true MIP, consider PuLP or Pyomo.",
-                UserWarning,
-                stacklevel=3,
-            )
+
+        raise UnsupportedOperationError(
+            "MIQP/MINLP solve",
+            solver_name="SciPy",
+            problem_feature=(
+                "nonlinear objective or constraints with integer/binary "
+                f"variables {[v.name for v in non_continuous]}"
+            ),
+            suggestion=(
+                "Use the MILP path for linear discrete models, or switch to a "
+                "dedicated MIQP/MINLP solver"
+            ),
+        )
 
     # Check for cached compiled callables
     cache = problem._solver_cache
@@ -141,7 +154,10 @@ def solve_scipy(
     # Extract cached callables
     obj_fn = cache["obj_fn"]
     grad_fn = cache["grad_fn"]
-    scipy_constraints = cache["scipy_constraints"]
+    scipy_constraints = cast(list[dict[str, Any]], cache["scipy_constraints"])
+    linear_constraints = cast(
+        list[LinearConstraint], cache.get("linear_constraints", [])
+    )
 
     # Recompute bounds each time to ensure updates to variable properties are respected
     lb_arr = np.empty(n)
@@ -155,7 +171,10 @@ def solve_scipy(
         return float(obj_fn(x))
 
     def gradient(x: np.ndarray) -> np.ndarray:
-        return grad_fn(x).flatten()
+        grad = grad_fn(x)
+        if hasattr(grad, "toarray"):
+            return np.asarray(grad.toarray(), dtype=np.float64).ravel()
+        return np.asarray(grad, dtype=np.float64).ravel()
 
     # Build Hessian for methods that support it (not cached - method-dependent)
     hess_fn: Callable[[np.ndarray], np.ndarray] | None = None
@@ -211,13 +230,27 @@ def solve_scipy(
     # Determine if gradient should be passed (not for derivative-free methods)
     use_gradient = method not in DERIVATIVE_FREE_METHODS
 
+    # For trust-constr, use the vector-valued NonlinearConstraint with the
+    # batched sparse Jacobian when available.  Fall back to the old scalar
+    # constraint dicts for all other methods (e.g. SLSQP).
+    constraint_monitors: list[Any] = []
+    if method == "trust-constr":
+        tc_constraint = _build_trust_constr_constraints(cache)
+        if tc_constraint is not None:
+            constraint_monitors.append(tc_constraint)
+    else:
+        constraint_monitors.extend(scipy_constraints)
+
+    constraint_monitors.extend(linear_constraints)
+    constraints_arg: Any = constraint_monitors if constraint_monitors else ()
+
     # Build composite callback for user callback and/or time_limit
     scipy_callback = _build_scipy_callback(
         callback=callback,
         time_limit=time_limit,
         start_time=start_time,
         obj_fn=obj_fn,
-        scipy_constraints=scipy_constraints,
+        constraints=constraint_monitors,
         sense=problem.sense,
         method=method,
     )
@@ -233,7 +266,7 @@ def solve_scipy(
             jac=gradient if use_gradient else None,
             hess=hess_fn if hess_fn is not None else None,
             bounds=bounds if method in BOUNDS_METHODS else None,
-            constraints=scipy_constraints if scipy_constraints else (),
+            constraints=constraints_arg,
             tol=tol,
             options=options if options else None,
             callback=scipy_callback,
@@ -272,22 +305,14 @@ def solve_scipy(
     constraints_violated = False
     max_violation = 0.0
 
-    if result.success and scipy_constraints:
-        for c in scipy_constraints:
-            c_val = c["fun"](result.x)
-            # Scaled tolerance based on constraint magnitude
-            scaled_tol = atol + rtol * max(1.0, abs(c_val))
-
-            if c["type"] == "ineq" and c_val < -scaled_tol:
-                # Inequality constraint violated (should be >= 0)
-                violation = -c_val
-                max_violation = max(max_violation, violation)
-                constraints_violated = True
-            elif c["type"] == "eq" and abs(c_val) > scaled_tol:
-                # Equality constraint violated (should be == 0)
-                violation = abs(c_val)
-                max_violation = max(max_violation, violation)
-                constraints_violated = True
+    if result.success and constraint_monitors:
+        max_violation = _compute_constraint_violation(
+            result.x,
+            constraint_monitors,
+            atol=atol,
+            rtol=rtol,
+        )
+        constraints_violated = max_violation > 0.0
 
     # If SLSQP returned "optimal" but constraints are violated, retry with trust-constr
     if constraints_violated and method == "SLSQP":
@@ -402,8 +427,11 @@ def _build_solver_cache(problem: Problem, variables: list) -> dict[str, Any]:
     Returns:
         Dict containing compiled callables and constraint data.
     """
-    from optyx.core.autodiff import compile_jacobian, compile_sparse_jacobian
-    from optyx.core.compiler import compile_expression
+    from optyx.core.autodiff import analyze_gradient_sparsity, compile_jacobian
+    from optyx.core.compiler import (
+        compile_expression,
+        compile_sparse_gradient_dense_output,
+    )
     from optyx.core.optimizer import flatten_expression
 
     cache: dict[str, Any] = {}
@@ -432,7 +460,14 @@ def _build_solver_cache(problem: Problem, variables: list) -> dict[str, Any]:
     obj_expr = flatten_expression(obj_expr)
 
     cache["obj_fn"] = compile_expression(obj_expr, variables)
-    cache["grad_fn"] = compile_jacobian([obj_expr], variables)
+
+    # SciPy expects dense objective gradients. For sparse objectives, compile
+    # only the non-zero partials and scatter them into a dense vector.
+    obj_grad_sparsity = analyze_gradient_sparsity(obj_expr, variables)
+    if obj_grad_sparsity.density <= 0.5:
+        cache["grad_fn"] = compile_sparse_gradient_dense_output(obj_expr, variables)
+    else:
+        cache["grad_fn"] = compile_jacobian([obj_expr], variables)
 
     # Build constraints for SciPy
     scipy_constraints = []
@@ -480,14 +515,15 @@ def _build_solver_cache(problem: Problem, variables: list) -> dict[str, Any]:
             )
 
     cache["scipy_constraints"] = scipy_constraints
+    cache["linear_constraints"] = _build_matrix_linear_constraints(problem, variables)
 
-    # Build batched sparse constraint Jacobian for trust-constr
-    # This enables O(nnz) memory and computation for sparse constraint systems
+    # trust-constr builds the batched sparse Jacobian lazily so SLSQP-only
+    # solves don't pay cold-start compilation cost for unused sparse data.
     if constraint_exprs:
-        sparse_jac_fn = compile_sparse_jacobian(constraint_exprs, variables)
-        cache["sparse_constraint_jac_fn"] = sparse_jac_fn
+        cache["constraint_exprs"] = constraint_exprs
         cache["constraint_fns"] = constraint_fns
         cache["constraint_senses"] = constraint_senses
+        cache["constraint_variables"] = variables
 
     return cache
 
@@ -500,7 +536,7 @@ def _rebuild_constraint_cache(
     Called when constraints have been added/removed but the objective
     hasn't changed, so obj_fn/grad_fn/hess_fn are still valid.
     """
-    from optyx.core.autodiff import compile_jacobian, compile_sparse_jacobian
+    from optyx.core.autodiff import compile_jacobian
     from optyx.core.compiler import compile_expression
     from optyx.core.optimizer import flatten_expression
 
@@ -547,33 +583,209 @@ def _rebuild_constraint_cache(
             )
 
     cache["scipy_constraints"] = scipy_constraints
+    cache["linear_constraints"] = _build_matrix_linear_constraints(problem, variables)
 
     if constraint_exprs:
-        sparse_jac_fn = compile_sparse_jacobian(constraint_exprs, variables)
-        cache["sparse_constraint_jac_fn"] = sparse_jac_fn
+        cache["constraint_exprs"] = constraint_exprs
         cache["constraint_fns"] = constraint_fns
         cache["constraint_senses"] = constraint_senses
+        cache["constraint_variables"] = variables
     else:
         cache.pop("sparse_constraint_jac_fn", None)
+        cache.pop("constraint_exprs", None)
         cache.pop("constraint_fns", None)
         cache.pop("constraint_senses", None)
+        cache.pop("constraint_variables", None)
+
+
+def _build_trust_constr_constraints(
+    cache: dict[str, Any],
+) -> NonlinearConstraint | None:
+    """Build a single NonlinearConstraint for trust-constr from cached data.
+
+    Uses the batched sparse Jacobian compiled by ``compile_sparse_jacobian``
+    and the vector of scalar constraint functions already stored in the cache.
+
+    Returns ``None`` when there are no constraints.
+    """
+    constraint_fns = cache.get("constraint_fns")
+    constraint_senses = cast(list[str] | None, cache.get("constraint_senses"))
+    sparse_jac_fn = cache.get("sparse_constraint_jac_fn")
+
+    if not constraint_fns or constraint_senses is None:
+        return None
+
+    if sparse_jac_fn is None:
+        from optyx.core.autodiff import compile_sparse_jacobian
+
+        constraint_exprs = cache.get("constraint_exprs")
+        constraint_variables = cache.get("constraint_variables")
+        if not constraint_exprs or constraint_variables is None:
+            return None
+        sparse_jac_fn = compile_sparse_jacobian(constraint_exprs, constraint_variables)
+        cache["sparse_constraint_jac_fn"] = sparse_jac_fn
+
+    m = len(constraint_fns)
+
+    # Build lb / ub vectors from senses.
+    # Stored expressions are normalised so that the constraint reads
+    #   expr(x)  {>=, <=, ==}  0
+    lb = np.full(m, -np.inf)
+    ub = np.full(m, np.inf)
+    for i, sense in enumerate(constraint_senses):
+        if sense == ">=":
+            lb[i] = 0.0
+        elif sense == "<=":
+            ub[i] = 0.0
+        else:  # "=="
+            lb[i] = 0.0
+            ub[i] = 0.0
+
+    # Vector-valued constraint function.
+    def _constraint_vector(x: np.ndarray) -> np.ndarray:
+        out = np.empty(m)
+        for i, fn in enumerate(constraint_fns):
+            out[i] = float(fn(x))
+        return out
+
+    jac_callback: Any = sparse_jac_fn
+
+    return NonlinearConstraint(
+        fun=_constraint_vector,
+        lb=lb,
+        ub=ub,
+        jac=cast(Any, jac_callback),
+    )
+
+
+def _build_matrix_linear_constraints(
+    problem: Problem,
+    variables: list,
+) -> list[LinearConstraint]:
+    """Build SciPy LinearConstraint objects for stored matrix blocks."""
+    from scipy import sparse as sp
+
+    if not problem._matrix_constraints:
+        return []
+
+    n = len(variables)
+    var_index = {var.name: i for i, var in enumerate(variables)}
+    linear_constraints: list[LinearConstraint] = []
+
+    for mc in problem._matrix_constraints:
+        mc_n = len(mc.variables)
+        col_indices = np.array([var_index[v.name] for v in mc.variables], dtype=np.intp)
+
+        if sp.issparse(mc.A):
+            if mc_n == n and np.array_equal(col_indices, np.arange(n)):
+                A_full = mc.A
+            else:
+                permutation = sp.csr_matrix(
+                    (np.ones(mc_n), (np.arange(mc_n), col_indices)),
+                    shape=(mc_n, n),
+                )
+                A_full = (mc.A @ permutation).tocsr()
+        else:
+            A_base = np.asarray(mc.A, dtype=np.float64)
+            if mc_n == n and np.array_equal(col_indices, np.arange(n)):
+                A_full = A_base
+            else:
+                A_full = np.zeros((A_base.shape[0], n), dtype=np.float64)
+                A_full[:, col_indices] = A_base
+
+        m = A_full.shape[0]
+        if mc.sense == "<=":
+            lb = np.full(m, -np.inf)
+            ub = mc.b
+        elif mc.sense == ">=":
+            lb = mc.b
+            ub = np.full(m, np.inf)
+        else:
+            lb = mc.b
+            ub = mc.b
+
+        linear_constraints.append(
+            LinearConstraint(A_full, lb=cast(Any, lb), ub=cast(Any, ub))
+        )
+
+    return linear_constraints
 
 
 def _compute_constraint_violation(
     x: np.ndarray,
-    scipy_constraints: list[dict[str, Any]],
+    constraints: list[Any],
+    *,
+    atol: float = 0.0,
+    rtol: float = 0.0,
 ) -> float:
     """Compute maximum constraint violation for current iterate."""
     max_violation = 0.0
-    for c in scipy_constraints:
-        val = c["fun"](x)
-        if c["type"] == "ineq":
-            # ineq means val >= 0; violation is max(0, -val)
-            violation = max(0.0, -val)
+    for c in constraints:
+        if isinstance(c, dict):
+            val = float(c["fun"](x))
+            scaled_tol = atol + rtol * max(1.0, abs(val))
+            if c["type"] == "ineq":
+                violation = -val if val < -scaled_tol else 0.0
+            else:
+                violation = abs(val) if abs(val) > scaled_tol else 0.0
+        elif isinstance(c, LinearConstraint):
+            values = np.asarray(c.A @ x, dtype=np.float64).reshape(-1)
+            violation = _compute_bound_violation(
+                values, c.lb, c.ub, atol=atol, rtol=rtol
+            )
+        elif isinstance(c, NonlinearConstraint):
+            values = np.asarray(c.fun(x), dtype=np.float64).reshape(-1)
+            violation = _compute_bound_violation(
+                values, c.lb, c.ub, atol=atol, rtol=rtol
+            )
         else:
-            # eq means val == 0; violation is |val|
-            violation = abs(val)
+            continue
+
         max_violation = max(max_violation, violation)
+    return max_violation
+
+
+def _compute_bound_violation(
+    values: np.ndarray,
+    lb: Any,
+    ub: Any,
+    *,
+    atol: float = 0.0,
+    rtol: float = 0.0,
+) -> float:
+    """Compute maximum bound-style constraint violation for a vector of values."""
+    vals = np.asarray(values, dtype=np.float64).reshape(-1)
+    lb_arr = np.broadcast_to(np.asarray(lb, dtype=np.float64), vals.shape)
+    ub_arr = np.broadcast_to(np.asarray(ub, dtype=np.float64), vals.shape)
+
+    max_violation = 0.0
+
+    lower_mask = np.isfinite(lb_arr)
+    if np.any(lower_mask):
+        lower_vals = vals[lower_mask]
+        lower_bounds = lb_arr[lower_mask]
+        lower_scale = np.maximum(
+            1.0, np.maximum(np.abs(lower_vals), np.abs(lower_bounds))
+        )
+        lower_tol = atol + rtol * lower_scale
+        lower_violation = lower_bounds - lower_vals
+        lower_violation = lower_violation[lower_violation > lower_tol]
+        if lower_violation.size:
+            max_violation = max(max_violation, float(np.max(lower_violation)))
+
+    upper_mask = np.isfinite(ub_arr)
+    if np.any(upper_mask):
+        upper_vals = vals[upper_mask]
+        upper_bounds = ub_arr[upper_mask]
+        upper_scale = np.maximum(
+            1.0, np.maximum(np.abs(upper_vals), np.abs(upper_bounds))
+        )
+        upper_tol = atol + rtol * upper_scale
+        upper_violation = upper_vals - upper_bounds
+        upper_violation = upper_violation[upper_violation > upper_tol]
+        if upper_violation.size:
+            max_violation = max(max_violation, float(np.max(upper_violation)))
+
     return max_violation
 
 
@@ -583,7 +795,7 @@ def _build_scipy_callback(
     time_limit: float | None,
     start_time: float,
     obj_fn: Callable,
-    scipy_constraints: list[dict[str, Any]],
+    constraints: list[Any],
     sense: str,
     method: str,
 ) -> Callable | None:
@@ -621,7 +833,7 @@ def _build_scipy_callback(
             obj_val = -obj_val
 
         # Compute constraint violation
-        cv = _compute_constraint_violation(x, scipy_constraints)
+        cv = _compute_constraint_violation(x, constraints)
 
         # Check time limit first
         if time_limit is not None and elapsed >= time_limit:

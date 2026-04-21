@@ -243,12 +243,22 @@ prob.subject_to(x[i] >= i for i in range(100))
 
 ### Direct Matrix Constraints
 
-When dealing with massive constraint sets (10,000+), looping over components is slow. Use `subject_to_matrix()` to bypass symbolic algebra entirely:
+When dealing with massive constraint sets (10,000+), looping over components is slow. Use direct matrix constraints through `subject_to(...)`:
 
 ```python
-# Pass scipy.sparse matrices straight to the solver
-prob.subject_to_matrix(A_sparse, x, "<=", b_vector)
+from optyx import as_matrix
+
+# Wrap scipy.sparse so A @ x stays symbolic
+A_sparse = as_matrix(A_sparse, storage="sparse")
+prob.subject_to(A_sparse @ x <= b_vector)
 ```
+
+::: {.callout-note}
+Raw `scipy.sparse` matrices cannot be used directly on the left side of `@` here. SciPy intercepts `A @ x` first and attempts a numeric sparse multiplication, which fails before Optyx can turn it into a symbolic matrix constraint. `as_matrix(...)` wraps the sparse matrix in an Optyx matrix object so the symbolic path is used instead.
+
+If you already have a dense array but want explicit storage control, `as_matrix()` accepts `storage="auto"`, `storage="dense"`, and `storage="sparse"`. `storage="auto"` keeps sparse inputs sparse and can convert large, low-density dense arrays into CSR storage automatically.
+:::
+
 See the [Performance Guide](performance.qmd) for more details.
 
 ### Building Constraint Lists

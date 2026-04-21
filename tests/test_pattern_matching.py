@@ -9,7 +9,10 @@ from optyx.core.vectors import (
     LinearCombination,
 )
 from optyx.core.matrices import QuadraticForm
-from optyx.core.autodiff import detect_vector_gradient_pattern, VectorGradientPattern
+from optyx.core.autodiff import (
+    detect_vector_gradient_pattern,
+    VectorExpressionPattern,
+)
 
 
 def test_detect_patterns():
@@ -17,13 +20,14 @@ def test_detect_patterns():
     c = Constant(2.0)
 
     # Base cases
-    assert detect_vector_gradient_pattern(x) == VectorGradientPattern.COMPONENT
-    assert detect_vector_gradient_pattern(c) == VectorGradientPattern.CONSTANT
+    assert detect_vector_gradient_pattern(x) == VectorExpressionPattern.COMPONENT
+    assert detect_vector_gradient_pattern(c) == VectorExpressionPattern.CONSTANT
 
     # Scaled component
     scaled = c * x
     assert (
-        detect_vector_gradient_pattern(scaled) == VectorGradientPattern.SCALED_COMPONENT
+        detect_vector_gradient_pattern(scaled)
+        == VectorExpressionPattern.SCALED_COMPONENT
     )
 
     # Vector expressions
@@ -33,28 +37,28 @@ def test_detect_patterns():
 
     # Sum
     s = VectorSum(v)
-    assert detect_vector_gradient_pattern(s) == VectorGradientPattern.SUM
+    assert detect_vector_gradient_pattern(s) == VectorExpressionPattern.SUM
 
     # Scaled Sum
     ss = c * s
-    assert detect_vector_gradient_pattern(ss) == VectorGradientPattern.SCALED_SUM
+    assert detect_vector_gradient_pattern(ss) == VectorExpressionPattern.SCALED_SUM
 
     # Linear Combination (c @ v)
     lc = LinearCombination(coeffs, v)
-    assert detect_vector_gradient_pattern(lc) == VectorGradientPattern.DOT_PRODUCT
+    assert detect_vector_gradient_pattern(lc) == VectorExpressionPattern.DOT_PRODUCT
 
     # Dot Product
     dp = DotProduct(v, v)  # Should be DOT_PRODUCT for now
-    assert detect_vector_gradient_pattern(dp) == VectorGradientPattern.DOT_PRODUCT
+    assert detect_vector_gradient_pattern(dp) == VectorExpressionPattern.DOT_PRODUCT
 
     # Norms
     l1 = L1Norm(v)
-    assert detect_vector_gradient_pattern(l1) == VectorGradientPattern.L1_NORM
+    assert detect_vector_gradient_pattern(l1) == VectorExpressionPattern.L1_NORM
 
     l2 = L2Norm(v)
-    assert detect_vector_gradient_pattern(l2) == VectorGradientPattern.L2_NORM
+    assert detect_vector_gradient_pattern(l2) == VectorExpressionPattern.L2_NORM
 
     # Quadratic Form
     Q = np.eye(n)
     qf = QuadraticForm(v, Q)
-    assert detect_vector_gradient_pattern(qf) == VectorGradientPattern.QUADRATIC_FORM
+    assert detect_vector_gradient_pattern(qf) == VectorExpressionPattern.QUADRATIC_FORM

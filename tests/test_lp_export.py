@@ -14,6 +14,7 @@ from optyx import (
     Variable,
     VectorVariable,
     VariableDict,
+    as_matrix,
     quadratic_form,
     sin,
     exp,
@@ -351,7 +352,7 @@ class TestMatrixConstraints:
         b = np.array([10, 20])
         prob = Problem()
         prob.minimize(x.sum())
-        prob.subject_to_matrix(A, x, "<=", b)
+        prob.subject_to(A @ x <= b)
         lp = prob.to_lp()
         assert "<=" in lp
         assert "10" in lp
@@ -361,11 +362,11 @@ class TestMatrixConstraints:
         from scipy import sparse as sp
 
         x = VectorVariable("x", 5, lb=0)
-        A = sp.csr_matrix(np.array([[1, 0, 0, 2, 0], [0, 3, 0, 0, 4]]))
+        A = as_matrix(sp.csr_matrix(np.array([[1, 0, 0, 2, 0], [0, 3, 0, 0, 4]])))
         b = np.array([5, 6])
         prob = Problem()
         prob.minimize(x.sum())
-        prob.subject_to_matrix(A, x, ">=", b)
+        prob.subject_to(A @ x >= b)
         lp = prob.to_lp()
         assert ">=" in lp
         # Zero coefficients should be omitted
@@ -382,7 +383,7 @@ class TestMatrixConstraints:
         prob = Problem()
         prob.minimize(x.sum())
         prob.subject_to(x[0] >= 1)
-        prob.subject_to_matrix(A, x, "<=", b)
+        prob.subject_to(A @ x <= b)
         lp = prob.to_lp()
         assert "c0:" in lp
         assert "c1:" in lp

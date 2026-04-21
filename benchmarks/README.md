@@ -141,12 +141,9 @@ prob.subject_to(np.sum(x) >= 1)   # Sum constraint
 
 ## Updating Documentation
 
-When regenerating benchmark plots, copy them to the docs folder:
+When regenerating benchmark plots, the runner syncs benchmark artifacts to the docs folder automatically:
 
 ```bash
 # Regenerate plots
 uv run python benchmarks/run_benchmarks.py
-
-# Copy to docs assets
-cp benchmarks/results/*.png docs/assets/benchmarks/
 ```

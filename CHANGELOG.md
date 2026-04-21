@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Mixed-Integer Linear Programming (MILP)**: `BinaryVariable`, `IntegerVariable`, and `VectorVariable(domain="binary"|"integer")` with automatic routing to SciPy's HiGHS backend via `scipy.optimize.milp()`.
 - **`VariableDict`**: Dict-indexed variables keyed by strings, with `.prod(costs)` weighted sums and `.sum(keys=subset)` aggregation.
-- **Sparse LP support**: `Problem.subject_to_matrix(A, x, sense, b)` accepts `scipy.sparse` matrices for industrial-scale LP with 100,000+ variables.
+- **Sparse LP support**: `Problem.subject_to(A @ x <= b)` supports matrix blocks directly, with `as_matrix(...)` enabling `scipy.sparse` inputs for industrial-scale LP.
+- **`as_matrix(storage="auto"|"dense"|"sparse")`**: explicit storage override for matrix blocks, including automatic CSR conversion for large low-density dense arrays.
 - **Solver callbacks**: `SolverProgress` dataclass and `callback=` parameter on `solve()` for progress monitoring and early termination.
 - **Time limits**: `time_limit=` parameter on `solve()` for wall-clock budgets.
 - **LP export**: `Problem.write("model.lp")` exports linear/quadratic models in LP format.
@@ -32,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **NarySum / NaryProduct**: Flatten deep loop-built trees to O(1) depth, keeping memory layout flat regardless of sequential assignment length.
 - **VectorBinaryOp**: Preserves vector structure for element-wise operations.
 - **Sparse Jacobian compilation**: Reduces memory from O(m×n) to O(nnz) for constraint Jacobians.
+- **Sparse NLP routing**: large sparse constrained NLPs bias toward `trust-constr`, matrix blocks now flow through SciPy's linear-constraint API, and batched sparse Jacobians are compiled lazily only when that path is used.
+- **SciPy objective gradients**: sparse objective structure is now evaluated with O(nnz) derivative work while returning dense vectors directly to SciPy.
 - **DotProduct fast-path**: O(1) variable extraction for `x.dot(x)` expressions.
 
 ### Performance

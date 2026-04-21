@@ -268,6 +268,16 @@ class TestVariableDictSolve:
         assert "a" in result
         assert "b" in result
 
+    def test_to_dict_convenience_method(self):
+        """VariableDict.to_dict(solution) mirrors Solution[VariableDict]."""
+        x = VariableDict("x", ["a", "b"], lb=0, ub=1)
+        prob = Problem(name="test_to_dict")
+        prob.maximize(x.prod({"a": 1, "b": 2}))
+
+        sol = prob.solve()
+        assert sol.is_optimal
+        assert x.to_dict(sol) == sol[x]
+
     def test_solution_getitem_individual_var(self):
         """Solution[vd['key']] returns float for individual variable."""
         x = VariableDict("x", ["a", "b"], lb=0, ub=1)

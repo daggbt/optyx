@@ -184,7 +184,7 @@ solution = (
 | **Smart solver selection** | HiGHS for LP/MILP, SLSQP/BFGS for NLP |
 | **Mixed-integer programming** | `BinaryVariable`, `IntegerVariable`, automatic MILP routing |
 | **Vector & matrix variables** | `VectorVariable`, `MatrixVariable`, `VariableDict` for scalable models |
-| **Sparse LP support** | `subject_to_matrix()` with `scipy.sparse` — 100k+ variables |
+| **Sparse LP support** | `subject_to(A @ x <= b)` with `as_matrix(..., storage="auto"|"dense"|"sparse")` — 100k+ variables |
 | **Solver callbacks** | Monitor progress, enforce time limits, early termination |
 | **LP format export** | `Problem.write("model.lp")` for interop with other solvers |
 | **Solution serialization** | `to_json()` / `from_json()` for logging and auditing |

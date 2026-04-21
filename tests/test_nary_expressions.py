@@ -1,7 +1,7 @@
 """Tests for NarySum, NaryProduct and flatten_expression."""
 
 from optyx.core.expressions import Variable, BinaryOp, NarySum, NaryProduct
-from optyx.core.optimizer import flatten_expression
+from optyx.core.optimizer import flatten_expression, optimize_expression
 
 
 def test_nary_sum_evaluation():
@@ -150,6 +150,18 @@ def test_flatten_nary_sum_input():
     assert isinstance(flat, NarySum)
     assert len(flat.terms) == 3
     assert flat.terms == (x, y, z)
+
+
+def test_optimize_expression_delegates_to_flatten_expression():
+    x = Variable("x")
+    y = Variable("y")
+    z = Variable("z")
+
+    expr = (x + y) + z
+    optimized = optimize_expression(expr)
+
+    assert isinstance(optimized, NarySum)
+    assert optimized.terms == (x, y, z)
 
 
 # ---- Gradient tests ----

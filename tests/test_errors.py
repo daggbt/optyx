@@ -25,6 +25,7 @@ from optyx.core.errors import (
     InvalidExpressionError,
     SolverConfigurationError,
     IntegerVariableError,
+    UnsupportedOperationError,
     SymmetryError,
     SquareMatrixError,
     InvalidSizeError,
@@ -595,6 +596,33 @@ class TestIntegerVariableError:
         """IntegerVariableError is a SolverConfigurationError."""
         err = IntegerVariableError("solver")
         assert isinstance(err, SolverConfigurationError)
+
+
+class TestUnsupportedOperationError:
+    """Test UnsupportedOperationError for unsupported problem classes."""
+
+    def test_basic_message(self):
+        """Basic error message includes operation."""
+        err = UnsupportedOperationError("MIQP/MINLP solve")
+        assert "MIQP/MINLP solve" in str(err)
+        assert "not supported" in str(err)
+
+    def test_with_feature_and_suggestion(self):
+        """Error includes feature details and remediation guidance."""
+        err = UnsupportedOperationError(
+            "MIQP/MINLP solve",
+            solver_name="SciPy",
+            problem_feature="nonlinear objective with integer variables",
+            suggestion="Use MILP for linear discrete models",
+        )
+        assert "nonlinear objective with integer variables" in str(err)
+        assert "Use MILP" in str(err)
+
+    def test_inherits_solver_config_and_value_error(self):
+        """UnsupportedOperationError should remain catchable as ValueError."""
+        err = UnsupportedOperationError("feature")
+        assert isinstance(err, SolverConfigurationError)
+        assert isinstance(err, ValueError)
 
 
 # =============================================================================

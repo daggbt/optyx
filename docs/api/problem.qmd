@@ -102,19 +102,27 @@ Internally, maximization is converted to minimization by negating the objective.
 
 ### `.subject_to(constraint)`
 
-Add one or more constraints to the problem. Accepts a single constraint, a list of constraints, or a generator expression.
+Add one or more constraints to the problem. Accepts scalar constraints, matrix-style constraints like `A @ x <= b`, a list of constraints, or a generator expression.
 
 ```python
 prob.subject_to(constraint)
 prob.subject_to([c1, c2, c3])
 prob.subject_to(x[i] >= 0 for i in range(n))  # generator
+prob.subject_to(A @ x <= b)
+prob.subject_to((A @ x).eq(b))
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `constraint` | `Constraint \| Iterable[Constraint]` | Constraint(s) to add |
+| `constraint` | `Constraint \| Iterable[Constraint]` | Constraint(s) to add, including matrix blocks produced by `A @ x <= b` |
 
 **Returns:** `self` (for chaining)
+
+::: {.callout-note}
+For dense matrices, `prob.subject_to(A @ x <= b)` works directly. For raw `scipy.sparse` matrices, wrap the matrix first with `as_matrix(...)`. SciPy owns the left-hand `@` operator for sparse matrices and tries to do a numeric multiplication before Optyx can build a symbolic `MatrixVectorProduct`.
+
+`as_matrix()` also accepts `storage="auto" | "dense" | "sparse"` when you want to force or auto-select the internal storage format for large matrix blocks.
+:::
 
 ### `.remove_constraint(index_or_name)`
 
@@ -132,27 +140,6 @@ prob.remove_constraint("cap")   # remove by name
 **Returns:** `self` (for chaining)
 
 **Raises:** `IndexError` if index is out of range; `KeyError` if name not found.
-
-### `.subject_to_matrix(A, x, sense, b)`
-
-Add matrix constraints `A @ x {<=, >=, ==} b`, bypassing expression tree construction. Accepts dense NumPy arrays or `scipy.sparse` matrices for efficient large-scale LP.
-
-```python
-import scipy.sparse as sp
-
-A = sp.random(1000, 10000, density=0.01, format="csr")
-b = np.ones(1000)
-prob.subject_to_matrix(A, x, "<=", b)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `A` | `np.ndarray \| scipy.sparse` | Coefficient matrix (m × n) |
-| `x` | `VectorVariable` | Variable vector of size n |
-| `sense` | `"<=" \| ">=" \| "=="` | Constraint sense |
-| `b` | `np.ndarray` | Right-hand side vector (m,) |
-
-**Returns:** `self` (for chaining)
 
 ### `.reset()`
 

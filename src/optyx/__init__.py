@@ -10,10 +10,12 @@ from optyx.core.expressions import (
 from optyx.core.vectors import VectorVariable
 from optyx.core.variable_dict import VariableDict
 from optyx.core.matrices import (
+    ConstantMatrix,
     MatrixVariable,
     MatrixVectorProduct,
     QuadraticForm,
     FrobeniusNorm,
+    as_matrix,
     matmul,
     quadratic_form,
     trace,
@@ -76,6 +78,7 @@ __all__ = [
     "VectorVariable",
     "VariableDict",
     "MatrixVariable",
+    "ConstantMatrix",
     # Parameters
     "Parameter",
     "VectorParameter",
@@ -84,6 +87,7 @@ __all__ = [
     "MatrixVectorProduct",
     "QuadraticForm",
     "FrobeniusNorm",
+    "as_matrix",
     "matmul",
     "quadratic_form",
     "trace",

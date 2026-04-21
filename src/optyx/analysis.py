@@ -1098,7 +1098,7 @@ class LinearProgramExtractor:
         A_eq = np.array(eq_rows, dtype=np.float64) if eq_rows else None
         b_eq = np.array(eq_rhs, dtype=np.float64) if eq_rhs else None
 
-        # Merge matrix constraints (from subject_to_matrix)
+        # Merge structured matrix constraints collected via subject_to(A @ x <= b)
         A_ub, b_ub, A_eq, b_eq = self._merge_matrix_constraints(
             problem, variables, A_ub, b_ub, A_eq, b_eq
         )

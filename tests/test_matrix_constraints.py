@@ -1,25 +1,25 @@
-"""Tests for subject_to_matrix() — matrix-form linear constraints."""
+"""Tests for matrix-form linear constraints via subject_to(A @ x <= b)."""
 
 import numpy as np
 import pytest
 from scipy import sparse as sp
 from scipy.optimize import linprog
 
-from optyx.problem import Problem
-from optyx.core.vectors import VectorVariable
 from optyx.analysis import LinearProgramExtractor
+from optyx import Problem, VectorVariable, as_matrix
+from optyx.core.errors import DimensionMismatchError
 
 
-class TestSubjectToMatrixValidation:
-    """Input validation for subject_to_matrix()."""
+class TestMatrixConstraintValidation:
+    """Validation for direct matrix constraints."""
 
     def test_dimension_mismatch_columns(self):
         x = VectorVariable("x", 3, lb=0)
         A = np.ones((2, 4))  # 4 columns != 3 variables
         b = np.ones(2)
         prob = Problem().minimize(np.ones(3) @ x)
-        with pytest.raises(ValueError, match="4 columns.*3 variables"):
-            prob.subject_to_matrix(A, x, "<=", b)
+        with pytest.raises(DimensionMismatchError, match=r"\(2, 4\).*(3,)"):
+            prob.subject_to(A @ x <= b)
 
     def test_dimension_mismatch_rows(self):
         x = VectorVariable("x", 3, lb=0)
@@ -27,23 +27,43 @@ class TestSubjectToMatrixValidation:
         b = np.ones(5)  # 5 elements != 2 rows
         prob = Problem().minimize(np.ones(3) @ x)
         with pytest.raises(ValueError, match="2 rows.*5 elements"):
-            prob.subject_to_matrix(A, x, "<=", b)
-
-    def test_invalid_sense(self):
-        x = VectorVariable("x", 3, lb=0)
-        A = np.ones((2, 3))
-        b = np.ones(2)
-        prob = Problem().minimize(np.ones(3) @ x)
-        with pytest.raises(ValueError, match="sense"):
-            prob.subject_to_matrix(A, x, "<", b)
+            prob.subject_to(A @ x <= b)
 
     def test_sparse_dimension_mismatch(self):
         x = VectorVariable("x", 3, lb=0)
-        A = sp.csr_matrix(np.ones((2, 5)))  # 5 columns != 3
+        A = as_matrix(sp.csr_matrix(np.ones((2, 5))))  # 5 columns != 3
         b = np.ones(2)
         prob = Problem().minimize(np.ones(3) @ x)
-        with pytest.raises(ValueError, match="5 columns.*3 variables"):
-            prob.subject_to_matrix(A, x, "<=", b)
+        with pytest.raises(DimensionMismatchError, match=r"\(2, 5\).*(3,)"):
+            prob.subject_to(A @ x <= b)
+
+
+class TestAsMatrixStorage:
+    """Storage policy overrides for as_matrix()."""
+
+    def test_force_sparse_from_dense(self):
+        wrapped = as_matrix(np.eye(8), storage="sparse")
+        assert sp.issparse(wrapped.data)
+        assert wrapped.storage == "sparse"
+
+    def test_force_dense_from_sparse(self):
+        wrapped = as_matrix(sp.eye(8, format="csr"), storage="dense")
+        assert isinstance(wrapped.data, np.ndarray)
+        assert wrapped.storage == "dense"
+
+    def test_auto_keeps_small_dense_matrices_dense(self):
+        wrapped = as_matrix(np.eye(4), storage="auto")
+        assert isinstance(wrapped.data, np.ndarray)
+        assert wrapped.storage == "dense"
+
+    def test_auto_converts_large_sparse_like_dense_matrices(self):
+        wrapped = as_matrix(np.eye(64), storage="auto")
+        assert sp.issparse(wrapped.data)
+        assert wrapped.storage == "sparse"
+
+    def test_invalid_storage_raises(self):
+        with pytest.raises(ValueError, match="storage"):
+            as_matrix(np.eye(2), storage="invalid")
 
 
 class TestSubjectToMatrixDense:
@@ -57,7 +77,7 @@ class TestSubjectToMatrixDense:
         c = np.array([1.0, 1.0, 1.0])
 
         prob = Problem().minimize(c @ x)
-        prob.subject_to_matrix(A, x, "<=", b)
+        prob.subject_to(A @ x <= b)
 
         assert prob.n_constraints == 2
         assert len(prob.variables) == 3
@@ -74,7 +94,7 @@ class TestSubjectToMatrixDense:
         c = np.array([3.0, 1.0])
 
         prob = Problem().minimize(c @ x)
-        prob.subject_to_matrix(A, x, "==", b)
+        prob.subject_to((A @ x).eq(b))
 
         sol = prob.solve()
         assert sol.status.value == "optimal"
@@ -91,20 +111,20 @@ class TestSubjectToMatrixDense:
         c = np.array([1.0, 1.0])
 
         prob = Problem().minimize(c @ x)
-        prob.subject_to_matrix(A, x, ">=", b)
+        prob.subject_to(A @ x >= b)
 
         sol = prob.solve()
         assert sol.status.value == "optimal"
         assert sol.objective_value == pytest.approx(8.0, abs=1e-8)
 
     def test_method_chaining(self):
-        """subject_to_matrix returns self for fluent API."""
+        """Direct matrix constraints return self for fluent API."""
         x = VectorVariable("x", 2, lb=0)
         A = np.eye(2)
         b = np.ones(2)
         c = np.ones(2)
 
-        sol = Problem().minimize(c @ x).subject_to_matrix(A, x, "<=", b).solve()
+        sol = Problem().minimize(c @ x).subject_to(A @ x <= b).solve()
         assert sol.status.value == "optimal"
 
     def test_b_as_list(self):
@@ -114,7 +134,7 @@ class TestSubjectToMatrixDense:
         b = [5.0, 3.0]
         c = np.ones(2)
 
-        prob = Problem().minimize(c @ x).subject_to_matrix(A, x, "<=", b)
+        prob = Problem().minimize(c @ x).subject_to(A @ x <= b)
         sol = prob.solve()
         assert sol.status.value == "optimal"
 
@@ -126,12 +146,12 @@ class TestSubjectToMatrixSparse:
         """CSR sparse matrix with <= constraints."""
         n = 100
         x = VectorVariable("x", n, lb=0)
-        A = sp.eye(n, format="csr")
+        A = as_matrix(sp.eye(n, format="csr"))
         b = np.ones(n) * 10
         c = np.ones(n)
 
         prob = Problem().minimize(c @ x)
-        prob.subject_to_matrix(A, x, "<=", b)
+        prob.subject_to(A @ x <= b)
 
         sol = prob.solve()
         assert sol.status.value == "optimal"
@@ -140,12 +160,12 @@ class TestSubjectToMatrixSparse:
     def test_sparse_csc_eq(self):
         """CSC sparse matrix with == constraints."""
         x = VectorVariable("x", 3, lb=0)
-        A = sp.csc_matrix(np.array([[1, 1, 1]]))
+        A = as_matrix(sp.csc_matrix(np.array([[1, 1, 1]])))
         b = np.array([6.0])
         c = np.array([2.0, 1.0, 3.0])
 
         prob = Problem().minimize(c @ x)
-        prob.subject_to_matrix(A, x, "==", b)
+        prob.subject_to((A @ x).eq(b))
 
         sol = prob.solve()
         assert sol.status.value == "optimal"
@@ -158,31 +178,32 @@ class TestSubjectToMatrixSparse:
         n = 50
         m = 30
         x = VectorVariable("x", n, lb=0, ub=10)
-        A = sp.random(m, n, density=0.1, format="csr", random_state=rng)
-        b = A @ np.ones(n) * 5  # feasible b
+        A_sparse = sp.random(m, n, density=0.1, format="csr", random_state=rng)
+        A = as_matrix(A_sparse)
+        b = A_sparse @ np.ones(n) * 5  # feasible b
         c = rng.standard_normal(n)
 
         prob = Problem().minimize(c @ x)
-        prob.subject_to_matrix(A, x, "<=", b)
+        prob.subject_to(A @ x <= b)
 
         sol = prob.solve()
         assert sol.status.value == "optimal"
 
         # Verify against direct scipy linprog
         bounds = [(0, 10)] * n
-        ref = linprog(c, A_ub=A, b_ub=b, bounds=bounds, method="highs")
+        ref = linprog(c, A_ub=A_sparse, b_ub=b, bounds=bounds, method="highs")
         assert ref.success
         assert sol.objective_value == pytest.approx(ref.fun, rel=1e-6)
 
     def test_sparse_ge(self):
         """Sparse >= constraint."""
         x = VectorVariable("x", 3, lb=0, ub=100)
-        A = sp.csr_matrix(np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]]))
+        A = as_matrix(sp.csr_matrix(np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])))
         b = np.array([2.0, 3.0, 4.0])
         c = np.array([1.0, 1.0, 1.0])
 
         prob = Problem().minimize(c @ x)
-        prob.subject_to_matrix(A, x, ">=", b)
+        prob.subject_to(A @ x >= b)
 
         sol = prob.solve()
         assert sol.status.value == "optimal"
@@ -190,7 +211,7 @@ class TestSubjectToMatrixSparse:
 
 
 class TestMixedConstraints:
-    """subject_to_matrix combined with subject_to expression constraints."""
+    """Matrix constraints combined with scalar expression constraints."""
 
     def test_matrix_plus_expression_constraints(self):
         """Matrix constraints and expression constraints work together."""
@@ -200,7 +221,7 @@ class TestMixedConstraints:
         # Matrix constraint: x0 + x1 >= 10
         A = np.array([[1.0, 1.0]])
         b = np.array([10.0])
-        prob.subject_to_matrix(A, x, ">=", b)
+        prob.subject_to(A @ x >= b)
         # Expression constraint: x0 <= 7
         prob.subject_to(x[0] <= 7)
 
@@ -212,12 +233,12 @@ class TestMixedConstraints:
         assert sol.values["x[0]"] <= 7.0 + 1e-8
 
     def test_multiple_matrix_constraints(self):
-        """Multiple subject_to_matrix calls."""
+        """Multiple matrix constraints added through subject_to()."""
         x = VectorVariable("x", 2, lb=0, ub=100)
 
         prob = Problem().minimize(x[0] + x[1])
-        prob.subject_to_matrix(np.array([[1, 0]]), x, ">=", np.array([3.0]))
-        prob.subject_to_matrix(np.array([[0, 1]]), x, ">=", np.array([5.0]))
+        prob.subject_to(np.array([[1, 0]]) @ x >= np.array([3.0]))
+        prob.subject_to(np.array([[0, 1]]) @ x >= np.array([5.0]))
 
         sol = prob.solve()
         assert sol.status.value == "optimal"
@@ -229,9 +250,9 @@ class TestMixedConstraints:
 
         prob = Problem().minimize(x[0] + x[1] + x[2])
         # x0 + x1 + x2 == 10
-        prob.subject_to_matrix(np.array([[1, 1, 1]]), x, "==", np.array([10.0]))
+        prob.subject_to((np.array([[1, 1, 1]]) @ x).eq(np.array([10.0])))
         # x0 <= 3
-        prob.subject_to_matrix(np.array([[1, 0, 0]]), x, "<=", np.array([3.0]))
+        prob.subject_to(np.array([[1, 0, 0]]) @ x <= np.array([3.0]))
 
         sol = prob.solve()
         assert sol.status.value == "optimal"
@@ -245,12 +266,13 @@ class TestLPDataExtraction:
         """Sparse matrices are preserved (not densified) in LPData."""
         n = 100
         x = VectorVariable("x", n, lb=0)
-        A = sp.eye(n, format="csr") * 2
+        A_sparse = sp.eye(n, format="csr") * 2
+        A = as_matrix(A_sparse)
         b = np.ones(n) * 10
         c = np.ones(n)
 
         prob = Problem().minimize(c @ x)
-        prob.subject_to_matrix(A, x, "<=", b)
+        prob.subject_to(A @ x <= b)
 
         extractor = LinearProgramExtractor()
         lp_data = extractor.extract(prob)
@@ -267,7 +289,7 @@ class TestLPDataExtraction:
         c = np.ones(3)
 
         prob = Problem().minimize(c @ x)
-        prob.subject_to_matrix(A, x, "<=", b)
+        prob.subject_to(A @ x <= b)
 
         extractor = LinearProgramExtractor()
         lp_data = extractor.extract(prob)
@@ -278,7 +300,7 @@ class TestLPDataExtraction:
         """n_constraints counts matrix constraint rows."""
         x = VectorVariable("x", 5, lb=0)
         prob = Problem().minimize(np.ones(5) @ x)
-        prob.subject_to_matrix(np.eye(5), x, "<=", np.ones(5) * 10)
+        prob.subject_to(np.eye(5) @ x <= np.ones(5) * 10)
         prob.subject_to(x[0] >= 1)
         assert prob.n_constraints == 6  # 5 matrix + 1 expression
 
@@ -286,7 +308,7 @@ class TestLPDataExtraction:
         """Matrix constraints don't affect linearity detection."""
         x = VectorVariable("x", 3, lb=0)
         prob = Problem().minimize(np.ones(3) @ x)
-        prob.subject_to_matrix(np.eye(3), x, "<=", np.ones(3))
+        prob.subject_to(np.eye(3) @ x <= np.ones(3))
         assert prob._is_linear_problem()
 
 
@@ -299,31 +321,32 @@ class TestLargeScale:
         n = 1000
         m = 500
         x = VectorVariable("x", n, lb=0, ub=100)
-        A = sp.random(m, n, density=0.01, format="csr", random_state=rng)
-        b = np.abs(A @ np.ones(n)) + 1
+        A_sparse = sp.random(m, n, density=0.01, format="csr", random_state=rng)
+        A = as_matrix(A_sparse)
+        b = np.abs(A_sparse @ np.ones(n)) + 1
         c = rng.standard_normal(n)
 
         prob = Problem().minimize(c @ x)
-        prob.subject_to_matrix(A, x, "<=", b)
+        prob.subject_to(A @ x <= b)
 
         sol = prob.solve()
         assert sol.status.value == "optimal"
 
         # Verify against scipy
         bounds = [(0, 100)] * n
-        ref = linprog(c, A_ub=A, b_ub=b, bounds=bounds, method="highs")
+        ref = linprog(c, A_ub=A_sparse, b_ub=b, bounds=bounds, method="highs")
         assert ref.success
         assert sol.objective_value == pytest.approx(ref.fun, rel=1e-4)
 
     def test_warm_solve_uses_cache(self):
         """Second solve reuses LP cache."""
         x = VectorVariable("x", 10, lb=0)
-        A = sp.eye(10, format="csr")
+        A = as_matrix(sp.eye(10, format="csr"))
         b = np.ones(10) * 5
         c = np.ones(10)
 
         prob = Problem().minimize(c @ x)
-        prob.subject_to_matrix(A, x, "<=", b)
+        prob.subject_to(A @ x <= b)
 
         sol1 = prob.solve()
         assert prob._lp_cache is not None

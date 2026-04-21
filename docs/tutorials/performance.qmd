@@ -42,19 +42,22 @@ To take advantage:
 
 If you scale your linear programming models up to 100,000+ continuous variables, constructing `10_000` separate `subject_to()` constraint expressions incurs memory and CPU overhead.
 
-For industrial-scale modeling, use `subject_to_matrix()` to bypass symbolic algebra entirely and push `scipy.sparse` representations straight into the solver backend. 
+For industrial-scale modeling, use direct matrix constraints with `subject_to(...)` and push `scipy.sparse` representations straight into the solver backend.
 
 ```{python}
 import numpy as np
 from scipy import sparse as sp
-from optyx import Problem, VectorVariable
+from optyx import Problem, VectorVariable, as_matrix
 
 n = 10_000
 m = 1_000
 density = 0.01
 
 # A large, sparse constraint matrix
-A_sparse = sp.random(m, n, density=density, format='csr', random_state=42)
+A_sparse = as_matrix(
+    sp.random(m, n, density=density, format='csr', random_state=42),
+    storage='sparse',
+)
 b = np.random.rand(m)
 c = np.random.rand(n)
 
@@ -64,11 +67,13 @@ prob = Problem(name='sparse_lp')
 prob.maximize(c @ x)
 
 # Passes directly to HiGHS
-prob.subject_to_matrix(A_sparse, x, "<=", b)
+prob.subject_to(A_sparse @ x <= b)
 
-print(f"Variables: {n:,}, Constraints: {m:,}, Non-zeros: {A_sparse.nnz:,}")
+print(f"Variables: {n:,}, Constraints: {m:,}, Non-zeros: {A_sparse.data.nnz:,}")
 # For 100,000+ variables, the same pattern applies — just scale up n and m
 ```
+
+`as_matrix()` also accepts `storage='auto'` and `storage='dense'`. The default `storage='auto'` keeps sparse inputs sparse and can convert large, mostly-zero dense arrays into CSR storage when you want the matrix-block path without manually building a SciPy sparse matrix first.
 
 ---
 

@@ -5,6 +5,7 @@ import pytest
 import numpy as np
 
 from optyx import Variable
+from optyx.core.errors import UnsupportedOperationError
 from optyx.problem import Problem
 
 
@@ -12,7 +13,7 @@ class TestIntegerBinaryWarning:
     """Tests for integer/binary variable handling.
 
     With MIP support, linear problems with integer vars are routed to milp().
-    Nonlinear problems with integer vars raise ValueError (MINLP not supported).
+    Nonlinear problems with integer vars raise UnsupportedOperationError.
     """
 
     def test_binary_variable_solves_via_milp(self):
@@ -34,11 +35,11 @@ class TestIntegerBinaryWarning:
         assert abs(sol["x"]) < 1e-6
 
     def test_nonlinear_integer_raises(self):
-        """Nonlinear + integer variables raises ValueError (MINLP)."""
+        """Nonlinear + integer variables raises UnsupportedOperationError."""
         x = Variable("x", domain="binary")
         prob = Problem().minimize((x - 0.5) ** 2)
 
-        with pytest.raises(ValueError, match="nonlinear"):
+        with pytest.raises(UnsupportedOperationError, match="nonlinear"):
             prob.solve()
 
     def test_continuous_no_warning(self):
@@ -65,12 +66,21 @@ class TestStrictMode:
         assert sol.is_optimal
 
     def test_nonlinear_integer_raises_regardless_of_strict(self):
-        """Nonlinear + integer raises ValueError regardless of strict flag."""
+        """Nonlinear + integer raises UnsupportedOperationError regardless of strict flag."""
         x = Variable("x", lb=0, ub=10, domain="integer")
         prob = Problem().minimize((x - 3.7) ** 2)
 
-        with pytest.raises(ValueError, match="nonlinear"):
+        with pytest.raises(UnsupportedOperationError, match="nonlinear"):
             prob.solve(strict=True)
+
+    @pytest.mark.parametrize("method", ["SLSQP", "trust-constr", "CG", "trust-krylov"])
+    def test_nonlinear_integer_named_nlp_methods_raise(self, method):
+        """Named NLP methods should reject MINLP models consistently."""
+        x = Variable("x", lb=0, ub=10, domain="integer")
+        prob = Problem().minimize((x - 3.7) ** 2)
+
+        with pytest.raises(UnsupportedOperationError, match="nonlinear"):
+            prob.solve(method=method)
 
     def test_strict_mode_ok_for_continuous(self):
         """strict=True should not raise for continuous variables."""

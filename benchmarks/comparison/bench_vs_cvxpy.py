@@ -1,6 +1,8 @@
-"""Comparison benchmark: Optyx vs CVXPY.
+"""Ecosystem reference benchmark: Optyx vs CVXPY.
 
-Compares Optyx against CVXPY for convex problems.
+These timings are informative ecosystem references for convex problems.
+They are not strict apples-to-apples overhead claims because CVXPY has its
+own canonicalization pipeline and solver backend behavior.
 CVXPY is an optional dependency - tests gracefully skip if not installed.
 
 Install with: uv sync --extra benchmarks
@@ -31,7 +33,7 @@ pytestmark = pytest.mark.skipif(not CVXPY_AVAILABLE, reason="cvxpy not installed
 
 
 class TestLPComparison:
-    """Compare Optyx vs CVXPY for linear programs."""
+    """Reference timing comparison between Optyx and CVXPY LP workflows."""
 
     def test_small_lp(self):
         """Small LP: 2 variables, 2 constraints."""
@@ -70,7 +72,7 @@ class TestLPComparison:
             return cvxpy_prob.value
 
         result = compare_timing(optyx_run, cvxpy_run, n_warmup=3, n_runs=20)
-        print(f"\nSmall LP - Optyx vs CVXPY:\n{result}")
+        print(f"\nSmall LP Reference Timing - Optyx vs CVXPY:\n{result}")
 
     def test_medium_lp(self):
         """Medium LP: 20 variables, 15 constraints (VectorVariable)."""
@@ -111,11 +113,13 @@ class TestLPComparison:
             return cvxpy_prob.value
 
         result = compare_timing(optyx_run, cvxpy_run, n_warmup=3, n_runs=20)
-        print(f"\nMedium LP (n=20) - Optyx VectorVariable vs CVXPY:\n{result}")
+        print(
+            f"\nMedium LP Reference Timing (n=20) - Optyx VectorVariable vs CVXPY:\n{result}"
+        )
 
 
 class TestQPComparison:
-    """Compare Optyx vs CVXPY for quadratic programs."""
+    """Reference timing comparison between Optyx and CVXPY QP workflows."""
 
     def test_simple_qp(self):
         """Simple QP: min x² + y² s.t. x + y >= 1."""

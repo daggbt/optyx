@@ -1,0 +1,861 @@
+{
+  "artifacts": {
+    "metadata": "benchmark_metadata.json",
+    "output_log": "benchmark_output.txt",
+    "plots": {
+      "cqp_scaling": "cqp_scaling_comparison.png",
+      "lp_scaling": "lp_scaling_comparison.png",
+      "milp_scaling": "milp_scaling_comparison.png",
+      "nlp_scaling": "nlp_scaling_comparison.png",
+      "overhead_breakdown": "overhead_breakdown.png"
+    },
+    "results_json": "benchmark_results.json"
+  },
+  "benchmark_suite": "run_benchmarks",
+  "overhead_summary": [
+    {
+      "cold_overhead": 1.0501582337223818,
+      "problem_type": "LP",
+      "size": 50,
+      "warm_overhead": 0.812985045888142
+    },
+    {
+      "cold_overhead": 1.1275902207716624,
+      "problem_type": "LP",
+      "size": 5000,
+      "warm_overhead": 1.0140021159852615
+    },
+    {
+      "cold_overhead": 3.026941579482231,
+      "problem_type": "NLP",
+      "size": 50,
+      "warm_overhead": 2.0825227513121036
+    },
+    {
+      "cold_overhead": 81.94926695989462,
+      "problem_type": "NLP",
+      "size": 5000,
+      "warm_overhead": 42.13192875480498
+    },
+    {
+      "cold_overhead": 1.4299693678646468,
+      "problem_type": "CQP",
+      "size": 50,
+      "warm_overhead": 0.788050478137063
+    },
+    {
+      "cold_overhead": 1.0946971400391046,
+      "problem_type": "CQP",
+      "size": 5000,
+      "warm_overhead": 1.001488479208934
+    },
+    {
+      "cold_overhead": 1.4566705000975524,
+      "problem_type": "MILP",
+      "size": 50,
+      "warm_overhead": 1.2941061236838522
+    },
+    {
+      "cold_overhead": 1.0031123576531944,
+      "problem_type": "MILP",
+      "size": 5000,
+      "warm_overhead": 1.179959153413669
+    }
+  ],
+  "performance_summary": [
+    {
+      "cold_overhead": 1.0501582337223818,
+      "note": "Near-parity with SciPy linprog",
+      "problem_type": "LP",
+      "size": 50,
+      "warm_overhead": 0.812985045888142
+    },
+    {
+      "cold_overhead": 1.211487886529665,
+      "note": "Near-parity with SciPy linprog",
+      "problem_type": "LP",
+      "size": 500,
+      "warm_overhead": 1.0357210528392964
+    },
+    {
+      "cold_overhead": 1.1275902207716624,
+      "note": "Scales to large LPs while staying near parity",
+      "problem_type": "LP",
+      "size": 5000,
+      "warm_overhead": 1.0140021159852615
+    },
+    {
+      "cold_overhead": 3.026941579482231,
+      "note": "Autodiff overhead on a trivially simple objective",
+      "problem_type": "NLP",
+      "size": 50,
+      "warm_overhead": 2.0825227513121036
+    },
+    {
+      "cold_overhead": 53.78946185114727,
+      "note": "Autodiff overhead on a trivially simple objective",
+      "problem_type": "NLP",
+      "size": 500,
+      "warm_overhead": 8.802874053183821
+    },
+    {
+      "cold_overhead": 81.94926695989462,
+      "note": "Simple quadratic; SciPy converges almost instantly",
+      "problem_type": "NLP",
+      "size": 5000,
+      "warm_overhead": 42.13192875480498
+    },
+    {
+      "cold_overhead": 1.4299693678646468,
+      "note": "O(1) Jacobian compilation for vectorized constraints",
+      "problem_type": "CQP",
+      "size": 50,
+      "warm_overhead": 0.788050478137063
+    },
+    {
+      "cold_overhead": 1.6394185969433936,
+      "note": "O(1) Jacobian compilation for vectorized constraints",
+      "problem_type": "CQP",
+      "size": 500,
+      "warm_overhead": 0.9872978508888796
+    },
+    {
+      "cold_overhead": 1.0946971400391046,
+      "note": "Exact Jacobians keep constrained solves near parity",
+      "problem_type": "CQP",
+      "size": 5000,
+      "warm_overhead": 1.001488479208934
+    },
+    {
+      "cold_overhead": 1.4566705000975524,
+      "note": "Near-parity with SciPy milp",
+      "problem_type": "MILP",
+      "size": 50,
+      "warm_overhead": 1.2941061236838522
+    },
+    {
+      "cold_overhead": 1.9537429622573275,
+      "note": "Near-parity with SciPy milp",
+      "problem_type": "MILP",
+      "size": 500,
+      "warm_overhead": 1.2936619533279687
+    },
+    {
+      "cold_overhead": 1.0031123576531944,
+      "note": "Scales to large binary knapsack problems",
+      "problem_type": "MILP",
+      "size": 5000,
+      "warm_overhead": 1.179959153413669
+    }
+  ],
+  "scaling": {
+    "cqp": {
+      "loop": {
+        "label": "CQP (Loop)",
+        "results": [
+          {
+            "build_ms": 0.153315002535237,
+            "cold_overhead": 31.11061123509847,
+            "cold_solve_ms": 10.939440999209182,
+            "cold_total_ms": 11.09275600174442,
+            "n": 10,
+            "scipy_ms": 0.3565586004697252,
+            "warm_overhead": 1.7591885287050133,
+            "warm_solve_ms": 0.6272537997574545,
+            "warm_total_ms": 0.6272537997574545
+          },
+          {
+            "build_ms": 0.2530210003897082,
+            "cold_overhead": 18.974517042517437,
+            "cold_solve_ms": 15.85142200201517,
+            "cold_total_ms": 16.104443002404878,
+            "n": 25,
+            "scipy_ms": 0.8487406012136489,
+            "warm_overhead": 1.3679175940132715,
+            "warm_solve_ms": 1.1610072011535522,
+            "warm_total_ms": 1.1610072011535522
+          },
+          {
+            "build_ms": 1.158421000582166,
+            "cold_overhead": 61.60524408065892,
+            "cold_solve_ms": 71.6935749987897,
+            "cold_total_ms": 72.85199599937187,
+            "n": 50,
+            "scipy_ms": 1.1825615998532157,
+            "warm_overhead": 1.4221486635349372,
+            "warm_solve_ms": 1.681778398778988,
+            "warm_total_ms": 1.681778398778988
+          },
+          {
+            "build_ms": 1.2048469980072696,
+            "cold_overhead": 255.63438117091056,
+            "cold_solve_ms": 221.54135299933841,
+            "cold_total_ms": 222.74619999734568,
+            "n": 100,
+            "scipy_ms": 0.8713467999768909,
+            "warm_overhead": 2.100260194994894,
+            "warm_solve_ms": 1.8300550000276417,
+            "warm_total_ms": 1.8300550000276417
+          },
+          {
+            "build_ms": 1.9555170001694933,
+            "cold_overhead": 396.1053364293281,
+            "cold_solve_ms": 762.428201000148,
+            "cold_total_ms": 764.3837180003175,
+            "n": 200,
+            "scipy_ms": 1.9297485989227425,
+            "warm_overhead": 1.9573368272172225,
+            "warm_solve_ms": 3.7771679999423213,
+            "warm_total_ms": 3.7771679999423213
+          },
+          {
+            "build_ms": 5.547715998545755,
+            "cold_overhead": 461.5214241891787,
+            "cold_solve_ms": 5982.5169229989115,
+            "cold_total_ms": 5988.064638997457,
+            "n": 500,
+            "scipy_ms": 12.974618999578524,
+            "warm_overhead": 2.6842881013962274,
+            "warm_solve_ms": 34.82761540071806,
+            "warm_total_ms": 34.82761540071806
+          }
+        ]
+      },
+      "vector": {
+        "label": "CQP (VectorVariable)",
+        "results": [
+          {
+            "build_ms": 0.11850099690491334,
+            "cold_overhead": 3.027583458815483,
+            "cold_solve_ms": 0.8402160019613802,
+            "cold_total_ms": 0.9587169988662936,
+            "n": 10,
+            "scipy_ms": 0.316660799580859,
+            "warm_overhead": 1.3346085183142544,
+            "warm_solve_ms": 0.4226182005368173,
+            "warm_total_ms": 0.4226182005368173
+          },
+          {
+            "build_ms": 0.1562409997859504,
+            "cold_overhead": 2.391429352767669,
+            "cold_solve_ms": 0.9384200020576827,
+            "cold_total_ms": 1.0946610018436331,
+            "n": 25,
+            "scipy_ms": 0.45774339960189536,
+            "warm_overhead": 2.260624187010286,
+            "warm_solve_ms": 1.034785800584359,
+            "warm_total_ms": 1.034785800584359
+          },
+          {
+            "build_ms": 0.21687400294467807,
+            "cold_overhead": 1.4299693678646468,
+            "cold_solve_ms": 1.0550480001256801,
+            "cold_total_ms": 1.2719220030703582,
+            "n": 50,
+            "scipy_ms": 0.8894749997125473,
+            "warm_overhead": 0.788050478137063,
+            "warm_solve_ms": 0.7009511988144368,
+            "warm_total_ms": 0.7009511988144368
+          },
+          {
+            "build_ms": 0.3956479995395057,
+            "cold_overhead": 1.6844031244504607,
+            "cold_solve_ms": 1.463579999835929,
+            "cold_total_ms": 1.8592279993754346,
+            "n": 100,
+            "scipy_ms": 1.1037904005206656,
+            "warm_overhead": 1.1312225582223807,
+            "warm_solve_ms": 1.2486326006182935,
+            "warm_total_ms": 1.2486326006182935
+          },
+          {
+            "build_ms": 0.7324860016524326,
+            "cold_overhead": 1.907498936382662,
+            "cold_solve_ms": 2.9472659989551175,
+            "cold_total_ms": 3.67975200060755,
+            "n": 200,
+            "scipy_ms": 1.9290977994387504,
+            "warm_overhead": 1.237126703114857,
+            "warm_solve_ms": 2.3865384006057866,
+            "warm_total_ms": 2.3865384006057866
+          },
+          {
+            "build_ms": 2.5035090002347715,
+            "cold_overhead": 1.6394185969433936,
+            "cold_solve_ms": 18.565805999969598,
+            "cold_total_ms": 21.06931500020437,
+            "n": 500,
+            "scipy_ms": 12.851699400926009,
+            "warm_overhead": 0.9872978508888796,
+            "warm_solve_ms": 12.68845519880415,
+            "warm_total_ms": 12.68845519880415
+          },
+          {
+            "build_ms": 13.506178998795804,
+            "cold_overhead": 1.340633127996738,
+            "cold_solve_ms": 80.1798009997583,
+            "cold_total_ms": 93.6859799985541,
+            "n": 1000,
+            "scipy_ms": 69.88189240000793,
+            "warm_overhead": 1.3084826449294356,
+            "warm_solve_ms": 91.43924340023659,
+            "warm_total_ms": 91.43924340023659
+          },
+          {
+            "build_ms": 11.169469999003923,
+            "cold_overhead": 0.8354444607531919,
+            "cold_solve_ms": 471.47300299911876,
+            "cold_total_ms": 482.6424729981227,
+            "n": 2000,
+            "scipy_ms": 577.7074308003648,
+            "warm_overhead": 1.0372864849082362,
+            "warm_solve_ms": 599.2481102002785,
+            "warm_total_ms": 599.2481102002785
+          },
+          {
+            "build_ms": 49.87247100143577,
+            "cold_overhead": 1.0946971400391046,
+            "cold_solve_ms": 7601.275322998845,
+            "cold_total_ms": 7651.147794000281,
+            "n": 5000,
+            "scipy_ms": 6989.282710400585,
+            "warm_overhead": 1.001488479208934,
+            "warm_solve_ms": 6999.686112400377,
+            "warm_total_ms": 6999.686112400377
+          }
+        ]
+      }
+    },
+    "lp": {
+      "loop": {
+        "label": "LP (Loop)",
+        "results": [
+          {
+            "build_ms": 0.4565819981507957,
+            "cold_overhead": 11.482336147813978,
+            "cold_solve_ms": 20.522652001091046,
+            "cold_total_ms": 20.979233999241842,
+            "n": 10,
+            "scipy_ms": 1.8270876003953163,
+            "warm_overhead": 1.0815988235244256,
+            "warm_solve_ms": 1.9761757990636397,
+            "warm_total_ms": 1.9761757990636397
+          },
+          {
+            "build_ms": 1.4050399986444972,
+            "cold_overhead": 9.623407770861848,
+            "cold_solve_ms": 19.63746299952618,
+            "cold_total_ms": 21.042502998170676,
+            "n": 25,
+            "scipy_ms": 2.1865957984118722,
+            "warm_overhead": 1.1279439032452812,
+            "warm_solve_ms": 2.466357399680419,
+            "warm_total_ms": 2.466357399680419
+          },
+          {
+            "build_ms": 4.869180997047806,
+            "cold_overhead": 32.24808044538227,
+            "cold_solve_ms": 51.346608001040295,
+            "cold_total_ms": 56.2157889980881,
+            "n": 50,
+            "scipy_ms": 1.7432289991120342,
+            "warm_overhead": 2.138066428056541,
+            "warm_solve_ms": 3.727139399416046,
+            "warm_total_ms": 3.727139399416046
+          },
+          {
+            "build_ms": 10.630352997395676,
+            "cold_overhead": 34.299098632360746,
+            "cold_solve_ms": 108.15988299873425,
+            "cold_total_ms": 118.79023599612992,
+            "n": 100,
+            "scipy_ms": 3.4633631999895442,
+            "warm_overhead": 0.9625728540754156,
+            "warm_solve_ms": 3.3337394001137,
+            "warm_total_ms": 3.3337394001137
+          },
+          {
+            "build_ms": 63.9043990013306,
+            "cold_overhead": 60.31374442643511,
+            "cold_solve_ms": 477.2999010019703,
+            "cold_total_ms": 541.2043000033009,
+            "n": 200,
+            "scipy_ms": 8.973150401288876,
+            "warm_overhead": 0.9726232159191104,
+            "warm_solve_ms": 8.727494400227442,
+            "warm_total_ms": 8.727494400227442
+          },
+          {
+            "build_ms": 478.78952999963076,
+            "cold_overhead": 91.74939438260711,
+            "cold_solve_ms": 4352.143078998779,
+            "cold_total_ms": 4830.93260899841,
+            "n": 500,
+            "scipy_ms": 52.65356399904704,
+            "warm_overhead": 1.0590257100395577,
+            "warm_solve_ms": 55.76147800020408,
+            "warm_total_ms": 55.76147800020408
+          }
+        ]
+      },
+      "vector": {
+        "label": "LP (VectorVariable)",
+        "results": [
+          {
+            "build_ms": 0.19218799934606068,
+            "cold_overhead": 1.693216922730903,
+            "cold_solve_ms": 1.6525819992239121,
+            "cold_total_ms": 1.8447699985699728,
+            "n": 10,
+            "scipy_ms": 1.0895060011534952,
+            "warm_overhead": 1.2623675308353952,
+            "warm_solve_ms": 1.375357000506483,
+            "warm_total_ms": 1.375357000506483
+          },
+          {
+            "build_ms": 0.2016159996856004,
+            "cold_overhead": 1.4924938118363915,
+            "cold_solve_ms": 1.623988999199355,
+            "cold_total_ms": 1.8256049988849554,
+            "n": 25,
+            "scipy_ms": 1.2231910004629754,
+            "warm_overhead": 1.2657148376693776,
+            "warm_solve_ms": 1.5482109985896386,
+            "warm_total_ms": 1.5482109985896386
+          },
+          {
+            "build_ms": 0.29033099781372584,
+            "cold_overhead": 1.0501582337223818,
+            "cold_solve_ms": 2.3654819997318555,
+            "cold_total_ms": 2.6558129975455813,
+            "n": 50,
+            "scipy_ms": 2.528964600060135,
+            "warm_overhead": 0.812985045888142,
+            "warm_solve_ms": 2.0560104014293756,
+            "warm_total_ms": 2.0560104014293756
+          },
+          {
+            "build_ms": 0.9552609990350902,
+            "cold_overhead": 1.4109392686950275,
+            "cold_solve_ms": 6.260796002607094,
+            "cold_total_ms": 7.216057001642184,
+            "n": 100,
+            "scipy_ms": 5.114363999746274,
+            "warm_overhead": 1.7028074262404869,
+            "warm_solve_ms": 8.708776999264956,
+            "warm_total_ms": 8.708776999264956
+          },
+          {
+            "build_ms": 1.8441590000293218,
+            "cold_overhead": 3.6727232458672763,
+            "cold_solve_ms": 26.99932399991667,
+            "cold_total_ms": 28.84348299994599,
+            "n": 200,
+            "scipy_ms": 7.8534321997722145,
+            "warm_overhead": 1.2149146968198785,
+            "warm_solve_ms": 9.541250199981732,
+            "warm_total_ms": 9.541250199981732
+          },
+          {
+            "build_ms": 2.4393290004809387,
+            "cold_overhead": 1.211487886529665,
+            "cold_solve_ms": 63.093166001635836,
+            "cold_total_ms": 65.53249500211678,
+            "n": 500,
+            "scipy_ms": 54.092571399814915,
+            "warm_overhead": 1.0357210528392964,
+            "warm_solve_ms": 56.024815001001116,
+            "warm_total_ms": 56.024815001001116
+          },
+          {
+            "build_ms": 6.566907002707012,
+            "cold_overhead": 1.004822563939135,
+            "cold_solve_ms": 252.37838400062174,
+            "cold_total_ms": 258.94529100332875,
+            "n": 1000,
+            "scipy_ms": 257.7025041995512,
+            "warm_overhead": 1.0960677571869186,
+            "warm_solve_ms": 282.45940579945454,
+            "warm_total_ms": 282.45940579945454
+          },
+          {
+            "build_ms": 10.243332999380073,
+            "cold_overhead": 1.0615410333742983,
+            "cold_solve_ms": 1171.9294570029888,
+            "cold_total_ms": 1182.1727900023689,
+            "n": 2000,
+            "scipy_ms": 1113.6383359997126,
+            "warm_overhead": 1.0187540921722584,
+            "warm_solve_ms": 1134.5236119996116,
+            "warm_total_ms": 1134.5236119996116
+          },
+          {
+            "build_ms": 24.960611001006328,
+            "cold_overhead": 1.1275902207716624,
+            "cold_solve_ms": 10199.972689999413,
+            "cold_total_ms": 10224.93330100042,
+            "n": 5000,
+            "scipy_ms": 9067.951382198953,
+            "warm_overhead": 1.0140021159852615,
+            "warm_solve_ms": 9194.921889201214,
+            "warm_total_ms": 9194.921889201214
+          }
+        ]
+      }
+    },
+    "milp": {
+      "loop": {
+        "label": "MILP (Loop)",
+        "results": [
+          {
+            "build_ms": 0.172080999618629,
+            "cold_overhead": 17.811266453769836,
+            "cold_solve_ms": 14.173112998832949,
+            "cold_total_ms": 14.345193998451577,
+            "n": 10,
+            "scipy_ms": 0.8053999998082872,
+            "warm_overhead": 1.2008266692982976,
+            "warm_solve_ms": 0.9671457992226351,
+            "warm_total_ms": 0.9671457992226351
+          },
+          {
+            "build_ms": 0.2327029978914652,
+            "cold_overhead": 2.200366322114951,
+            "cold_solve_ms": 1.718735002214089,
+            "cold_total_ms": 1.9514380001055542,
+            "n": 25,
+            "scipy_ms": 0.8868696000718046,
+            "warm_overhead": 1.4006958858066936,
+            "warm_solve_ms": 1.2422346000676043,
+            "warm_total_ms": 1.2422346000676043
+          },
+          {
+            "build_ms": 0.34325999877182767,
+            "cold_overhead": 2.69034763531842,
+            "cold_solve_ms": 2.502537001419114,
+            "cold_total_ms": 2.8457970001909416,
+            "n": 50,
+            "scipy_ms": 1.0577804008789826,
+            "warm_overhead": 1.3059045146807384,
+            "warm_solve_ms": 1.3813602010486647,
+            "warm_total_ms": 1.3813602010486647
+          },
+          {
+            "build_ms": 2.207367000664817,
+            "cold_overhead": 4.825542619460967,
+            "cold_solve_ms": 4.877707000559894,
+            "cold_total_ms": 7.0850740012247115,
+            "n": 100,
+            "scipy_ms": 1.4682440007163677,
+            "warm_overhead": 1.215488841472715,
+            "warm_solve_ms": 1.784634199430002,
+            "warm_total_ms": 1.784634199430002
+          },
+          {
+            "build_ms": 0.9081530006369576,
+            "cold_overhead": 4.364352366893895,
+            "cold_solve_ms": 10.057105999294436,
+            "cold_total_ms": 10.965258999931393,
+            "n": 200,
+            "scipy_ms": 2.512459599529393,
+            "warm_overhead": 1.3177663034185723,
+            "warm_solve_ms": 3.310834598960355,
+            "warm_total_ms": 3.310834598960355
+          },
+          {
+            "build_ms": 3.3278769988100976,
+            "cold_overhead": 4.835364174134148,
+            "cold_solve_ms": 34.82242199970642,
+            "cold_total_ms": 38.15029899851652,
+            "n": 500,
+            "scipy_ms": 7.889850200444926,
+            "warm_overhead": 1.1001823581781829,
+            "warm_solve_ms": 8.680273999198107,
+            "warm_total_ms": 8.680273999198107
+          }
+        ]
+      },
+      "vector": {
+        "label": "MILP (VectorVariable)",
+        "results": [
+          {
+            "build_ms": 0.11342200014041737,
+            "cold_overhead": 1.1751891455861652,
+            "cold_solve_ms": 1.0656769991328474,
+            "cold_total_ms": 1.1790989992732648,
+            "n": 10,
+            "scipy_ms": 1.003326999489218,
+            "warm_overhead": 0.9674415220778275,
+            "warm_solve_ms": 0.9706601995276287,
+            "warm_total_ms": 0.9706601995276287
+          },
+          {
+            "build_ms": 0.16660999972373247,
+            "cold_overhead": 1.1871918475053154,
+            "cold_solve_ms": 1.0797040013130754,
+            "cold_total_ms": 1.246314001036808,
+            "n": 25,
+            "scipy_ms": 1.0497999996005092,
+            "warm_overhead": 1.0163364446826544,
+            "warm_solve_ms": 1.0669499992218334,
+            "warm_total_ms": 1.0669499992218334
+          },
+          {
+            "build_ms": 0.20800800120923668,
+            "cold_overhead": 1.4566705000975524,
+            "cold_solve_ms": 1.331152001512237,
+            "cold_total_ms": 1.5391600027214736,
+            "n": 50,
+            "scipy_ms": 1.0566288001427893,
+            "warm_overhead": 1.2941061236838522,
+            "warm_solve_ms": 1.3673898007255048,
+            "warm_total_ms": 1.3673898007255048
+          },
+          {
+            "build_ms": 0.32505700073670596,
+            "cold_overhead": 1.451575594142868,
+            "cold_solve_ms": 1.7858999999589287,
+            "cold_total_ms": 2.1109570006956346,
+            "n": 100,
+            "scipy_ms": 1.4542521996190771,
+            "warm_overhead": 1.2799012436930013,
+            "warm_solve_ms": 1.8612991989357397,
+            "warm_total_ms": 1.8612991989357397
+          },
+          {
+            "build_ms": 0.5490439980349038,
+            "cold_overhead": 1.3673208274083901,
+            "cold_solve_ms": 2.898244998505106,
+            "cold_total_ms": 3.44728899654001,
+            "n": 200,
+            "scipy_ms": 2.521199799957685,
+            "warm_overhead": 1.1874288581875057,
+            "warm_solve_ms": 2.993745399726322,
+            "warm_total_ms": 2.993745399726322
+          },
+          {
+            "build_ms": 1.1771960016631056,
+            "cold_overhead": 1.9537429622573275,
+            "cold_solve_ms": 14.222654997865902,
+            "cold_total_ms": 15.399850999529008,
+            "n": 500,
+            "scipy_ms": 7.882229800452478,
+            "warm_overhead": 1.2936619533279687,
+            "warm_solve_ms": 10.196940800233278,
+            "warm_total_ms": 10.196940800233278
+          },
+          {
+            "build_ms": 4.252782000548905,
+            "cold_overhead": 1.3152853856338191,
+            "cold_solve_ms": 28.930814998602727,
+            "cold_total_ms": 33.18359699915163,
+            "n": 1000,
+            "scipy_ms": 25.229199200111907,
+            "warm_overhead": 1.1026000539842433,
+            "warm_solve_ms": 27.81771640002262,
+            "warm_total_ms": 27.81771640002262
+          },
+          {
+            "build_ms": 4.538343997410266,
+            "cold_overhead": 1.0930986857200522,
+            "cold_solve_ms": 90.94023099896731,
+            "cold_total_ms": 95.47857499637757,
+            "n": 2000,
+            "scipy_ms": 87.34671100028208,
+            "warm_overhead": 1.0280106162114089,
+            "warm_solve_ms": 89.79334619943984,
+            "warm_total_ms": 89.79334619943984
+          },
+          {
+            "build_ms": 14.063347000046633,
+            "cold_overhead": 1.0031123576531944,
+            "cold_solve_ms": 556.2133999992511,
+            "cold_total_ms": 570.2767469992978,
+            "n": 5000,
+            "scipy_ms": 568.5073488013586,
+            "warm_overhead": 1.179959153413669,
+            "warm_solve_ms": 670.8154500011005,
+            "warm_total_ms": 670.8154500011005
+          }
+        ]
+      }
+    },
+    "nlp": {
+      "loop": {
+        "label": "NLP (Loop)",
+        "results": [
+          {
+            "build_ms": 0.23259400040842593,
+            "cold_overhead": 26.924193665611664,
+            "cold_solve_ms": 22.282316000200808,
+            "cold_total_ms": 22.514910000609234,
+            "n": 10,
+            "scipy_ms": 0.83623339960468,
+            "warm_overhead": 1.526948339291722,
+            "warm_solve_ms": 1.2768852007866371,
+            "warm_total_ms": 1.2768852007866371
+          },
+          {
+            "build_ms": 0.8333039986609947,
+            "cold_overhead": 140.23467756679662,
+            "cold_solve_ms": 23.261622001882643,
+            "cold_total_ms": 24.094926000543637,
+            "n": 25,
+            "scipy_ms": 0.17181860021082684,
+            "warm_overhead": 2.940754958360747,
+            "warm_solve_ms": 0.5052764005085919,
+            "warm_total_ms": 0.5052764005085919
+          },
+          {
+            "build_ms": 0.3780549996008631,
+            "cold_overhead": 256.11622214696143,
+            "cold_solve_ms": 42.20331599935889,
+            "cold_total_ms": 42.581370998959756,
+            "n": 50,
+            "scipy_ms": 0.16625800053589046,
+            "warm_overhead": 3.638935862690727,
+            "warm_solve_ms": 0.6050022006093059,
+            "warm_total_ms": 0.6050022006093059
+          },
+          {
+            "build_ms": 0.510792997374665,
+            "cold_overhead": 560.5602547995003,
+            "cold_solve_ms": 171.82303099980345,
+            "cold_total_ms": 172.33382399717811,
+            "n": 100,
+            "scipy_ms": 0.30743140014237724,
+            "warm_overhead": 5.524515057550911,
+            "warm_solve_ms": 1.6984093992505223,
+            "warm_total_ms": 1.6984093992505223
+          },
+          {
+            "build_ms": 1.5647879990865476,
+            "cold_overhead": 2373.6715815740263,
+            "cold_solve_ms": 788.4804659988731,
+            "cold_total_ms": 790.0452539979597,
+            "n": 200,
+            "scipy_ms": 0.33283680022577755,
+            "warm_overhead": 5.649991223581403,
+            "warm_solve_ms": 1.88052500016056,
+            "warm_total_ms": 1.88052500016056
+          },
+          {
+            "build_ms": 2.4829899994074367,
+            "cold_overhead": 5156.3964225459185,
+            "cold_solve_ms": 5282.304603999364,
+            "cold_total_ms": 5284.787593998772,
+            "n": 500,
+            "scipy_ms": 1.024899398908019,
+            "warm_overhead": 7.431381273147058,
+            "warm_solve_ms": 7.616418199904729,
+            "warm_total_ms": 7.616418199904729
+          }
+        ]
+      },
+      "vector": {
+        "label": "NLP (VectorVariable)",
+        "results": [
+          {
+            "build_ms": 0.1335380002274178,
+            "cold_overhead": 7.034893721008192,
+            "cold_solve_ms": 1.6221139994740952,
+            "cold_total_ms": 1.755651999701513,
+            "n": 10,
+            "scipy_ms": 0.24956340057542548,
+            "warm_overhead": 2.187587599443851,
+            "warm_solve_ms": 0.5459418003738392,
+            "warm_total_ms": 0.5459418003738392
+          },
+          {
+            "build_ms": 0.18729899966274388,
+            "cold_overhead": 8.070642423746817,
+            "cold_solve_ms": 3.2761719994596206,
+            "cold_total_ms": 3.4634709991223644,
+            "n": 25,
+            "scipy_ms": 0.4291443998226896,
+            "warm_overhead": 5.572431566330814,
+            "warm_solve_ms": 2.3913778000860475,
+            "warm_total_ms": 2.3913778000860475
+          },
+          {
+            "build_ms": 0.2650540009199176,
+            "cold_overhead": 3.026941579482231,
+            "cold_solve_ms": 1.2355649996607099,
+            "cold_total_ms": 1.5006190005806275,
+            "n": 50,
+            "scipy_ms": 0.4957541998010129,
+            "warm_overhead": 2.0825227513121036,
+            "warm_solve_ms": 1.0324194001441356,
+            "warm_total_ms": 1.0324194001441356
+          },
+          {
+            "build_ms": 0.4631140000128653,
+            "cold_overhead": 4.760779426991482,
+            "cold_solve_ms": 1.846163002483081,
+            "cold_total_ms": 2.3092770024959464,
+            "n": 100,
+            "scipy_ms": 0.4850628007261548,
+            "warm_overhead": 4.305729478136866,
+            "warm_solve_ms": 2.088549199834233,
+            "warm_total_ms": 2.088549199834233
+          },
+          {
+            "build_ms": 0.943560000450816,
+            "cold_overhead": 5.758374810789764,
+            "cold_solve_ms": 5.066017001809087,
+            "cold_total_ms": 6.009577002259903,
+            "n": 200,
+            "scipy_ms": 1.0436238000693265,
+            "warm_overhead": 2.2984234359876172,
+            "warm_solve_ms": 2.3986894004337955,
+            "warm_total_ms": 2.3986894004337955
+          },
+          {
+            "build_ms": 4.8641109970049,
+            "cold_overhead": 53.78946185114727,
+            "cold_solve_ms": 6.9507119987974875,
+            "cold_total_ms": 11.814822995802388,
+            "n": 500,
+            "scipy_ms": 0.21964939951431006,
+            "warm_overhead": 8.802874053183821,
+            "warm_solve_ms": 1.933545999781927,
+            "warm_total_ms": 1.933545999781927
+          },
+          {
+            "build_ms": 2.3693789989920333,
+            "cold_overhead": 36.298616780646455,
+            "cold_solve_ms": 6.737806001183344,
+            "cold_total_ms": 9.107185000175377,
+            "n": 1000,
+            "scipy_ms": 0.2508961995772552,
+            "warm_overhead": 17.360370574977356,
+            "warm_solve_ms": 4.3556510005146265,
+            "warm_total_ms": 4.3556510005146265
+          },
+          {
+            "build_ms": 4.656695000448963,
+            "cold_overhead": 63.99828017713911,
+            "cold_solve_ms": 15.803311998752179,
+            "cold_total_ms": 20.46000699920114,
+            "n": 2000,
+            "scipy_ms": 0.3196962003130466,
+            "warm_overhead": 22.64619971147447,
+            "warm_solve_ms": 7.239903999288799,
+            "warm_total_ms": 7.239903999288799
+          },
+          {
+            "build_ms": 19.125397000607336,
+            "cold_overhead": 81.94926695989462,
+            "cold_solve_ms": 47.659322000981774,
+            "cold_total_ms": 66.78471900158911,
+            "n": 5000,
+            "scipy_ms": 0.8149519999278709,
+            "warm_overhead": 42.13192875480498,
+            "warm_solve_ms": 34.33549959954689,
+            "warm_total_ms": 34.33549959954689
+          }
+        ]
+      }
+    }
+  }
+}

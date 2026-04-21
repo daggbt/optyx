@@ -48,6 +48,22 @@ def flatten_expression(expr: Expression) -> Expression:
     return expr
 
 
+def optimize_expression(expr: Expression) -> Expression:
+    """Run the expression optimizer pipeline.
+
+    Currently this is a thin wrapper over ``flatten_expression()`` so callers
+    can target a stable optimization entry point while additional passes remain
+    future work.
+
+    Args:
+        expr: The expression to optimize.
+
+    Returns:
+        The optimized expression.
+    """
+    return flatten_expression(expr)
+
+
 def _gather_associative_terms(expr: Expression, op: str) -> list[Expression]:
     """Iteratively gather inputs for an associative chain.
 

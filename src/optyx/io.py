@@ -364,6 +364,7 @@ def _write_bounds(lines: list[str], variables: list[Variable]) -> None:
             lines.append(f"  {_format_number(lb)} <= {v.name}")
         else:
             # ub only
+            assert ub is not None
             lines.append(f"  -inf <= {v.name} <= {_format_number(ub)}")
 
     lines.append("")

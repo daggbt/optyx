@@ -275,6 +275,10 @@ class Variable(Expression):
 
         # Binary variables have implicit bounds
         if domain == "binary":
+            if lb is not None and float(lb) != 0.0:
+                raise ValueError(f"Binary variable must have lb=0, got {lb!r}")
+            if ub is not None and float(ub) != 1.0:
+                raise ValueError(f"Binary variable must have ub=1, got {ub!r}")
             self.lb = 0.0
             self.ub = 1.0
 

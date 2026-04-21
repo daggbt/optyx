@@ -7,7 +7,7 @@ MILP solver. Only supports linear objectives and constraints (no MIQP/MINLP).
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from scipy.optimize import milp, LinearConstraint, Bounds
@@ -44,11 +44,15 @@ def solve_milp(
     domains = np.array([var.domain for var in variables], dtype=object)
     integrality = ((domains == "integer") | (domains == "binary")).astype(int)
 
-    # Build variable bounds (vectorized)
-    raw_bounds = lp_data.bounds
+    # Always rebuild bounds from live variable attributes so cached LP
+    # structure respects bound mutations across re-solves.
+    raw_bounds = [(var.lb, var.ub) for var in variables]
     lb_arr = np.array([b[0] if b[0] is not None else -np.inf for b in raw_bounds])
     ub_arr = np.array([b[1] if b[1] is not None else np.inf for b in raw_bounds])
-    bounds = Bounds(lb=lb_arr, ub=ub_arr)
+    bounds = Bounds(
+        lb=cast(Any, lb_arr),
+        ub=cast(Any, ub_arr),
+    )
 
     # Build constraints for milp() using LinearConstraint
     constraints_list: list[LinearConstraint] = []
@@ -58,13 +62,21 @@ def solve_milp(
         b_ub = lp_data.b_ub
         m_ub = b_ub.shape[0] if hasattr(b_ub, "shape") else len(b_ub)
         # A_ub @ x <= b_ub  →  -inf <= A_ub @ x <= b_ub
-        constraints_list.append(LinearConstraint(A_ub, np.full(m_ub, -np.inf), b_ub))
+        constraints_list.append(
+            LinearConstraint(
+                A_ub,
+                cast(Any, np.full(m_ub, -np.inf)),
+                cast(Any, b_ub),
+            )
+        )
 
     if lp_data.A_eq is not None and lp_data.b_eq is not None:
         A_eq = lp_data.A_eq
         b_eq = lp_data.b_eq
         # A_eq @ x == b_eq  →  b_eq <= A_eq @ x <= b_eq
-        constraints_list.append(LinearConstraint(A_eq, b_eq, b_eq))
+        constraints_list.append(
+            LinearConstraint(A_eq, cast(Any, b_eq), cast(Any, b_eq))
+        )
 
     # Solve
     start_time = time.perf_counter()

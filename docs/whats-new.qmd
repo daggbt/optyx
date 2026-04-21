@@ -48,8 +48,10 @@ See the [Benchmarks](benchmarks.qmd) and the [Performance & Scaling guide](tutor
 
 Large-scale LPs with 100,000+ variables are now practical.
 
-- **`Problem.subject_to_matrix(A, x, sense, b)`** accepts `scipy.sparse` matrices, bypassing symbolic expression construction entirely
+- **`Problem.subject_to(A @ x <= b)`** supports matrix blocks directly, with `as_matrix(...)` for sparse coefficient matrices
+- **`as_matrix(storage="auto" | "dense" | "sparse")`** gives explicit control over matrix-block storage, with automatic CSR conversion for large low-density dense arrays
 - Sparse Jacobian compilation reduces memory from O(m×n) to O(nnz)
+- Sparse constrained NLPs now bias toward `trust-constr` sooner, lazily compiling the batched sparse Jacobian only when that solver path is actually used
 - n=100,000 LP with 1% density constraint matrix solves end-to-end
 
 ---

@@ -122,8 +122,7 @@ class TestLPVsSciPyScaling:
             for i in range(m):
                 prob.subject_to(A[i] @ x <= b[i])
 
-            # Warm up and time
-            prob.solve()  # Warm cache
+            # Warm up and time (n_warmup handles cache warming for both)
             optyx_timing = time_function(lambda: prob.solve(), n_warmup=2, n_runs=20)
 
             # SciPy
@@ -360,8 +359,7 @@ class TestMultiProblemScaling:
             for i in range(m):
                 prob.subject_to(A[i] @ x <= b[i])
 
-            prob.solve()  # Warm
-            timing = time_function(lambda: prob.solve(), n_warmup=0, n_runs=10)
+            timing = time_function(lambda: prob.solve(), n_warmup=2, n_runs=10)
             lp_data.add_point(n, timing.mean_ms, timing.std_ms)
 
         # Quadratic NLP data

@@ -21,12 +21,13 @@ from optyx.core.errors import (
     InvalidOperationError,
     ConstraintError,
     NoObjectiveError,
+    UnsupportedOperationError,
 )
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
     from optyx.analysis import LPData
-    from optyx.constraints import Constraint
+    from optyx.constraints import Constraint, MatrixConstraintBlock
     from optyx.core.expressions import Expression, Variable
     from optyx.core.vectors import VectorVariable
     from optyx.solution import Solution, SolverProgress
@@ -47,6 +48,12 @@ SMALL_PROBLEM_THRESHOLD = 3
 
 # Threshold for "large" problems where memory-efficient methods are preferred
 LARGE_PROBLEM_THRESHOLD = 1000
+
+# Thresholds for preferring trust-constr on large sparse NLPs
+SPARSE_NLP_ROW_THRESHOLD = 32
+SPARSE_NLP_VARIABLE_THRESHOLD = 64
+SPARSE_NLP_DENSITY_THRESHOLD = 0.15
+SPARSE_MATRIX_ENTRY_THRESHOLD = 4096
 
 # Pre-compiled regex for natural sorting of variable names
 _NUMBER_SPLIT_RE = re.compile(r"(\d+)")
@@ -256,9 +263,12 @@ class Problem:
         if self._solver_cache is not None:
             for key in (
                 "scipy_constraints",
+                "linear_constraints",
                 "sparse_constraint_jac_fn",
+                "constraint_exprs",
                 "constraint_fns",
                 "constraint_senses",
+                "constraint_variables",
             ):
                 self._solver_cache.pop(key, None)
 
@@ -305,7 +315,41 @@ class Problem:
         self._invalidate_caches()
         return self
 
-    def subject_to(self, constraint: Constraint | Iterable[Constraint]) -> Problem:
+    def _append_matrix_constraint(self, block: MatrixConstraintBlock) -> None:
+        from scipy import sparse as sp
+
+        A = block.A
+        b_arr = np.asarray(block.b, dtype=np.float64).ravel()
+
+        if sp.issparse(A):
+            m, n = A.shape
+        else:
+            A = np.asarray(A, dtype=np.float64)
+            m, n = A.shape
+
+        variables = list(block.variables)
+        if n != len(variables):
+            raise ValueError(f"A has {n} columns but x has {len(variables)} variables")
+        if m != len(b_arr):
+            raise ValueError(f"A has {m} rows but b has {len(b_arr)} elements")
+        if block.sense not in ("<=", ">=", "=="):
+            raise ValueError(f"sense must be '<=', '>=', or '==', got '{block.sense}'")
+
+        self._matrix_constraints.append(
+            _MatrixConstraint(
+                A=A,
+                b=b_arr,
+                sense=block.sense,
+                variables=variables,
+            )
+        )
+
+    def subject_to(
+        self,
+        constraint: Constraint
+        | MatrixConstraintBlock
+        | Iterable[Constraint | MatrixConstraintBlock],
+    ) -> Problem:
         """Add a constraint or list of constraints to the problem.
 
         Args:
@@ -323,13 +367,23 @@ class Problem:
             >>> prob.subject_to(x >= 0)  # Adds 100 constraints
             >>> prob.subject_to(x[i] >= 0 for i in range(10))  # Generator
         """
-        from optyx.constraints import Constraint as ConstraintType
+        from optyx.constraints import (
+            Constraint as ConstraintType,
+            MatrixConstraintBlock as MatrixConstraintBlockType,
+        )
 
         if isinstance(constraint, ConstraintType):
             self._constraints.append(self._validate_constraint(constraint))
+        elif isinstance(constraint, MatrixConstraintBlockType):
+            self._append_matrix_constraint(constraint)
         elif isinstance(constraint, Iterable):
             for c in constraint:
-                self._constraints.append(self._validate_constraint(c))
+                if isinstance(c, ConstraintType):
+                    self._constraints.append(self._validate_constraint(c))
+                elif isinstance(c, MatrixConstraintBlockType):
+                    self._append_matrix_constraint(c)
+                else:
+                    self._constraints.append(self._validate_constraint(c))
         else:
             # Fallback
             from optyx.core.expressions import Expression
@@ -386,67 +440,6 @@ class Problem:
                 )
         else:
             raise TypeError(f"Expected int or str, got {type(index_or_name).__name__}")
-        self._invalidate_constraint_caches()
-        return self
-
-    def subject_to_matrix(
-        self,
-        A: Any,
-        x: VectorVariable,
-        sense: Literal["<=", ">=", "=="],
-        b: Any,
-    ) -> Problem:
-        """Add matrix constraints A @ x {<=, >=, ==} b.
-
-        Accepts dense numpy arrays or scipy.sparse matrices. These constraints
-        bypass expression tree building entirely, enabling efficient large-scale
-        LP with sparse constraint matrices.
-
-        Args:
-            A: Constraint coefficient matrix (m, n). Can be numpy ndarray or
-                scipy.sparse matrix (csr_matrix, csc_matrix, etc.).
-            x: VectorVariable of size n.
-            sense: Constraint sense - "<=", ">=", or "==".
-            b: Right-hand side vector (m,). Can be list, tuple, or ndarray.
-
-        Returns:
-            Self for method chaining.
-
-        Raises:
-            ValueError: If dimensions don't match or sense is invalid.
-
-        Example:
-            >>> x = VectorVariable("x", 1000, lb=0)
-            >>> A = scipy.sparse.random(500, 1000, density=0.01, format="csr")
-            >>> b = np.ones(500)
-            >>> prob.subject_to_matrix(A, x, "<=", b)
-        """
-        from scipy import sparse as sp
-
-        b_arr = np.asarray(b, dtype=np.float64).ravel()
-
-        # Validate dimensions
-        if sp.issparse(A):
-            m, n = A.shape
-        else:
-            A = np.asarray(A, dtype=np.float64)
-            m, n = A.shape
-
-        if n != x.size:
-            raise ValueError(f"A has {n} columns but x has {x.size} variables")
-        if m != len(b_arr):
-            raise ValueError(f"A has {m} rows but b has {len(b_arr)} elements")
-        if sense not in ("<=", ">=", "=="):
-            raise ValueError(f"sense must be '<=', '>=', or '==', got '{sense}'")
-
-        self._matrix_constraints.append(
-            _MatrixConstraint(
-                A=A,
-                b=b_arr,
-                sense=sense,
-                variables=list(x._variables),
-            )
-        )
         self._invalidate_constraint_caches()
         return self
 
@@ -671,6 +664,9 @@ class Problem:
 
         Simple bounds are constraints on a single variable like x >= 0 or x <= 10.
         """
+        if self._matrix_constraints:
+            return False
+
         if not self._constraints:
             return True
 
@@ -680,7 +676,73 @@ class Problem:
 
     def _has_equality_constraints(self) -> bool:
         """Check if problem has any equality constraints."""
-        return any(c.sense == "==" for c in self._constraints)
+        return any(c.sense == "==" for c in self._constraints) or any(
+            mc.sense == "==" for mc in self._matrix_constraints
+        )
+
+    def _has_general_constraints(self) -> bool:
+        """Check if the problem has any non-bound constraints."""
+        return bool(self._constraints or self._matrix_constraints)
+
+    def _general_constraint_rows(self) -> int:
+        """Return the total number of scalar and matrix constraint rows."""
+        return len(self._constraints) + sum(
+            mc.A.shape[0] for mc in self._matrix_constraints
+        )
+
+    def _prefer_trust_constr_for_sparse_constraints(self) -> bool:
+        """Heuristic for large sparse constrained NLPs.
+
+        trust-constr can exploit batched sparse Jacobians and sparse linear
+        constraints better than SLSQP when the constrained NLP is large and the
+        Jacobian structure is sparse.
+        """
+        from scipy import sparse as sp
+
+        n = len(self.variables)
+        total_rows = self._general_constraint_rows()
+
+        if n == 0 or total_rows == 0:
+            return False
+
+        if self._matrix_constraints:
+            total_entries = 0
+            total_nnz = 0
+            sparse_blocks = 0
+
+            for mc in self._matrix_constraints:
+                m, cols = mc.A.shape
+                total_entries += m * cols
+                if sp.issparse(mc.A):
+                    sparse_blocks += 1
+                    total_nnz += mc.A.nnz
+                else:
+                    total_nnz += int(np.count_nonzero(mc.A))
+
+            density = total_nnz / total_entries if total_entries > 0 else 1.0
+
+            if sparse_blocks > 0 and (
+                n >= SPARSE_NLP_VARIABLE_THRESHOLD
+                or total_rows >= SPARSE_NLP_ROW_THRESHOLD
+            ):
+                return True
+
+            if (
+                total_entries >= SPARSE_MATRIX_ENTRY_THRESHOLD
+                and density <= SPARSE_NLP_DENSITY_THRESHOLD
+            ):
+                return True
+
+        if (
+            len(self._constraints) >= SPARSE_NLP_ROW_THRESHOLD
+            and n >= SPARSE_NLP_VARIABLE_THRESHOLD
+        ):
+            total_support = sum(len(c.get_variables()) for c in self._constraints)
+            density = total_support / (len(self._constraints) * n)
+            if density <= SPARSE_NLP_DENSITY_THRESHOLD:
+                return True
+
+        return False
 
     def _auto_select_method(self) -> str:
         """Automatically select the best solver method for this problem.
@@ -690,7 +752,7 @@ class Problem:
         2. Unconstrained:
            - n > 1000 → "L-BFGS-B" (memory efficient for large problems)
            - else → "L-BFGS-B" (fast, handles bounds, good default)
-        3. Only simple bounds → "L-BFGS-B"
+        3. Large sparse constrained NLP → "trust-constr"
         4. Non-linear + constraints → "trust-constr" (robust for non-convex)
         5. Linear/quadratic + constraints → "SLSQP" (faster, with fallback)
 
@@ -700,8 +762,11 @@ class Problem:
         from optyx.analysis import compute_degree
 
         # Unconstrained - use L-BFGS-B (fast, memory-efficient, handles bounds)
-        if not self._constraints:
+        if not self._has_general_constraints():
             return "L-BFGS-B"
+
+        if self._prefer_trust_constr_for_sparse_constraints():
+            return "trust-constr"
 
         # Only variable bounds (no general constraints)
         # FIXME: L-BFGS-B does not support constraints passed via the 'constraints' argument.
@@ -778,8 +843,10 @@ class Problem:
             Solution object with results.
 
         Raises:
-            ValueError: If no objective has been set, or if strict=True and
-                the problem contains unsupported features.
+            NoObjectiveError: If no objective has been set.
+            UnsupportedOperationError: If the problem is a nonlinear discrete
+                model (MIQP/MINLP), which the current solver stack does not
+                support.
         """
         if self._objective is None:
             raise NoObjectiveError(
@@ -795,17 +862,44 @@ class Problem:
                 self._store_solution(solution)
                 return solution
             else:
-                # Check for MIQP/MINLP (nonlinear + integer vars)
-                has_integers = any(
-                    v.domain in ("integer", "binary") for v in self.variables
-                )
-                if has_integers:
-                    raise ValueError(
-                        "Mixed-integer nonlinear programming (MINLP) is not supported. "
-                        "scipy.optimize.milp() only handles linear objectives and constraints. "
-                        "Use continuous relaxation or a dedicated MINLP solver."
-                    )
                 method = self._auto_select_method()
+
+        # Check for MIQP/MINLP (nonlinear + integer vars) before NLP dispatch.
+        # This fires for all NLP methods, not just "auto", to prevent silent
+        # relaxation of integer/binary domains.
+        _NLP_METHODS = {
+            "SLSQP",
+            "trust-constr",
+            "L-BFGS-B",
+            "BFGS",
+            "CG",
+            "Newton-CG",
+            "Nelder-Mead",
+            "Powell",
+            "COBYLA",
+            "TNC",
+            "dogleg",
+            "trust-ncg",
+            "trust-exact",
+            "trust-krylov",
+        }
+        if method in _NLP_METHODS:
+            discrete_names = [
+                v.name for v in self.variables if v.domain in ("integer", "binary")
+            ]
+            if discrete_names and not self._is_linear_problem():
+                raise UnsupportedOperationError(
+                    "MIQP/MINLP solve",
+                    solver_name="SciPy/HiGHS",
+                    problem_feature=(
+                        "nonlinear objective or constraints with integer/binary "
+                        f"variables {discrete_names}"
+                    ),
+                    suggestion=(
+                        "Use the MILP solver for linear discrete models, or relax "
+                        "integrality / switch to a dedicated MIQP or MINLP solver"
+                    ),
+                )
 
         # Handle explicit milp request
         if method == "milp":

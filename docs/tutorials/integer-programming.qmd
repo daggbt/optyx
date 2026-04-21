@@ -124,4 +124,4 @@ When running an MILP, Optyx populates additional metadata fields on the `Solutio
 
 ## Sparse Constraints in MILP
 
-Large combinatorial formulations can use sparse constraints as well. The internal translation correctly delegates sparse equality and inequality matrices to the solver. See the [Performance guide](performance.qmd) for more details on `subject_to_matrix()`.
+Large combinatorial formulations can use sparse constraints as well. The internal translation correctly delegates sparse equality and inequality matrices added through `subject_to(...)` to the solver. See the [Performance guide](performance.qmd) for more details.

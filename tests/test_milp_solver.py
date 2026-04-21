@@ -1,8 +1,11 @@
 """Tests for MILP solver integration (scipy.optimize.milp)."""
 
+import numpy as np
 import pytest
+from scipy import sparse
 
-from optyx import Variable, BinaryVariable, IntegerVariable, VectorVariable
+from optyx import Variable, BinaryVariable, IntegerVariable, VectorVariable, as_matrix
+from optyx.core.errors import UnsupportedOperationError
 from optyx.problem import Problem
 from optyx.solution import SolverStatus
 
@@ -252,24 +255,38 @@ class TestMILPRouting:
         sol = prob.solve(method="milp")
         assert sol.is_optimal
 
+    def test_milp_uses_live_bounds_after_resolve(self):
+        """MILP re-solves respect bound mutations after LP extraction is cached."""
+        x = IntegerVariable("x", lb=0, ub=10)
+        prob = Problem().maximize(x)
+
+        first = prob.solve()
+        assert first.is_optimal
+        assert first["x"] == pytest.approx(10.0)
+
+        x.ub = 3
+        second = prob.solve()
+        assert second.is_optimal
+        assert second["x"] == pytest.approx(3.0)
+
 
 class TestMIQPRaises:
     """Quadratic objective + integer variables raises error."""
 
     def test_miqp_raises(self):
-        """MIQP (quadratic + integer) raises ValueError."""
+        """MIQP (quadratic + integer) raises UnsupportedOperationError."""
         x = IntegerVariable("x", lb=0, ub=10)
         prob = Problem().minimize((x - 3) ** 2)
 
-        with pytest.raises(ValueError, match="nonlinear"):
+        with pytest.raises(UnsupportedOperationError, match="MIQP/MINLP"):
             prob.solve()
 
     def test_minlp_raises(self):
-        """MINLP (nonlinear + binary) raises ValueError."""
+        """MINLP (nonlinear + binary) raises UnsupportedOperationError."""
         x = BinaryVariable("x")
         prob = Problem().minimize(x**2 + x)
 
-        with pytest.raises(ValueError, match="nonlinear"):
+        with pytest.raises(UnsupportedOperationError, match="MIQP/MINLP"):
             prob.solve()
 
 
@@ -281,6 +298,16 @@ class TestDomainValidation:
         x = Variable("x", domain="binary")
         assert x.lb == 0
         assert x.ub == 1
+
+    def test_domain_validation_binary_conflicting_lb(self):
+        """Binary domain rejects conflicting lower bounds."""
+        with pytest.raises(ValueError, match="Binary variable must have lb=0"):
+            Variable("x", lb=2, domain="binary")
+
+    def test_domain_validation_binary_conflicting_ub(self):
+        """Binary domain rejects conflicting upper bounds."""
+        with pytest.raises(ValueError, match="Binary variable must have ub=1"):
+            Variable("x", ub=2, domain="binary")
 
     def test_domain_validation_unknown(self):
         """Unknown domain raises ValueError."""
@@ -310,6 +337,41 @@ class TestMILPSparseConstraints:
         assert sol.is_optimal
         total = sum(sol[f"x[{i}]"] for i in range(n))
         assert abs(total - 3) < 1e-6
+
+    @pytest.mark.slow
+    def test_milp_sparse_constraints_large_scale(self):
+        """Large sparse MILP with 10,000 binaries solves through subject_to."""
+        group_size = 10
+        n_groups = 1000
+        n = group_size * n_groups
+
+        x = VectorVariable("x", n, domain="binary")
+        group_pattern = np.arange(group_size, 0, -1, dtype=float).reshape(1, group_size)
+        objective = np.tile(group_pattern.ravel(), n_groups)
+
+        A = as_matrix(
+            sparse.kron(
+                sparse.eye(n_groups, format="csr"),
+                np.ones((1, group_size), dtype=float),
+                format="csr",
+            )
+        )
+        b = np.ones(n_groups, dtype=float)
+
+        prob = Problem(name="sparse_milp_large_scale")
+        prob.maximize(objective @ x)
+        prob.subject_to(A @ x <= b)
+
+        sol = prob.solve()
+        assert sol.is_optimal
+        assert sol.objective_value == pytest.approx(float(n_groups * group_size))
+
+        values = np.array([sol[f"x[{i}]"] for i in range(n)], dtype=float).reshape(
+            n_groups, group_size
+        )
+        assert np.allclose(values.sum(axis=1), 1.0)
+        assert np.all(values[:, 0] > 0.5)
+        assert np.all(values[:, 1:] < 0.5)
 
 
 class TestFacilityLocationMILP:

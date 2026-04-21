@@ -820,6 +820,45 @@ def compile_sparse_gradient(
     return sparse_gradient
 
 
+def compile_sparse_gradient_dense_output(
+    expr: "Expression",
+    variables: list["Variable"],
+) -> Callable[["NDArray[np.floating]"], NDArray[np.floating]]:
+    """Compile a sparse-eval gradient that returns a dense vector.
+
+    This is intended for solver frontends such as ``scipy.optimize.minimize``
+    that require dense objective gradients. Only structurally non-zero partials
+    are compiled and evaluated, then scattered into a dense 1D array.
+    """
+    from optyx.core.autodiff import analyze_gradient_sparsity, gradient as sym_gradient
+
+    n = len(variables)
+    sparsity = analyze_gradient_sparsity(expr, variables)
+
+    if sparsity.is_constant:
+        const_dense = np.zeros(n, dtype=np.float64)
+        if sparsity.constant_values is not None:
+            const_dense[sparsity.nnz_indices] = sparsity.constant_values
+        return lambda x, _g=const_dense: _g
+
+    nnz_idx = sparsity.nnz_indices
+
+    if len(nnz_idx) == 0:
+        zero_dense = np.zeros(n, dtype=np.float64)
+        return lambda x, _g=zero_dense: _g
+
+    grad_exprs = [sym_gradient(expr, variables[j]) for j in nnz_idx]
+    compiled_fns = [compile_expression(e, variables) for e in grad_exprs]
+
+    def dense_sparse_gradient(x: "NDArray[np.floating]") -> NDArray[np.floating]:
+        result = np.zeros(n, dtype=np.float64)
+        for idx, fn in zip(nnz_idx, compiled_fns):
+            result[idx] = fn(x)
+        return _sanitize_derivatives(result)
+
+    return dense_sparse_gradient
+
+
 # Default density threshold for switching between sparse and dense
 _SPARSE_DENSITY_THRESHOLD = 0.5
 
