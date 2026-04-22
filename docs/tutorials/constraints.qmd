@@ -166,6 +166,16 @@ print(f"Distance from origin: {dist_from_origin:.3f}")
 
 ---
 
+
+### Range Constraints (Between)
+
+If a variable or expression must be strictly bounded between two values, you can use `.between(lb, ub)`. This saves you from writing (and evaluating) two separate constraints.
+
+```python
+# Instead of: prob.subject_to(x + y >= 5).subject_to(x + y <= 10)
+prob.subject_to((x + y).between(5, 10))
+```
+
 ## Handling Infeasibility
 
 ### Detecting Infeasible Problems
@@ -217,6 +227,40 @@ print(f"Constraint violation: {sol['slack']:.2f}")
 
 ## Multiple Constraints
 
+### Legacy Loops (Loops vs Generators)
+
+For large problems, you can pass Python generator expressions directly into `subject_to()`. Optyx will unpack and add them efficiently.
+
+```python
+from optyx import Problem, VectorVariable
+
+x = VectorVariable("x", 100)
+prob = Problem()
+
+# Add 100 constraints in one clean line
+prob.subject_to(x[i] >= i for i in range(100))
+```
+
+### Direct Matrix Constraints
+
+When dealing with massive constraint sets (10,000+), looping over components is slow. Use direct matrix constraints through `subject_to(...)`:
+
+```python
+from optyx import as_matrix
+
+# Wrap scipy.sparse so A @ x stays symbolic
+A_sparse = as_matrix(A_sparse, storage="sparse")
+prob.subject_to(A_sparse @ x <= b_vector)
+```
+
+::: {.callout-note}
+Raw `scipy.sparse` matrices cannot be used directly on the left side of `@` here. SciPy intercepts `A @ x` first and attempts a numeric sparse multiplication, which fails before Optyx can turn it into a symbolic matrix constraint. `as_matrix(...)` wraps the sparse matrix in an Optyx matrix object so the symbolic path is used instead.
+
+If you already have a dense array but want explicit storage control, `as_matrix()` accepts `storage="auto"`, `storage="dense"`, and `storage="sparse"`. `storage="auto"` keeps sparse inputs sparse and can convert large, low-density dense arrays into CSR storage automatically.
+:::
+
+See the [Performance Guide](performance.qmd) for more details.
+
 ### Building Constraint Lists
 
 ```{python}
@@ -246,7 +290,7 @@ for i in range(n):
 Optyx variables work seamlessly with NumPy arrays. Use `np.array([...])` to wrap your variables, then use `@` for matrix multiplication and `np.sum()` for summations.
 :::
 
-### Constraint Generators
+### Legacy Loops (Loops vs Generators)
 
 For large problems, generate constraints programmatically:
 

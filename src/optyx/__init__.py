@@ -8,11 +8,14 @@ from optyx.core.expressions import (
     Constant,
 )
 from optyx.core.vectors import VectorVariable
+from optyx.core.variable_dict import VariableDict
 from optyx.core.matrices import (
+    ConstantMatrix,
     MatrixVariable,
     MatrixVectorProduct,
     QuadraticForm,
     FrobeniusNorm,
+    as_matrix,
     matmul,
     quadratic_form,
     trace,
@@ -44,17 +47,38 @@ from optyx.core.functions import (
 )
 from optyx.constraints import Constraint
 from optyx.problem import Problem
-from optyx.solution import Solution, SolverStatus
+from optyx.solution import Solution, SolverStatus, SolverProgress
 
 __version__ = version("optyx")
+
+
+def BinaryVariable(name: str, **kwargs) -> Variable:
+    """Create a binary (0/1) variable.
+
+    Shorthand for ``Variable(name, domain='binary', lb=0, ub=1)``.
+    """
+    return Variable(name, domain="binary", **kwargs)
+
+
+def IntegerVariable(name: str, lb=None, ub=None, **kwargs) -> Variable:
+    """Create an integer variable.
+
+    Shorthand for ``Variable(name, domain='integer', lb=lb, ub=ub)``.
+    """
+    return Variable(name, domain="integer", lb=lb, ub=ub, **kwargs)
+
 
 __all__ = [
     # Core
     "Expression",
     "Variable",
     "Constant",
+    "BinaryVariable",
+    "IntegerVariable",
     "VectorVariable",
+    "VariableDict",
     "MatrixVariable",
+    "ConstantMatrix",
     # Parameters
     "Parameter",
     "VectorParameter",
@@ -63,6 +87,7 @@ __all__ = [
     "MatrixVectorProduct",
     "QuadraticForm",
     "FrobeniusNorm",
+    "as_matrix",
     "matmul",
     "quadratic_form",
     "trace",
@@ -93,6 +118,7 @@ __all__ = [
     "Problem",
     "Solution",
     "SolverStatus",
+    "SolverProgress",
     # Utilities
     "increased_recursion_limit",
 ]

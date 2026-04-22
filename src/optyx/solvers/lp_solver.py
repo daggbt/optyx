@@ -15,7 +15,6 @@ import scipy
 from optyx.core.errors import (
     NoObjectiveError,
     NonLinearError,
-    IntegerVariableError,
     SolverError,
 )
 
@@ -91,24 +90,27 @@ def solve_lp(
                 suggestion="Use solve() with a nonlinear solver for nonlinear constraints.",
             )
 
-    # Check for non-continuous domains
+    # Check for non-continuous domains — route to MILP solver
     variables = problem.variables
     non_continuous = [v for v in variables if v.domain != "continuous"]
     if non_continuous:
-        names = ", ".join(v.name for v in non_continuous)
-        if strict:
-            raise IntegerVariableError(
-                solver_name="linprog",
-                variable_names=[v.name for v in non_continuous],
-            )
+        from optyx.solvers.milp_solver import solve_milp
+
+        # Extract LP coefficients (use cache if available)
+        if problem._lp_cache is not None:
+            lp_data = problem._lp_cache
         else:
-            warnings.warn(
-                f"Variables [{names}] have integer/binary domains but will be relaxed "
-                f"to continuous. linprog does not support integer programming. "
-                f"For true MIP, consider scipy.optimize.milp or PuLP.",
-                UserWarning,
-                stacklevel=2,
-            )
+            extractor = LinearProgramExtractor()
+            try:
+                lp_data = extractor.extract(problem)
+                problem._lp_cache = lp_data
+            except Exception as e:
+                raise SolverError(
+                    message=f"Failed to extract LP coefficients: {e}",
+                    solver_name="milp",
+                ) from e
+
+        return solve_milp(lp_data, variables, **kwargs)
 
     # Check SciPy version and select method
     if method is None:
@@ -157,8 +159,11 @@ def solve_lp(
         linprog_kwargs["A_eq"] = lp_data.A_eq
         linprog_kwargs["b_eq"] = lp_data.b_eq
 
-    if lp_data.bounds:
-        linprog_kwargs["bounds"] = lp_data.bounds
+    # Always re-extract bounds from live variable properties to ensure
+    # updates to v.lb/v.ub are respected even when LP data is cached.
+    fresh_bounds = [(v.lb, v.ub) for v in variables]
+    if fresh_bounds:
+        linprog_kwargs["bounds"] = fresh_bounds
 
     # Merge user kwargs (allow overriding)
     linprog_kwargs.update(kwargs)

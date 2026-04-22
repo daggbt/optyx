@@ -37,7 +37,7 @@ For contributing or development:
 
 ```bash
 # Clone the repository
-git clone https://github.com/daggbt/optyx.git
+git clone https://github.com/optyx-dev/optyx.git
 cd optyx
 
 # Install with uv (recommended)

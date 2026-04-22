@@ -10,7 +10,7 @@ trace, and diagonal extraction.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Iterator, Literal, overload
+from typing import TYPE_CHECKING, Any, Iterator, Literal, cast, overload
 
 import numpy as np
 
@@ -32,7 +32,53 @@ from optyx.core.errors import (
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray, ArrayLike
-    from optyx.constraints import Constraint
+    from optyx.constraints import Constraint, MatrixConstraintBlock
+
+
+_AUTO_SPARSE_MIN_ENTRIES = 4096
+_AUTO_SPARSE_DENSITY_THRESHOLD = 0.25
+
+
+def _resolve_constant_matrix_data(
+    data: Any,
+    storage: Literal["auto", "dense", "sparse"],
+) -> Any:
+    from scipy import sparse as sp
+
+    if storage not in ("auto", "dense", "sparse"):
+        raise ValueError(
+            f"storage must be 'auto', 'dense', or 'sparse', got {storage!r}"
+        )
+
+    if sp.issparse(data):
+        matrix = data
+        if len(matrix.shape) != 2:
+            raise WrongDimensionalityError(
+                context="constant matrix",
+                expected_ndim=2,
+                got_ndim=len(matrix.shape),
+            )
+        if storage == "dense":
+            return np.asarray(matrix.toarray(), dtype=np.float64)
+        return matrix
+
+    matrix = np.asarray(data, dtype=np.float64)
+    if matrix.ndim != 2:
+        raise WrongDimensionalityError(
+            context="constant matrix",
+            expected_ndim=2,
+            got_ndim=matrix.ndim,
+        )
+
+    if storage == "sparse":
+        return sp.csr_matrix(matrix)
+
+    if storage == "auto" and matrix.size >= _AUTO_SPARSE_MIN_ENTRIES:
+        density = np.count_nonzero(matrix) / matrix.size if matrix.size > 0 else 0.0
+        if density <= _AUTO_SPARSE_DENSITY_THRESHOLD:
+            return sp.csr_matrix(matrix)
+
+    return matrix
 
 
 # =============================================================================
@@ -95,7 +141,9 @@ class MatrixExpression:
             )
         return self._expressions[i][j]
 
-    def evaluate(self, values: Mapping[str, float]) -> NDArray[np.floating]:
+    def evaluate(
+        self, values: Mapping[str, "ArrayLike | float"]
+    ) -> NDArray[np.floating]:
         """Evaluate all elements with given variable values."""
         result = np.empty((self.rows, self.cols), dtype=np.float64)
         for i in range(self.rows):
@@ -264,6 +312,37 @@ class MatrixExpression:
             >>> s = (X * Y).sum()  # Hadamard product, then sum
         """
         return MatrixSum(self)
+
+
+class ConstantMatrix:
+    """Wrapper for constant dense or sparse matrices used in symbolic products.
+
+    This allows ``A @ x`` syntax for matrices that don't naturally defer to
+    Optyx's ``VectorVariable.__rmatmul__``, notably ``scipy.sparse`` matrices.
+    """
+
+    __slots__ = ("data", "shape", "storage")
+    __array_ufunc__ = None
+
+    def __init__(
+        self,
+        data: Any,
+        storage: Literal["auto", "dense", "sparse"] = "auto",
+    ) -> None:
+        from scipy import sparse as sp
+
+        matrix = _resolve_constant_matrix_data(data, storage)
+        self.data = matrix
+        self.shape = matrix.shape
+        self.storage = "sparse" if sp.issparse(matrix) else "dense"
+
+    def __matmul__(self, other: object) -> "MatrixVectorProduct":
+        if isinstance(other, (VectorVariable, VectorExpression)):
+            return MatrixVectorProduct(self.data, other)
+        return NotImplemented
+
+    def __repr__(self) -> str:
+        return f"ConstantMatrix(shape={self.shape}, storage='{self.storage}')"
 
 
 def _matrix_binary_op(
@@ -465,14 +544,26 @@ class MatrixSum(Expression):
         """Shape of the underlying matrix."""
         return self.matrix.shape
 
-    def evaluate(self, values: Mapping[str, float]) -> float:
+    def evaluate(self, values: Mapping[str, "ArrayLike | float"]) -> float:
         """Evaluate the sum given variable values."""
         if isinstance(self.matrix, MatrixVariable):
-            total = 0.0
-            for i in range(self.matrix.rows):
-                for j in range(self.matrix.cols):
-                    total += float(self.matrix._variables[i][j].evaluate(values))
-            return total
+            # Casting to satisfy type checker (Variable.evaluate expects Mapping[str, float])
+            params = cast("Mapping[str, float]", values)
+
+            # Use np.fromiter for O(N) accumulation in C, avoiding Python loop overhead
+            return float(
+                np.sum(
+                    np.fromiter(
+                        (
+                            v.evaluate(params)
+                            for row in self.matrix._variables
+                            for v in row
+                        ),
+                        dtype=float,
+                        count=self.matrix.size,
+                    )
+                )
+            )
         else:  # MatrixExpression
             result = self.matrix.evaluate(values)
             return float(np.sum(result))
@@ -798,6 +889,48 @@ class MatrixVariable:
         for i in range(self.rows):
             yield self[i, :]
 
+    def diagonal(self, offset: int = 0) -> VectorVariable:
+        """Return the diagonal of the matrix.
+
+        Args:
+            offset: Diagonal offset from the main diagonal.
+                    Positive means above main diagonal,
+                    negative means below.
+
+        Returns:
+            VectorVariable containing the diagonal elements.
+        """
+        if offset >= 0:
+            start_row = 0
+            start_col = offset
+        else:
+            start_row = -offset
+            start_col = 0
+
+        diag_vars: list[Variable] = []
+        rows, cols = self.shape
+        i, j = start_row, start_col
+
+        while i < rows and j < cols:
+            diag_vars.append(self._variables[i][j])
+            i += 1
+            j += 1
+
+        if not diag_vars:
+            raise InvalidOperationError(
+                operation="diagonal extraction",
+                operand_types=("MatrixVariable",),
+                suggestion=f"Offset {offset} is out of bounds for matrix with shape {self.shape}",
+            )
+
+        return VectorVariable._from_variables(
+            name=f"diag({self.name}, {offset})",
+            variables=diag_vars,
+            lb=self.lb,
+            ub=self.ub,
+            domain=self.domain,
+        )
+
     def cols_iter(self) -> Iterator[VectorVariable]:
         """Iterate over columns of the matrix.
 
@@ -811,37 +944,6 @@ class MatrixVariable:
         """
         for j in range(self.cols):
             yield self[:, j]
-
-    def diagonal(self) -> VectorVariable:
-        """Extract the main diagonal of a square matrix.
-
-        Returns:
-            VectorVariable containing the diagonal elements.
-
-        Raises:
-            ValueError: If the matrix is not square.
-
-        Example:
-            >>> A = MatrixVariable("A", 3, 3)
-            >>> d = A.diagonal()
-            >>> len(d)  # 3
-            >>> d[0].name  # 'A[0,0]'
-        """
-        if self.rows != self.cols:
-            raise SquareMatrixError(
-                operation="diagonal",
-                shape=(self.rows, self.cols),
-            )
-
-        diag_vars = [self._variables[i][i] for i in range(self.rows)]
-
-        return VectorVariable._from_variables(
-            name=f"diag({self.name})",
-            variables=diag_vars,
-            lb=self.lb,
-            ub=self.ub,
-            domain=self.domain,
-        )
 
     def trace(self) -> Expression:
         """Compute the trace (sum of diagonal elements) of a square matrix.
@@ -1179,20 +1281,30 @@ class MatrixVectorProduct(VectorExpression):
         [5.0, 11.0]  # [1*1+2*2, 3*1+4*2]
     """
 
-    __slots__ = ("matrix", "vector", "_expressions", "size")
+    __slots__ = ("matrix", "vector", "size", "_materialized")
 
     def __init__(
         self,
-        matrix: np.ndarray,
+        matrix: Any,
         vector: VectorVariable | VectorExpression,
     ) -> None:
-        matrix = np.asarray(matrix)
-        if matrix.ndim != 2:
-            raise WrongDimensionalityError(
-                context="matrix-vector product",
-                expected_ndim=2,
-                got_ndim=matrix.ndim,
-            )
+        from scipy import sparse as sp
+
+        if sp.issparse(matrix):
+            if len(matrix.shape) != 2:
+                raise WrongDimensionalityError(
+                    context="matrix-vector product",
+                    expected_ndim=2,
+                    got_ndim=len(matrix.shape),
+                )
+        else:
+            matrix = np.asarray(matrix, dtype=np.float64)
+            if matrix.ndim != 2:
+                raise WrongDimensionalityError(
+                    context="matrix-vector product",
+                    expected_ndim=2,
+                    got_ndim=matrix.ndim,
+                )
 
         vec_size = vector.size if hasattr(vector, "size") else len(vector)
         if matrix.shape[1] != vec_size:
@@ -1205,21 +1317,104 @@ class MatrixVectorProduct(VectorExpression):
         self.matrix = matrix
         self.vector = vector
         self.size = matrix.shape[0]
+        self._materialized = None
 
-        # Create a LinearCombination for each row
-        self._expressions: list[Expression] = [
-            LinearCombination(matrix[i, :], vector) for i in range(self.size)
-        ]
+    @property
+    def _expressions(self) -> Sequence[Expression]:
+        """Lazy creation of expression list when needed."""
+        from scipy import sparse as sp
+
+        if self._materialized is None:
+            # Create a LinearCombination for each row
+            # cast to list[Expression] to satisfy invariance if needed,
+            # but Sequence[Expression] return type handles covariance.
+            self._materialized = [
+                LinearCombination(
+                    (
+                        np.asarray(self.matrix[i, :].toarray()).ravel()
+                        if sp.issparse(self.matrix)
+                        else np.asarray(self.matrix[i, :], dtype=np.float64).ravel()
+                    ),
+                    self.vector,
+                )
+                for i in range(self.size)
+            ]
+        return self._materialized
 
     def evaluate(self, values: Mapping[str, ArrayLike | float]) -> list[float]:
-        """Evaluate the matrix-vector product."""
-        return [expr.evaluate(values) for expr in self._expressions]  # type: ignore[misc]
+        """Evaluate the matrix-vector product using BLAS."""
+        # Get vector values as a numpy array
+        if isinstance(self.vector, VectorVariable):
+            # Optimized path for VectorVariable - evaluate once
+            if hasattr(self.vector, "to_numpy"):
+                # Use to_numpy if available (it handles variable lookup)
+                # Note: to_numpy expects Mapping[str, float] but values might be restrictive
+                # We do a list comprehension manually to be safe and avoid type issues
+                vec_vals = np.array(
+                    [v.evaluate(values) for v in self.vector._variables]
+                )
+            else:
+                vec_vals = np.array([v.evaluate(values) for v in self.vector])
+        else:
+            # VectorExpression or list
+            vec_vals = np.array(self.vector.evaluate(values))
+
+        # Matrix-vector multiplication (BLAS)
+        result = self.matrix @ vec_vals
+        return np.asarray(result, dtype=np.float64).ravel().tolist()
 
     def get_variables(self) -> set[Variable]:
         """Return all variables this expression depends on."""
         if isinstance(self.vector, VectorVariable):
             return set(self.vector._variables)
         return self.vector.get_variables()
+
+    def _matrix_constraint_or_none(
+        self, other: object, sense: Literal["<=", ">=", "=="]
+    ) -> MatrixConstraintBlock | None:
+        from optyx.constraints import make_matrix_constraint_block
+
+        if isinstance(other, (np.ndarray, list)) and isinstance(
+            self.vector, VectorVariable
+        ):
+            return make_matrix_constraint_block(self.matrix, self.vector, sense, other)
+        return None
+
+    def __le__(
+        self,
+        other: VectorExpression | VectorVariable | float | int | np.ndarray | list,
+    ) -> MatrixConstraintBlock | list[Constraint]:
+        block = self._matrix_constraint_or_none(other, "<=")
+        if block is not None:
+            return block
+
+        from optyx.core.vectors import _vector_constraint
+
+        return _vector_constraint(self, other, "<=")
+
+    def __ge__(
+        self,
+        other: VectorExpression | VectorVariable | float | int | np.ndarray | list,
+    ) -> MatrixConstraintBlock | list[Constraint]:
+        block = self._matrix_constraint_or_none(other, ">=")
+        if block is not None:
+            return block
+
+        from optyx.core.vectors import _vector_constraint
+
+        return _vector_constraint(self, other, ">=")
+
+    def eq(
+        self,
+        other: VectorExpression | VectorVariable | float | int | np.ndarray | list,
+    ) -> MatrixConstraintBlock | list[Constraint]:
+        block = self._matrix_constraint_or_none(other, "==")
+        if block is not None:
+            return block
+
+        from optyx.core.vectors import _vector_constraint
+
+        return _vector_constraint(self, other, "==")
 
     def __repr__(self) -> str:
         vec_name = (
@@ -1229,7 +1424,7 @@ class MatrixVectorProduct(VectorExpression):
 
 
 def matmul(
-    matrix: np.ndarray, vector: VectorVariable | VectorExpression
+    matrix: Any, vector: VectorVariable | VectorExpression
 ) -> MatrixVectorProduct:
     """Matrix-vector multiplication: A @ x.
 
@@ -1247,6 +1442,23 @@ def matmul(
         >>> y = matmul(A, x)  # or just A @ x
     """
     return MatrixVectorProduct(matrix, vector)
+
+
+def as_matrix(
+    matrix: Any,
+    storage: Literal["auto", "dense", "sparse"] = "auto",
+) -> ConstantMatrix:
+    """Wrap a constant matrix for symbolic ``A @ x`` syntax.
+
+    Args:
+        matrix: Dense or sparse matrix-like input.
+        storage: Storage policy for the wrapped matrix.
+            - ``"auto"`` keeps sparse inputs sparse and may convert large,
+              low-density dense arrays to CSR storage.
+            - ``"dense"`` forces a NumPy ndarray.
+            - ``"sparse"`` forces CSR storage.
+    """
+    return ConstantMatrix(matrix, storage=storage)
 
 
 # =============================================================================

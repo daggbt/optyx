@@ -135,6 +135,20 @@ class Expression(ABC):
 
         return _make_constraint(self, "==", other)
 
+    def between(
+        self, lb: float | int | Expression, ub: float | int | Expression
+    ) -> list[Constraint]:
+        """Create range constraints: lb <= self <= ub.
+
+        Returns:
+            List of two constraints: [self >= lb, self <= ub].
+
+        Example:
+            >>> x = Variable("x")
+            >>> constraints = x.between(0, 10)
+        """
+        return [self >= lb, self <= ub]
+
     def constraint_eq(self, other: Expression | float | int) -> Constraint:
         """Create an == constraint: self == other.
 
@@ -231,7 +245,7 @@ class Variable(Expression):
         5.0
     """
 
-    __slots__ = ("name", "lb", "ub", "domain", "_sort_key")
+    __slots__ = ("name", "lb", "ub", "domain", "_sort_key", "obj")
 
     def __init__(
         self,
@@ -239,6 +253,7 @@ class Variable(Expression):
         lb: float | None = None,
         ub: float | None = None,
         domain: Literal["continuous", "integer", "binary"] = "continuous",
+        obj: float | int = 0.0,
     ) -> None:
         self._hash = None
         self._degree = None
@@ -246,6 +261,13 @@ class Variable(Expression):
         self.lb = lb
         self.ub = ub
         self.domain = domain
+        self.obj = float(obj)  # Linear objective coefficient
+
+        # Validate domain
+        if domain not in ("continuous", "integer", "binary"):
+            raise ValueError(
+                f"Unknown domain: {domain!r}. Must be 'continuous', 'integer', or 'binary'."
+            )
 
         # Pre-compute sort key for consistent ordering
         parts = _NUMBER_SPLIT_RE.split(name)
@@ -253,6 +275,10 @@ class Variable(Expression):
 
         # Binary variables have implicit bounds
         if domain == "binary":
+            if lb is not None and float(lb) != 0.0:
+                raise ValueError(f"Binary variable must have lb=0, got {lb!r}")
+            if ub is not None and float(ub) != 1.0:
+                raise ValueError(f"Binary variable must have ub=1, got {ub!r}")
             self.lb = 0.0
             self.ub = 1.0
 
@@ -294,6 +320,10 @@ class BinaryOp(Expression):
     """
 
     __slots__ = ("left", "right", "op")
+
+    left: Expression
+    right: Expression
+    op: Literal["+", "-", "*", "/", "**"]
 
     # Operator dispatch table for evaluation
     _OPS = {
@@ -431,6 +461,69 @@ class UnaryOp(Expression):
         return f"{self.op}({self.operand!r})"
 
 
+class NarySum(Expression):
+    """Sum of multiple expressions: a + b + c + ...
+
+    Flattening nested Add operations into a single node.
+    """
+
+    __slots__ = ("terms",)
+
+    def __init__(self, terms: tuple[Expression, ...]) -> None:
+        self._hash = None
+        self.terms = terms
+
+    def evaluate(
+        self, values: Mapping[str, ArrayLike | float]
+    ) -> NDArray[np.floating] | float:
+        # Start with 0 or first term? Implicitly 0 for sum.
+        # Ideally we want vectorized sum if possible, but terms might be mixed.
+        # Simple loop for now as per requirements.
+        result = 0.0
+        for term in self.terms:
+            result = result + term.evaluate(values)
+        return result
+
+    def get_variables(self) -> set[Variable]:
+        variables: set[Variable] = set()
+        for term in self.terms:
+            variables.update(term.get_variables())
+        return variables
+
+    def __repr__(self) -> str:
+        return f"Sum({', '.join(repr(t) for t in self.terms)})"
+
+
+class NaryProduct(Expression):
+    """Product of multiple expressions: a * b * c * ...
+
+    Flattening nested Multiply operations into a single node.
+    """
+
+    __slots__ = ("factors",)
+
+    def __init__(self, factors: tuple[Expression, ...]) -> None:
+        self._hash = None
+        self.factors = factors
+
+    def evaluate(
+        self, values: Mapping[str, ArrayLike | float]
+    ) -> NDArray[np.floating] | float:
+        result = 1.0
+        for factor in self.factors:
+            result = result * factor.evaluate(values)
+        return result
+
+    def get_variables(self) -> set[Variable]:
+        variables: set[Variable] = set()
+        for factor in self.factors:
+            variables.update(factor.get_variables())
+        return variables
+
+    def __repr__(self) -> str:
+        return f"Product({', '.join(repr(f) for f in self.factors)})"
+
+
 def _ensure_expr(value: Expression | float | int | ArrayLike) -> Expression:
     """Convert a value to an Expression if it isn't one already."""
     if isinstance(value, Expression):
@@ -556,6 +649,14 @@ def _get_variables_iterative(expr: Expression) -> set[Variable]:
         # Unary operation
         if isinstance(node, UnaryOp):
             stack.append(node.operand)
+            continue
+
+        # N-ary operations
+        if isinstance(node, (NarySum, NaryProduct)):
+            # Conveniently both have a tuple of expressions we can iterate
+            children = node.terms if isinstance(node, NarySum) else node.factors
+            for child in children:
+                stack.append(child)
             continue
 
         # Fallback: call get_variables (might recurse for custom expressions)

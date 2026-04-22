@@ -1,0 +1,132 @@
+---
+title: "Solver Callbacks"
+description: "Monitor solver progress and enforce time limits during optimization"
+date: last-modified
+---
+
+## Overview
+
+Long-running optimizations benefit from **real-time visibility** into solver
+progress.  Optyx exposes a simple callback interface that delivers a
+`SolverProgress` snapshot at every iteration.  You can use it to:
+
+- **Log** objective value, constraint violation, and elapsed time
+- **Terminate early** when a solution is "good enough"
+- **Enforce a time budget** so the solver never runs longer than allowed
+- **Combine** a callback with a time limit
+
+All three NLP methods (`SLSQP`, `trust-constr`, `L-BFGS-B`) support
+callbacks and time limits.
+
+---
+
+## Part 1: Logging Solver Progress
+
+We minimize a 10-dimension Rosenbrock function and print a status line at
+every iteration.
+
+```{python}
+from optyx import Problem, SolverProgress, VectorVariable
+
+n = 10
+v = VectorVariable("v", n, lb=-5, ub=5)
+prob = Problem("rosenbrock")
+
+# Vectorized Rosenbrock — VectorVariable supports slicing
+v_head = v[:-1]  # first n-1 elements
+v_tail = v[1:]   # last  n-1 elements
+obj = ((1 - v_head) ** 2 + 100 * (v_tail - v_head ** 2) ** 2).sum()
+prob.minimize(obj)
+
+
+def log_progress(p: SolverProgress) -> None:
+    print(
+        f"  iter {p.iteration:3d}  |  obj {p.objective_value:12.4f}"
+        f"  |  violation {p.constraint_violation:.2e}"
+        f"  |  time {p.elapsed_time:.3f}s"
+    )
+
+
+sol = prob.solve(method="SLSQP", callback=log_progress)
+print(f"\nStatus: {sol.status.value}  |  Objective: {sol.objective_value:.6f}")
+```
+
+The `SolverProgress` object contains five fields:
+
+| Field                  | Type           | Description                                |
+|------------------------|----------------|--------------------------------------------|
+| `iteration`            | `int`          | Current iteration number (1-based)         |
+| `objective_value`      | `float`        | Objective in the **original** sense        |
+| `constraint_violation` | `float`        | Max constraint violation (0 if feasible)   |
+| `elapsed_time`         | `float`        | Wall-clock seconds since solve started     |
+| `x`                    | `np.ndarray`   | Current variable values                    |
+
+---
+
+## Part 2: Early Termination
+
+Return `True` from the callback to stop the solver.  The solution will have
+status `SolverStatus.TERMINATED`.
+
+```{python}
+prob.reset()  # clear warm start so we see more iterations
+
+THRESHOLD = 1.0
+
+def stop_when_good_enough(p: SolverProgress) -> bool:
+    if p.objective_value < THRESHOLD:
+        print(f"  Objective {p.objective_value:.4f} < {THRESHOLD} — stopping early")
+        return True
+    return False
+
+sol = prob.solve(method="SLSQP", callback=stop_when_good_enough)
+print(f"Status: {sol.status.value}  |  Objective: {sol.objective_value:.6f}")
+```
+
+Returning `None` or `False` lets the solver continue normally.
+
+---
+
+## Part 3: Time Limits
+
+Pass `time_limit=` (in seconds) to cap the wall-clock duration.  This is
+useful for production systems that must respond within a deadline.
+
+```{python}
+prob.reset()
+
+sol = prob.solve(method="SLSQP", time_limit=0.005)
+print(f"Status: {sol.status.value}")
+print(f"Objective: {sol.objective_value:.6f}")
+print(f"Solve time: {sol.solve_time:.4f}s  |  Iterations: {sol.iterations}")
+```
+
+---
+
+## Part 4: Combining Callback and Time Limit
+
+Both mechanisms work together — whichever fires first terminates the solve.
+
+```{python}
+prob.reset()
+
+history: list[float] = []
+
+def record_objective(p: SolverProgress) -> None:
+    history.append(p.objective_value)
+
+sol = prob.solve(method="SLSQP", callback=record_objective, time_limit=0.05)
+print(f"Status: {sol.status.value}  |  Objective: {sol.objective_value:.6f}")
+print(f"Recorded {len(history)} objective snapshots")
+```
+
+---
+
+## Key Points
+
+- **`callback`** receives a `SolverProgress` each iteration; return `True` to stop.
+- **`time_limit`** is a wall-clock budget in seconds.
+- Early-terminated solutions still contain variable values, objective, and
+  solve time — they just carry `SolverStatus.TERMINATED` instead of `OPTIMAL`.
+- Both parameters are supported by all NLP methods (`SLSQP`, `trust-constr`,
+  `L-BFGS-B`).

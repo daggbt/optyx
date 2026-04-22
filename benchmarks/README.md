@@ -126,8 +126,8 @@ prob.subject_to(np.sum(x) >= 1)   # Sum constraint
 | Category       | Target                                    | Status |
 | -------------- | ----------------------------------------- | ------ |
 | Validation     | All problems converge to known optima     | ✅     |
-| LP overhead    | < 1.5x vs SciPy linprog                   | ✅ ~0.94-1.15x |
-| NLP overhead   | < 3x vs raw SciPy (with gradients)        | ✅ ~1.4-2.2x |
+| LP overhead    | < 1.5x vs SciPy linprog                   | ✅ ~1.1-1.6x |
+| CQP overhead   | < 3x vs raw SciPy (with Jacobians)        | ✅ ~1.2-2.2x |
 | Cache benefit  | > 2x speedup on repeated solve            | ✅ 2x-900x |
 | Gradient error | < 1e-5 vs finite difference               | ✅ < 1e-10 |
 
@@ -141,12 +141,9 @@ prob.subject_to(np.sum(x) >= 1)   # Sum constraint
 
 ## Updating Documentation
 
-When regenerating benchmark plots, copy them to the docs folder:
+When regenerating benchmark plots, the runner syncs benchmark artifacts to the docs folder automatically:
 
 ```bash
 # Regenerate plots
 uv run python benchmarks/run_benchmarks.py
-
-# Copy to docs assets
-cp benchmarks/results/*.png docs/assets/benchmarks/
 ```

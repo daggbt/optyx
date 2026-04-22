@@ -1,6 +1,8 @@
-"""Comparison benchmark: Optyx vs Pyomo.
+"""Ecosystem reference benchmark: Optyx vs Pyomo.
 
-Compares Optyx against Pyomo for NLP problems.
+These timings are informative ecosystem references for NLP and LP workflows.
+They are not strict apples-to-apples overhead claims because Pyomo depends on
+its own modeling pipeline and whichever backend solver is available.
 Pyomo is an optional dependency - tests gracefully skip if not installed.
 
 Install with: uv sync --extra benchmarks
@@ -59,7 +61,7 @@ def get_pyomo_solver():
 
 
 class TestNLPComparison:
-    """Compare Optyx vs Pyomo for nonlinear programs."""
+    """Reference timing comparison between Optyx and Pyomo NLP workflows."""
 
     def test_rosenbrock(self):
         """Rosenbrock function comparison."""
@@ -98,7 +100,7 @@ class TestNLPComparison:
             return value(model.obj)
 
         result = compare_timing(optyx_run, pyomo_run, n_warmup=2, n_runs=10)
-        print(f"\nRosenbrock - Optyx vs Pyomo:\n{result}")
+        print(f"\nRosenbrock Reference Timing - Optyx vs Pyomo:\n{result}")
 
     def test_constrained_nlp(self):
         """Constrained NLP comparison (vectorized)."""
@@ -135,11 +137,11 @@ class TestNLPComparison:
             return value(model.obj)
 
         result = compare_timing(optyx_run, pyomo_run, n_warmup=2, n_runs=10)
-        print(f"\nConstrained NLP - Optyx vs Pyomo:\n{result}")
+        print(f"\nConstrained NLP Reference Timing - Optyx vs Pyomo:\n{result}")
 
 
 class TestLPComparison:
-    """Compare Optyx vs Pyomo for linear programs."""
+    """Reference timing comparison between Optyx and Pyomo LP workflows."""
 
     def test_simple_lp(self):
         """Simple LP comparison (vectorized)."""
@@ -177,7 +179,7 @@ class TestLPComparison:
             return value(model.obj)
 
         result = compare_timing(optyx_run, pyomo_run, n_warmup=2, n_runs=10)
-        print(f"\nSimple LP - Optyx vs Pyomo:\n{result}")
+        print(f"\nSimple LP Reference Timing - Optyx vs Pyomo:\n{result}")
 
 
 class TestSyntaxComparison:

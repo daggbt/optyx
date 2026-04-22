@@ -51,6 +51,24 @@ print(f"Bounds: [{w.lb}, {w.ub}]")
 print(f"Domain: {w.domain}")
 ```
 
+
+You can also pass arrays for per-element bounds:
+```python
+import numpy as np
+# x[0] in [0,1], x[1] in [0.5, 2.0], etc.
+w = VectorVariable("w", 3, lb=np.array([0.0, 0.5, 0.2]), ub=np.array([1.0, 2.0, 1.5]))
+```
+
+
+
+You can also pass arrays for per-element bounds:
+```python
+import numpy as np
+# x[0] in [0,1], x[1] in [0.5, 2.0], etc.
+w = VectorVariable("w", 3, lb=np.array([0.0, 0.5, 0.2]), ub=np.array([1.0, 2.0, 1.5]))
+```
+
+
 All 10 variables are created with consistent names (`w[0]`, `w[1]`, ..., `w[9]`) and bounds.
 
 ::: {.callout-tip}
@@ -207,6 +225,26 @@ print(f"Addition result: {type(added).__name__}")
 ```
 
 ---
+
+
+### Fancy Indexing
+
+You can slice a `VectorVariable` with lists or arrays of indices, returning a new `VectorExpression` subset:
+
+```python
+x = VectorVariable("x", 10)
+subset = x[[0, 2, 5]]  # Returns a 3-element vector expression
+```
+
+
+### Fancy Indexing
+
+You can slice a `VectorVariable` with lists or arrays of indices, returning a new `VectorExpression` subset:
+
+```python
+x = VectorVariable("x", 10)
+subset = x[[0, 2, 5]]  # Returns a 3-element vector expression
+```
 
 ## Vector Constraints
 

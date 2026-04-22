@@ -1,0 +1,42 @@
+[
+  {
+    "n": 20,
+    "jacobian_type": "csr_matrix",
+    "nnz": 40,
+    "density": 0.09523809523809523,
+    "cold_trust_constr_median_ms": 216.23572600037733,
+    "cold_slsqp_median_ms": 16.729955001210328,
+    "warm_trust_constr_median_ms": 202.07499099888082,
+    "warm_slsqp_median_ms": 19.78887599943846
+  },
+  {
+    "n": 40,
+    "jacobian_type": "csr_matrix",
+    "nnz": 80,
+    "density": 0.04878048780487805,
+    "cold_trust_constr_median_ms": 528.6076329994103,
+    "cold_slsqp_median_ms": 55.64899599994533,
+    "warm_trust_constr_median_ms": 99.23417800018797,
+    "warm_slsqp_median_ms": 2.7929649986617733
+  },
+  {
+    "n": 80,
+    "jacobian_type": "csr_matrix",
+    "nnz": 160,
+    "density": 0.024691358024691357,
+    "cold_trust_constr_median_ms": 3570.338139999876,
+    "cold_slsqp_median_ms": 187.50832499972603,
+    "warm_trust_constr_median_ms": 136.33992400173156,
+    "warm_slsqp_median_ms": 8.31679700058885
+  },
+  {
+    "n": 120,
+    "jacobian_type": "csr_matrix",
+    "nnz": 240,
+    "density": 0.01652892561983471,
+    "cold_trust_constr_median_ms": 11636.690797999108,
+    "cold_slsqp_median_ms": 455.27698600017175,
+    "warm_trust_constr_median_ms": 154.7880569996778,
+    "warm_slsqp_median_ms": 18.819584998709615
+  }
+]

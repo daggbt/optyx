@@ -1,8 +1,11 @@
-"""Comparison benchmark: Optyx vs SciPy with vectorized operations.
+"""Cached solve comparison: Optyx vs SciPy with vectorized operations.
 
-Direct comparison with raw SciPy for both LP and NLP problems.
+These benchmarks focus on solve-path performance after problem construction.
+They are useful for cached solve throughput and syntax comparisons, but they
+are not end-to-end build+solve benchmarks.
+
 Uses VectorVariable and MatrixVariable for optimal performance.
-Generates plots comparing performance across problem sizes.
+Generates plots comparing cached solve performance across problem sizes.
 
 Key features demonstrated:
 1. VectorVariable: Efficient 1D variable arrays with @ syntax
@@ -151,15 +154,15 @@ class TestScalingComparison:
     """Generate scaling comparison plots."""
 
     def test_lp_scaling_plot(self):
-        """Generate LP scaling comparison plot using VectorVariable.
+        """Generate cached LP solve scaling plot using VectorVariable.
 
         Scales up to n=2,000 for plot (larger sizes shown in text output).
         """
         sizes = [100, 500, 1000, 2000]
-        data = ScalingData(label="LP (VectorVariable)")
+        data = ScalingData(label="LP (VectorVariable, cached solve-only)")
 
         print("\n" + "=" * 70)
-        print("LP SCALING PLOT: Optyx VectorVariable vs SciPy (n up to 2,000)")
+        print("LP CACHED SOLVE SCALING: Optyx VectorVariable vs SciPy (n up to 2,000)")
         print("=" * 70)
 
         for n in sizes:
@@ -177,12 +180,10 @@ class TestScalingComparison:
             for i in range(m):
                 prob.subject_to(A[i] @ x <= b[i])
 
-            prob.solve()  # Warm cache
-
             # Reduce runs for large problems (solve time dominates)
             n_runs = 5 if n <= 2000 else 3 if n <= 5000 else 2
             optyx_timing = time_function(
-                lambda: prob.solve(), n_warmup=1, n_runs=n_runs
+                lambda: prob.solve(), n_warmup=2, n_runs=n_runs
             )
 
             # SciPy
@@ -191,28 +192,37 @@ class TestScalingComparison:
                 lambda c=c, A=A, b=b, bounds=bounds: linprog(
                     -c, A_ub=A, b_ub=b, bounds=bounds, method="highs"
                 ),
-                n_warmup=1,
+                n_warmup=2,
                 n_runs=n_runs,
+            )
+
+            optyx_spread = max(
+                optyx_timing.median_ms - optyx_timing.p05_ms,
+                optyx_timing.p95_ms - optyx_timing.median_ms,
+            )
+            scipy_spread = max(
+                scipy_timing.median_ms - scipy_timing.p05_ms,
+                scipy_timing.p95_ms - scipy_timing.median_ms,
             )
 
             data.add_point(
                 n,
-                optyx_timing.mean_ms,
-                optyx_timing.std_ms,
-                scipy_timing.mean_ms,
-                scipy_timing.std_ms,
+                optyx_timing.median_ms,
+                optyx_spread,
+                scipy_timing.median_ms,
+                scipy_spread,
             )
 
-            ratio = optyx_timing.mean_ms / scipy_timing.mean_ms
+            ratio = optyx_timing.median_ms / scipy_timing.median_ms
             print(
-                f"n={n:5d}: Optyx={optyx_timing.mean_ms:8.1f}ms, "
-                f"SciPy={scipy_timing.mean_ms:8.1f}ms, "
-                f"ratio={ratio:.2f}x"
+                f"n={n:5d}: Optyx median={optyx_timing.median_ms:8.1f}ms, "
+                f"SciPy median={scipy_timing.median_ms:8.1f}ms, "
+                f"median ratio={ratio:.2f}x"
             )
 
         plot_scaling_comparison(
             data,
-            title="LP Scaling: Optyx VectorVariable vs SciPy (n up to 2,000)",
+            title="LP Cached Solve Scaling: Optyx VectorVariable vs SciPy",
             save_path=RESULTS_DIR / "scipy_lp_scaling.png",
         )
 
@@ -221,12 +231,12 @@ class TestOverheadBreakdown:
     """Analyze overhead by problem type."""
 
     def test_overhead_breakdown_plot(self):
-        """Generate overhead breakdown plot across problem types."""
+        """Generate cached solve overhead breakdown plot across problem types."""
         categories = []
         overheads = []
 
         print("\n" + "=" * 70)
-        print("OVERHEAD BREAKDOWN BY PROBLEM TYPE")
+        print("CACHED SOLVE OVERHEAD BREAKDOWN BY PROBLEM TYPE")
         print("=" * 70)
 
         # Small LP
@@ -239,7 +249,6 @@ class TestOverheadBreakdown:
         prob.subject_to(A[0] @ x <= b[0])
         prob.subject_to(A[1] @ x <= b[1])
 
-        prob.solve()
         optyx_t = time_function(lambda: prob.solve(), n_warmup=2, n_runs=50)
         scipy_t = time_function(
             lambda: linprog(
@@ -249,9 +258,9 @@ class TestOverheadBreakdown:
             n_runs=50,
         )
         categories.append("Small LP (n=2)")
-        overheads.append(optyx_t.mean_ms / scipy_t.mean_ms)
+        overheads.append(optyx_t.median_ms / scipy_t.median_ms)
         print(
-            f"Small LP (n=2): {optyx_t.mean_ms:.2f}ms vs {scipy_t.mean_ms:.2f}ms = {overheads[-1]:.2f}x"
+            f"Small LP (n=2): median {optyx_t.median_ms:.2f}ms vs {scipy_t.median_ms:.2f}ms = {overheads[-1]:.2f}x"
         )
 
         # Medium LP with VectorVariable
@@ -266,7 +275,6 @@ class TestOverheadBreakdown:
         for i in range(m):
             prob.subject_to(A_mat[i] @ x <= b_vec[i])
 
-        prob.solve()
         optyx_t = time_function(lambda: prob.solve(), n_warmup=2, n_runs=20)
         bounds = [(0, 1)] * n
         scipy_t = time_function(
@@ -277,9 +285,9 @@ class TestOverheadBreakdown:
             n_runs=20,
         )
         categories.append("Medium LP (n=500)")
-        overheads.append(optyx_t.mean_ms / scipy_t.mean_ms)
+        overheads.append(optyx_t.median_ms / scipy_t.median_ms)
         print(
-            f"Medium LP (n=500): {optyx_t.mean_ms:.2f}ms vs {scipy_t.mean_ms:.2f}ms = {overheads[-1]:.2f}x"
+            f"Medium LP (n=500): median {optyx_t.median_ms:.2f}ms vs {scipy_t.median_ms:.2f}ms = {overheads[-1]:.2f}x"
         )
 
         # Large LP with VectorVariable
@@ -294,20 +302,19 @@ class TestOverheadBreakdown:
         for i in range(m):
             prob.subject_to(A_mat[i] @ x <= b_vec[i])
 
-        prob.solve()
-        optyx_t = time_function(lambda: prob.solve(), n_warmup=1, n_runs=10)
+        optyx_t = time_function(lambda: prob.solve(), n_warmup=2, n_runs=10)
         bounds = [(0, 1)] * n
         scipy_t = time_function(
             lambda c=c, A_mat=A_mat, b_vec=b_vec, bounds=bounds: linprog(
                 -c, A_ub=A_mat, b_ub=b_vec, bounds=bounds, method="highs"
             ),
-            n_warmup=1,
+            n_warmup=2,
             n_runs=10,
         )
         categories.append("Large LP (n=2000)")
-        overheads.append(optyx_t.mean_ms / scipy_t.mean_ms)
+        overheads.append(optyx_t.median_ms / scipy_t.median_ms)
         print(
-            f"Large LP (n=2000): {optyx_t.mean_ms:.2f}ms vs {scipy_t.mean_ms:.2f}ms = {overheads[-1]:.2f}x"
+            f"Large LP (n=2000): median {optyx_t.median_ms:.2f}ms vs {scipy_t.median_ms:.2f}ms = {overheads[-1]:.2f}x"
         )
 
         # Print results
@@ -319,16 +326,16 @@ class TestOverheadBreakdown:
         plot_overhead_breakdown(
             categories,
             overheads,
-            title="Optyx Overhead vs SciPy by Problem Type",
+            title="Optyx Cached Solve Overhead vs SciPy by Problem Type",
             save_path=RESULTS_DIR / "bench_vs_scipy_overhead_breakdown.png",
         )
 
 
 class TestPortfolioComparison:
-    """Portfolio optimization syntax and performance comparison."""
+    """Portfolio optimization syntax and cached solve comparison."""
 
     def test_portfolio_vectorized(self):
-        """Portfolio LP optimization with VectorVariable at scale.
+        """Portfolio LP cached solve comparison with VectorVariable at scale.
 
         Tests linear portfolio optimization (maximize expected return)
         to demonstrate VectorVariable performance. Uses LP formulation
@@ -337,7 +344,7 @@ class TestPortfolioComparison:
         sizes = [50, 100, 200, 500, 1000]
 
         print("\n" + "=" * 70)
-        print("PORTFOLIO LP: Optyx VectorVariable vs SciPy (maximize return)")
+        print("PORTFOLIO LP CACHED SOLVE: Optyx VectorVariable vs SciPy")
         print("=" * 70)
 
         for n in sizes:
@@ -365,9 +372,6 @@ class TestPortfolioComparison:
 
             n_runs = 15 if n <= 200 else 10 if n <= 500 else 5
 
-            # Warmup
-            prob.solve()
-
             optyx_timing = time_function(
                 lambda p=prob: p.solve(), n_warmup=2, n_runs=n_runs
             )
@@ -383,10 +387,10 @@ class TestPortfolioComparison:
                 n_runs=n_runs,
             )
 
-            ratio = optyx_timing.mean_ms / scipy_timing.mean_ms
+            ratio = optyx_timing.median_ms / scipy_timing.median_ms
             print(
-                f"n={n:4d} assets: Optyx={optyx_timing.mean_ms:8.1f}ms, "
-                f"SciPy={scipy_timing.mean_ms:8.1f}ms, ratio={ratio:.2f}x"
+                f"n={n:4d} assets: Optyx median={optyx_timing.median_ms:8.1f}ms, "
+                f"SciPy median={scipy_timing.median_ms:8.1f}ms, median ratio={ratio:.2f}x"
             )
 
 
@@ -430,11 +434,11 @@ class TestVectorVariableScaling:
         print("-" * 70)
 
     def test_lp_solve_comparison(self):
-        """Compare VectorVariable solve performance vs SciPy."""
+        """Compare cached VectorVariable solve performance vs SciPy."""
         sizes = [100, 500, 1000, 2000]
 
         print("\n" + "=" * 70)
-        print("LP SOLVE COMPARISON: VectorVariable vs SciPy")
+        print("LP CACHED SOLVE COMPARISON: VectorVariable vs SciPy")
         print("=" * 70)
         print(f"{'n':>6} | {'Optyx':>10} | {'SciPy':>10} | {'Ratio':>10}")
         print("-" * 70)
@@ -455,10 +459,7 @@ class TestVectorVariableScaling:
             for i in range(m):
                 prob_vec.subject_to(A[i] @ x_vec <= b[i])
 
-            # Warm up
-            prob_vec.solve()
-
-            # Time solves
+            # Time solves (n_warmup handles cache warming)
             vector_timing = time_function(
                 lambda: prob_vec.solve(), n_warmup=2, n_runs=10
             )
@@ -468,11 +469,11 @@ class TestVectorVariableScaling:
                 n_runs=10,
             )
 
-            ratio = vector_timing.mean_ms / scipy_timing.mean_ms
+            ratio = vector_timing.median_ms / scipy_timing.median_ms
 
             print(
-                f"{n:>6} | {vector_timing.mean_ms:>9.2f}ms | "
-                f"{scipy_timing.mean_ms:>9.2f}ms | {ratio:>9.2f}x"
+                f"{n:>6} | {vector_timing.median_ms:>9.2f}ms | "
+                f"{scipy_timing.median_ms:>9.2f}ms | {ratio:>9.2f}x"
             )
 
         print("-" * 70)
@@ -548,14 +549,14 @@ class TestMatrixVariableScaling:
 
 
 class TestLargeScaleLP:
-    """Large-scale LP benchmarks up to n=5,000."""
+    """Large-scale LP cached solve benchmarks up to n=5,000."""
 
     def test_very_large_lp_vectorvariable(self):
-        """Solve very large LP using VectorVariable."""
+        """Benchmark very large cached LP solves using VectorVariable."""
         sizes = [500, 1000, 2000, 5000]
 
         print("\n" + "=" * 70)
-        print("LARGE-SCALE LP: VectorVariable vs SciPy (n up to 5,000)")
+        print("LARGE-SCALE LP CACHED SOLVE: VectorVariable vs SciPy")
         print("=" * 70)
         print(f"{'n':>8} | {'m':>6} | {'Build':>10} | {'Solve':>10} | {'SciPy':>10}")
         print("-" * 70)
@@ -582,22 +583,21 @@ class TestLargeScaleLP:
                 prob.subject_to(A[i] @ x <= b[i])
 
             # Solve timing (reduce runs for large n)
-            prob.solve()  # Warm up
             n_runs = 3 if n <= 2000 else 2
             solve_timing = time_function(
-                lambda: prob.solve(), n_warmup=1, n_runs=n_runs
+                lambda: prob.solve(), n_warmup=2, n_runs=n_runs
             )
 
             # SciPy timing
             scipy_timing = time_function(
                 lambda: linprog(-c, A_ub=A, b_ub=b, bounds=bounds_list, method="highs"),
-                n_warmup=1,
+                n_warmup=2,
                 n_runs=n_runs,
             )
 
             print(
                 f"{n:>8} | {m:>6} | {build_start.mean_ms:>9.1f}ms | "
-                f"{solve_timing.mean_ms:>9.1f}ms | {scipy_timing.mean_ms:>9.1f}ms"
+                f"{solve_timing.median_ms:>9.1f}ms | {scipy_timing.median_ms:>9.1f}ms"
             )
 
         print("-" * 70)
@@ -616,11 +616,11 @@ class TestPortfolioVectorized:
     """Portfolio optimization with VectorVariable and MatrixParameter."""
 
     def test_portfolio_scaling(self):
-        """Portfolio optimization at various scales."""
+        """Portfolio cached solve benchmark at various scales."""
         sizes = [10, 50, 100, 200, 500]
 
         print("\n" + "=" * 70)
-        print("PORTFOLIO OPTIMIZATION: VectorVariable Scaling")
+        print("PORTFOLIO OPTIMIZATION: Cached Solve Scaling")
         print("=" * 70)
         print(f"{'n assets':>10} | {'Build':>10} | {'Solve':>10} | {'SciPy':>10}")
         print("-" * 70)
@@ -676,7 +676,7 @@ class TestPortfolioVectorized:
 
             print(
                 f"{n:>10} | {build_timing.mean_ms:>9.1f}ms | "
-                f"{solve_timing.mean_ms:>9.1f}ms | {scipy_timing.mean_ms:>9.1f}ms"
+                f"{solve_timing.median_ms:>9.1f}ms | {scipy_timing.median_ms:>9.1f}ms"
             )
 
         print("-" * 70)

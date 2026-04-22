@@ -5,10 +5,10 @@
 [![PyPI](https://img.shields.io/pypi/v/optyx.svg)](https://pypi.org/project/optyx/)
 [![Python 3.12+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![CI](https://github.com/daggbt/optyx/actions/workflows/ci.yml/badge.svg)](https://github.com/daggbt/optyx/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/badge/docs-online-blue.svg)](https://daggbt.github.io/optyx/)
+[![CI](https://github.com/optyx-dev/optyx/actions/workflows/ci.yml/badge.svg)](https://github.com/optyx-dev/optyx/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-online-blue.svg)](https://optyx-dev.github.io/optyx/)
 
-📚 **[Documentation](https://daggbt.github.io/optyx/)** · 🚀 **[Quickstart](https://daggbt.github.io/optyx/getting-started/quickstart.html)** · 💡 **[Examples](https://daggbt.github.io/optyx/examples/portfolio.html)**
+📚 **[Documentation](https://optyx-dev.github.io/optyx/)** · 🚀 **[Quickstart](https://optyx-dev.github.io/optyx/getting-started/quickstart.html)** · 💡 **[Examples](https://optyx-dev.github.io/optyx/examples/portfolio.html)**
 
 <table>
 <tr>
@@ -79,11 +79,11 @@ Optyx is young and opinionated. It's **not** a replacement for specialized tools
 
 | Need | Use Instead |
 |------|-------------|
-| MILP at scale | Pyomo, OR-Tools, Gurobi |
+| Large-scale MILP with custom branching | Pyomo, OR-Tools, Gurobi |
 | Convex guarantees | CVXPY |
 | Maximum performance | Raw solver APIs |
 
-But if you want readable optimization code that just works for most problems, Optyx might be for you.
+Optyx does support MILP (via HiGHS), sparse LPs with 100k+ variables, and solver callbacks—but if you need industrial-grade MIP with cutting planes, a dedicated solver is the right choice.
 
 ---
 
@@ -93,7 +93,7 @@ But if you want readable optimization code that just works for most problems, Op
 pip install optyx
 ```
 
-Requires Python 3.12+, NumPy ≥2.0, SciPy ≥1.6.
+Requires Python 3.12+, NumPy ≥2.0, SciPy ≥1.7.
 
 ---
 
@@ -152,6 +152,27 @@ df = gradient(f, x)  # Symbolic: 3x² + 4x - 5
 print(df.evaluate({"x": 2.0}))  # 15.0
 ```
 
+### Mixed-Integer Programming
+
+```python
+from optyx import BinaryVariable, VectorVariable, Problem
+import numpy as np
+
+# Binary knapsack: select items to maximize value within weight limit
+n = 5
+x = VectorVariable("x", n, domain="binary")
+values = np.array([10, 20, 15, 25, 30])
+weights = np.array([5, 10, 8, 12, 15])
+
+solution = (
+    Problem()
+    .maximize(x.dot(values))
+    .subject_to(x.dot(weights) <= 30)
+    .solve()
+)
+# Automatically routes to HiGHS MILP solver
+```
+
 ---
 
 ## Features at a Glance
@@ -160,11 +181,17 @@ print(df.evaluate({"x": 2.0}))  # 15.0
 |---------|-------------|
 | **Natural syntax** | `x + y >= 1` instead of constraint dictionaries |
 | **Automatic gradients** | Symbolic differentiation—no manual derivatives |
-| **Smart solver selection** | HiGHS for LP, SLSQP/BFGS for NLP |
-| **Fast re-solve** | Cached compilation, up to 900x speedup |
+| **Smart solver selection** | HiGHS for LP/MILP, SLSQP/BFGS for NLP |
+| **Mixed-integer programming** | `BinaryVariable`, `IntegerVariable`, automatic MILP routing |
+| **Vector & matrix variables** | `VectorVariable`, `MatrixVariable`, `VariableDict` for scalable models |
+| **Sparse LP support** | `subject_to(A @ x <= b)` with `as_matrix(..., storage="auto"|"dense"|"sparse")` — 100k+ variables |
+| **Solver callbacks** | Monitor progress, enforce time limits, early termination |
+| **LP format export** | `Problem.write("model.lp")` for interop with other solvers |
+| **Solution serialization** | `to_json()` / `from_json()` for logging and auditing |
+| **Fast re-solve** | Cached compilation + warm starts, up to 900x speedup |
 | **Debuggable** | Inspect expression trees, understand your model |
 
-See the [documentation](https://daggbt.github.io/optyx/) for the full API reference, tutorials, and real-world examples.
+See the [documentation](https://optyx-dev.github.io/optyx/) for the full API reference, tutorials, and real-world examples.
 
 ---
 
@@ -172,25 +199,25 @@ See the [documentation](https://daggbt.github.io/optyx/) for the full API refere
 
 Optyx is actively evolving:
 
-- **Vector/Matrix variables** — Handle thousands of decision variables cleanly
-- **JIT compilation** — Faster execution for complex models  
+- **MIQP / MINLP support** — Quadratic and nonlinear MIP via native HiGHS or Gurobi
+- **MPS format I/O** — Import and export MPS files for solver interop
 - **More solvers** — IPOPT integration for large-scale NLP
 - **Better debugging** — Infeasibility diagnostics and model inspection
 
-See the [roadmap](https://daggbt.github.io/optyx/contributing.html) for details.
+See the [roadmap](https://optyx-dev.github.io/optyx/contributing.html) for details.
 
 ---
 
 ## Contributing
 
 ```bash
-git clone https://github.com/daggbt/optyx.git
+git clone https://github.com/optyx-dev/optyx.git
 cd optyx
 uv sync
 uv run pytest
 ```
 
-Contributions welcome! See our [contributing guide](https://daggbt.github.io/optyx/contributing.html).
+Contributions welcome! See our [contributing guide](https://optyx-dev.github.io/optyx/contributing.html).
 
 ---
 

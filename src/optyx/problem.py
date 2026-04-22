@@ -11,16 +11,36 @@ Provides a fluent API for building optimization problems:
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Literal
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Callable, Literal, Iterable
+from types import TracebackType
 
-from optyx.core.errors import InvalidOperationError, ConstraintError, NoObjectiveError
+import numpy as np
+
+from optyx.core.errors import (
+    InvalidOperationError,
+    ConstraintError,
+    NoObjectiveError,
+    UnsupportedOperationError,
+)
 
 if TYPE_CHECKING:
+    from numpy.typing import NDArray
     from optyx.analysis import LPData
-    from optyx.constraints import Constraint
+    from optyx.constraints import Constraint, MatrixConstraintBlock
     from optyx.core.expressions import Expression, Variable
     from optyx.core.vectors import VectorVariable
-    from optyx.solution import Solution
+    from optyx.solution import Solution, SolverProgress
+
+
+@dataclass
+class _MatrixConstraint:
+    """Stores a batch of linear constraints in matrix form: A @ x sense b."""
+
+    A: Any  # NDArray or scipy.sparse matrix
+    b: NDArray[np.floating]
+    sense: Literal["<=", ">=", "=="]
+    variables: list[Variable]  # The VectorVariable's individual variables
 
 
 # Threshold for "small" problems where gradient-free methods are faster
@@ -28,6 +48,12 @@ SMALL_PROBLEM_THRESHOLD = 3
 
 # Threshold for "large" problems where memory-efficient methods are preferred
 LARGE_PROBLEM_THRESHOLD = 1000
+
+# Thresholds for preferring trust-constr on large sparse NLPs
+SPARSE_NLP_ROW_THRESHOLD = 32
+SPARSE_NLP_VARIABLE_THRESHOLD = 64
+SPARSE_NLP_DENSITY_THRESHOLD = 0.15
+SPARSE_MATRIX_ENTRY_THRESHOLD = 4096
 
 # Pre-compiled regex for natural sorting of variable names
 _NUMBER_SPLIT_RE = re.compile(r"(\d+)")
@@ -133,19 +159,22 @@ def _try_get_single_vector_source(expr: "Expression") -> "VectorVariable | None"
 
         # DotProduct (x.dot(y)) - check if both sides are same VectorVariable
         if isinstance(current, DotProduct):
-            left_is_vec = isinstance(current.left, VectorVariable)
-            right_is_vec = isinstance(current.right, VectorVariable)
-            if left_is_vec and right_is_vec:
+            left = current.left
+            right = current.right
+            is_left_vec = isinstance(left, VectorVariable)
+            is_right_vec = isinstance(right, VectorVariable)
+
+            if is_left_vec and is_right_vec:
                 # Both are VectorVariables - must be the same
-                if current.left is current.right:
-                    candidate = current.left
+                if left is right:
+                    candidate = left
                     if found_source is None:
                         found_source = candidate
                     elif found_source is not candidate:
                         return None
                 else:
                     return None  # Two different VectorVariables
-            elif left_is_vec or right_is_vec:
+            elif is_left_vec or is_right_vec:
                 # One is VectorVariable, one is VectorExpression
                 return None  # Complex case, bail out
             else:
@@ -203,6 +232,7 @@ class Problem:
         self._objective: Expression | None = None
         self._sense: Literal["minimize", "maximize"] = "minimize"
         self._constraints: list[Constraint] = []
+        self._matrix_constraints: list[_MatrixConstraint] = []
         self._variables: list[Variable] | None = None  # Cached
         # Solver cache for compiled callables (reused across solve() calls)
         self._solver_cache: dict | None = None
@@ -210,6 +240,8 @@ class Problem:
         self._lp_cache: LPData | None = None
         # Cached linearity check result (None = not computed, True/False = result)
         self._is_linear_cache: bool | None = None
+        # Warm start: last solution array (used as x0 on re-solve)
+        self._last_solution: NDArray[np.floating] | None = None
 
     def _invalidate_caches(self) -> None:
         """Invalidate all cached data when problem is modified."""
@@ -218,7 +250,29 @@ class Problem:
         self._lp_cache = None
         self._is_linear_cache = None
 
-    def minimize(self, expr: Expression) -> Problem:
+    def _invalidate_constraint_caches(self) -> None:
+        """Invalidate only constraint-related caches.
+
+        Preserves objective/gradient compiled callables in the solver cache
+        so they don't need to be recompiled when only constraints change.
+        """
+        self._variables = None
+        self._lp_cache = None
+        self._is_linear_cache = None
+        # Remove only constraint keys from solver cache, keeping obj_fn/grad_fn/hess_fn
+        if self._solver_cache is not None:
+            for key in (
+                "scipy_constraints",
+                "linear_constraints",
+                "sparse_constraint_jac_fn",
+                "constraint_exprs",
+                "constraint_fns",
+                "constraint_senses",
+                "constraint_variables",
+            ):
+                self._solver_cache.pop(key, None)
+
+    def minimize(self, expr: Expression | float | int) -> Problem:
         """Set the objective function to minimize.
 
         Args:
@@ -240,7 +294,7 @@ class Problem:
         self._invalidate_caches()
         return self
 
-    def maximize(self, expr: Expression) -> Problem:
+    def maximize(self, expr: Expression | float | int) -> Problem:
         """Set the objective function to maximize.
 
         Args:
@@ -261,13 +315,46 @@ class Problem:
         self._invalidate_caches()
         return self
 
-    def subject_to(self, constraint: Constraint | list[Constraint]) -> Problem:
+    def _append_matrix_constraint(self, block: MatrixConstraintBlock) -> None:
+        from scipy import sparse as sp
+
+        A = block.A
+        b_arr = np.asarray(block.b, dtype=np.float64).ravel()
+
+        if sp.issparse(A):
+            m, n = A.shape
+        else:
+            A = np.asarray(A, dtype=np.float64)
+            m, n = A.shape
+
+        variables = list(block.variables)
+        if n != len(variables):
+            raise ValueError(f"A has {n} columns but x has {len(variables)} variables")
+        if m != len(b_arr):
+            raise ValueError(f"A has {m} rows but b has {len(b_arr)} elements")
+        if block.sense not in ("<=", ">=", "=="):
+            raise ValueError(f"sense must be '<=', '>=', or '==', got '{block.sense}'")
+
+        self._matrix_constraints.append(
+            _MatrixConstraint(
+                A=A,
+                b=b_arr,
+                sense=block.sense,
+                variables=variables,
+            )
+        )
+
+    def subject_to(
+        self,
+        constraint: Constraint
+        | MatrixConstraintBlock
+        | Iterable[Constraint | MatrixConstraintBlock],
+    ) -> Problem:
         """Add a constraint or list of constraints to the problem.
 
         Args:
-            constraint: Constraint or list of constraints to add.
-                Lists are typically produced by vectorized constraints
-                like `x >= 0` on VectorVariable.
+            constraint: Constraint or iterable of constraints to add.
+                Accepts lists, tuples, generators, etc.
 
         Returns:
             Self for method chaining.
@@ -278,16 +365,110 @@ class Problem:
         Example:
             >>> x = VectorVariable("x", 100)
             >>> prob.subject_to(x >= 0)  # Adds 100 constraints
+            >>> prob.subject_to(x[i] >= 0 for i in range(10))  # Generator
         """
-        if isinstance(constraint, list):
-            for c in constraint:
-                self._constraints.append(self._validate_constraint(c))
-        else:
+        from optyx.constraints import (
+            Constraint as ConstraintType,
+            MatrixConstraintBlock as MatrixConstraintBlockType,
+        )
+
+        if isinstance(constraint, ConstraintType):
             self._constraints.append(self._validate_constraint(constraint))
-        self._invalidate_caches()
+        elif isinstance(constraint, MatrixConstraintBlockType):
+            self._append_matrix_constraint(constraint)
+        elif isinstance(constraint, Iterable):
+            for c in constraint:
+                if isinstance(c, ConstraintType):
+                    self._constraints.append(self._validate_constraint(c))
+                elif isinstance(c, MatrixConstraintBlockType):
+                    self._append_matrix_constraint(c)
+                else:
+                    self._constraints.append(self._validate_constraint(c))
+        else:
+            # Fallback
+            from optyx.core.expressions import Expression
+
+            if isinstance(constraint, Expression):
+                reason = f"Expected Constraint, got Expression ({type(constraint).__name__}). Did you forget a comparison operator (==, <=, >=)?"
+            else:
+                reason = f"Expected Constraint or iterable of Constraints, got {type(constraint).__name__}"
+
+            raise ConstraintError(
+                message=reason,
+                constraint_expr=str(constraint),
+            )
+        self._invalidate_constraint_caches()
         return self
 
-    def _validate_expression(self, expr: Expression, context: str) -> Expression:
+    def remove_constraint(self, index_or_name: int | str) -> Problem:
+        """Remove a constraint by index or name.
+
+        Args:
+            index_or_name: If int, removes the constraint at that index.
+                If str, removes the first constraint with that name.
+
+        Returns:
+            Self for method chaining.
+
+        Raises:
+            IndexError: If integer index is out of range.
+            KeyError: If no constraint with the given name is found.
+
+        Example:
+            >>> prob.subject_to((x + y <= 10).name == "cap")
+            >>> prob.remove_constraint("cap")
+            >>> prob.remove_constraint(0)  # Remove first constraint
+        """
+        if isinstance(index_or_name, int):
+            idx = index_or_name
+            if idx < 0 or idx >= len(self._constraints):
+                raise IndexError(
+                    f"Constraint index {idx} out of range "
+                    f"(problem has {len(self._constraints)} constraints)"
+                )
+            self._constraints.pop(idx)
+        elif isinstance(index_or_name, str):
+            name = index_or_name
+            for i, c in enumerate(self._constraints):
+                if c.name == name:
+                    self._constraints.pop(i)
+                    break
+            else:
+                raise KeyError(
+                    f"No constraint named '{name}' found. "
+                    f"Named constraints: {[c.name for c in self._constraints if c.name]}"
+                )
+        else:
+            raise TypeError(f"Expected int or str, got {type(index_or_name).__name__}")
+        self._invalidate_constraint_caches()
+        return self
+
+    def __enter__(self) -> Problem:
+        """Context manager support."""
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Context manager exit (no-op)."""
+        pass
+
+    def reset(self) -> None:
+        """Reset the problem solver state (clears caches and warm start).
+
+        Forces a complete re-analysis and re-compilation of the problem
+        on the next solve() call. Also clears any stored warm start state,
+        forcing a cold start on the next solve.
+        """
+        self._invalidate_caches()
+        self._last_solution = None
+
+    def _validate_expression(
+        self, expr: Expression | float | int, context: str
+    ) -> Expression:
         """Validate that expr is a valid Expression type.
 
         Args:
@@ -422,6 +603,9 @@ class Problem:
         for constraint in self._constraints:
             all_vars.update(constraint.get_variables())
 
+        for mc in self._matrix_constraints:
+            all_vars.update(mc.variables)
+
         self._variables = sorted(all_vars, key=_natural_sort_key)
         return self._variables
 
@@ -433,7 +617,10 @@ class Problem:
     @property
     def n_constraints(self) -> int:
         """Number of constraints."""
-        return len(self._constraints)
+        n = len(self._constraints)
+        for mc in self._matrix_constraints:
+            n += mc.A.shape[0]
+        return n
 
     def get_bounds(self) -> list[tuple[float | None, float | None]]:
         """Get variable bounds as a list of (lb, ub) tuples.
@@ -468,6 +655,7 @@ class Problem:
                 self._is_linear_cache = False
                 return False
 
+        # Matrix constraints are always linear by definition
         self._is_linear_cache = True
         return True
 
@@ -476,6 +664,9 @@ class Problem:
 
         Simple bounds are constraints on a single variable like x >= 0 or x <= 10.
         """
+        if self._matrix_constraints:
+            return False
+
         if not self._constraints:
             return True
 
@@ -485,7 +676,73 @@ class Problem:
 
     def _has_equality_constraints(self) -> bool:
         """Check if problem has any equality constraints."""
-        return any(c.sense == "==" for c in self._constraints)
+        return any(c.sense == "==" for c in self._constraints) or any(
+            mc.sense == "==" for mc in self._matrix_constraints
+        )
+
+    def _has_general_constraints(self) -> bool:
+        """Check if the problem has any non-bound constraints."""
+        return bool(self._constraints or self._matrix_constraints)
+
+    def _general_constraint_rows(self) -> int:
+        """Return the total number of scalar and matrix constraint rows."""
+        return len(self._constraints) + sum(
+            mc.A.shape[0] for mc in self._matrix_constraints
+        )
+
+    def _prefer_trust_constr_for_sparse_constraints(self) -> bool:
+        """Heuristic for large sparse constrained NLPs.
+
+        trust-constr can exploit batched sparse Jacobians and sparse linear
+        constraints better than SLSQP when the constrained NLP is large and the
+        Jacobian structure is sparse.
+        """
+        from scipy import sparse as sp
+
+        n = len(self.variables)
+        total_rows = self._general_constraint_rows()
+
+        if n == 0 or total_rows == 0:
+            return False
+
+        if self._matrix_constraints:
+            total_entries = 0
+            total_nnz = 0
+            sparse_blocks = 0
+
+            for mc in self._matrix_constraints:
+                m, cols = mc.A.shape
+                total_entries += m * cols
+                if sp.issparse(mc.A):
+                    sparse_blocks += 1
+                    total_nnz += mc.A.nnz
+                else:
+                    total_nnz += int(np.count_nonzero(mc.A))
+
+            density = total_nnz / total_entries if total_entries > 0 else 1.0
+
+            if sparse_blocks > 0 and (
+                n >= SPARSE_NLP_VARIABLE_THRESHOLD
+                or total_rows >= SPARSE_NLP_ROW_THRESHOLD
+            ):
+                return True
+
+            if (
+                total_entries >= SPARSE_MATRIX_ENTRY_THRESHOLD
+                and density <= SPARSE_NLP_DENSITY_THRESHOLD
+            ):
+                return True
+
+        if (
+            len(self._constraints) >= SPARSE_NLP_ROW_THRESHOLD
+            and n >= SPARSE_NLP_VARIABLE_THRESHOLD
+        ):
+            total_support = sum(len(c.get_variables()) for c in self._constraints)
+            density = total_support / (len(self._constraints) * n)
+            if density <= SPARSE_NLP_DENSITY_THRESHOLD:
+                return True
+
+        return False
 
     def _auto_select_method(self) -> str:
         """Automatically select the best solver method for this problem.
@@ -495,7 +752,7 @@ class Problem:
         2. Unconstrained:
            - n > 1000 → "L-BFGS-B" (memory efficient for large problems)
            - else → "L-BFGS-B" (fast, handles bounds, good default)
-        3. Only simple bounds → "L-BFGS-B"
+        3. Large sparse constrained NLP → "trust-constr"
         4. Non-linear + constraints → "trust-constr" (robust for non-convex)
         5. Linear/quadratic + constraints → "SLSQP" (faster, with fallback)
 
@@ -505,8 +762,11 @@ class Problem:
         from optyx.analysis import compute_degree
 
         # Unconstrained - use L-BFGS-B (fast, memory-efficient, handles bounds)
-        if not self._constraints:
+        if not self._has_general_constraints():
             return "L-BFGS-B"
+
+        if self._prefer_trust_constr_for_sparse_constraints():
+            return "trust-constr"
 
         # Only variable bounds (no general constraints)
         # FIXME: L-BFGS-B does not support constraints passed via the 'constraints' argument.
@@ -540,6 +800,9 @@ class Problem:
         self,
         method: str = "auto",
         strict: bool = False,
+        warm_start: bool = True,
+        callback: Callable[[SolverProgress], bool | None] | None = None,
+        time_limit: float | None = None,
         **kwargs,
     ) -> Solution:
         """Solve the optimization problem.
@@ -564,14 +827,26 @@ class Problem:
                 that the solver cannot handle exactly (e.g., integer/binary
                 variables with SciPy). If False (default), emit a warning and
                 use the best available approximation.
+            warm_start: If True (default), use the previous solution as the
+                initial point for re-solving. Only applies to NLP methods.
+                Call reset() to clear warm start state.
+            callback: Optional function called at each solver iteration with a
+                SolverProgress object. Return True to terminate early
+                (solution will have SolverStatus.TERMINATED). Only applies
+                to NLP methods (SciPy).
+            time_limit: Maximum wall-clock time in seconds. If exceeded, the
+                solver terminates early with SolverStatus.TERMINATED. Only
+                applies to NLP methods (SciPy).
             **kwargs: Additional arguments passed to the solver.
 
         Returns:
             Solution object with results.
 
         Raises:
-            ValueError: If no objective has been set, or if strict=True and
-                the problem contains unsupported features.
+            NoObjectiveError: If no objective has been set.
+            UnsupportedOperationError: If the problem is a nonlinear discrete
+                model (MIQP/MINLP), which the current solver stack does not
+                support.
         """
         if self._objective is None:
             raise NoObjectiveError(
@@ -583,26 +858,94 @@ class Problem:
             if self._is_linear_problem():
                 from optyx.solvers.lp_solver import solve_lp
 
-                return solve_lp(self, strict=strict, **kwargs)
+                solution = solve_lp(self, strict=strict, **kwargs)
+                self._store_solution(solution)
+                return solution
             else:
                 method = self._auto_select_method()
+
+        # Check for MIQP/MINLP (nonlinear + integer vars) before NLP dispatch.
+        # This fires for all NLP methods, not just "auto", to prevent silent
+        # relaxation of integer/binary domains.
+        _NLP_METHODS = {
+            "SLSQP",
+            "trust-constr",
+            "L-BFGS-B",
+            "BFGS",
+            "CG",
+            "Newton-CG",
+            "Nelder-Mead",
+            "Powell",
+            "COBYLA",
+            "TNC",
+            "dogleg",
+            "trust-ncg",
+            "trust-exact",
+            "trust-krylov",
+        }
+        if method in _NLP_METHODS:
+            discrete_names = [
+                v.name for v in self.variables if v.domain in ("integer", "binary")
+            ]
+            if discrete_names and not self._is_linear_problem():
+                raise UnsupportedOperationError(
+                    "MIQP/MINLP solve",
+                    solver_name="SciPy/HiGHS",
+                    problem_feature=(
+                        "nonlinear objective or constraints with integer/binary "
+                        f"variables {discrete_names}"
+                    ),
+                    suggestion=(
+                        "Use the MILP solver for linear discrete models, or relax "
+                        "integrality / switch to a dedicated MIQP or MINLP solver"
+                    ),
+                )
+
+        # Handle explicit milp request
+        if method == "milp":
+            from optyx.solvers.lp_solver import solve_lp
+
+            solution = solve_lp(self, strict=strict, **kwargs)
+            self._store_solution(solution)
+            return solution
 
         # Handle explicit linprog request
         if method == "linprog":
             from optyx.solvers.lp_solver import solve_lp
 
-            return solve_lp(self, strict=strict, **kwargs)
+            solution = solve_lp(self, strict=strict, **kwargs)
+            self._store_solution(solution)
+            return solution
 
         # Route HiGHS methods to LP solver
         if method in ("highs", "highs-ds", "highs-ipm"):
             from optyx.solvers.lp_solver import solve_lp
 
-            return solve_lp(self, method=method, strict=strict, **kwargs)
+            solution = solve_lp(self, method=method, strict=strict, **kwargs)
+            self._store_solution(solution)
+            return solution
 
         # Use scipy solver for NLP methods
         from optyx.solvers.scipy_solver import solve_scipy
 
-        return solve_scipy(self, method=method, strict=strict, **kwargs)
+        solution = solve_scipy(
+            self,
+            method=method,
+            strict=strict,
+            warm_start=warm_start,
+            callback=callback,
+            time_limit=time_limit,
+            **kwargs,
+        )
+        self._store_solution(solution)
+        return solution
+
+    def _store_solution(self, solution: Solution) -> None:
+        """Store solution values for warm starting subsequent solves."""
+        if solution.values:
+            variables = self.variables
+            x = np.array([solution.values.get(v.name, 0.0) for v in variables])
+            self._last_solution = x
 
     def __repr__(self) -> str:
         obj_str = "not set" if self._objective is None else f"{self._sense}"
@@ -612,6 +955,50 @@ class Problem:
             f"n_vars={self.n_variables}, "
             f"n_constraints={self.n_constraints})"
         )
+
+    def write(self, filename: str) -> None:
+        """Export the problem to LP file format.
+
+        Writes the problem formulation to a human-readable .lp file,
+        compatible with solvers like CPLEX, Gurobi, GLPK, and HiGHS.
+
+        Supports linear and quadratic objectives, linear constraints,
+        variable bounds, and integer/binary variable types.
+
+        Args:
+            filename: Path to the output .lp file.
+
+        Raises:
+            InvalidOperationError: If the problem contains nonlinear
+                expressions that cannot be represented in LP format.
+            NoObjectiveError: If no objective has been set.
+
+        Example:
+            >>> x = Variable("x", lb=0)
+            >>> y = Variable("y", lb=0)
+            >>> prob = Problem("example")
+            >>> prob.minimize(2 * x + 3 * y)
+            >>> prob.subject_to(x + y >= 1)
+            >>> prob.write("example.lp")
+        """
+        from optyx.io import write_lp
+
+        write_lp(self, filename)
+
+    def to_lp(self) -> str:
+        """Return the LP format string representation of the problem.
+
+        Like write(), but returns the string instead of writing to a file.
+
+        Returns:
+            The LP format string.
+
+        Raises:
+            InvalidOperationError: If the problem contains nonlinear expressions.
+        """
+        from optyx.io import format_lp
+
+        return format_lp(self)
 
     def summary(self) -> str:
         """Return a human-readable summary of the optimization problem.

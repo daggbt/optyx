@@ -1,6 +1,6 @@
 [project]
 name = "optyx"
-version = "1.2.4"
+version = "1.3.0"
 description = "Intuitive symbolic interface for constrained optimization problems"
 readme = "README.md"
 license = "MIT"
@@ -37,11 +37,11 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://daggbt.github.io/optyx/"
-Documentation = "https://daggbt.github.io/optyx/"
-Repository = "https://github.com/daggbt/optyx"
-Changelog = "https://github.com/daggbt/optyx/blob/main/CHANGELOG.md"
-Issues = "https://github.com/daggbt/optyx/issues"
+Homepage = "https://optyx-dev.github.io/optyx/"
+Documentation = "https://optyx-dev.github.io/optyx/"
+Repository = "https://github.com/optyx-dev/optyx"
+Changelog = "https://github.com/optyx-dev/optyx/blob/main/CHANGELOG.md"
+Issues = "https://github.com/optyx-dev/optyx/issues"
 
 [project.optional-dependencies]
 benchmarks = [
@@ -66,7 +66,7 @@ dev = [
     "ipykernel",
     "jupyter",
     "pyyaml",
-    "pyright>=1.1.407",
+    "pyright>=1.1.408",
     "quartodoc>=0.11.1",
 ]
 

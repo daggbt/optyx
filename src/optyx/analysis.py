@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import TYPE_CHECKING, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Optional, Sequence
 import numbers
 
 import numpy as np
@@ -65,7 +65,6 @@ def _estimate_tree_depth(expr: Expression, max_depth: int = 500) -> int:
         Estimated maximum depth of the tree.
     """
     from optyx.core.vectors import LinearCombination, VectorSum, DotProduct
-    from typing import Any
 
     # Use explicit stack to avoid recursion
     stack: list[tuple[Any, int]] = [(expr, 0)]  # (node, current_depth)
@@ -710,9 +709,11 @@ class LPData:
     Attributes:
         c: Objective function coefficients (n,)
         sense: 'min' or 'max'
-        A_ub: Inequality constraint matrix (m_ub, n) or None
+        A_ub: Inequality constraint matrix (m_ub, n) or None.
+            Can be dense ndarray or scipy.sparse matrix.
         b_ub: Inequality RHS vector (m_ub,) or None
-        A_eq: Equality constraint matrix (m_eq, n) or None
+        A_eq: Equality constraint matrix (m_eq, n) or None.
+            Can be dense ndarray or scipy.sparse matrix.
         b_eq: Equality RHS vector (m_eq,) or None
         bounds: List of (lb, ub) tuples for each variable
         variables: List of variable names in order
@@ -720,9 +721,9 @@ class LPData:
 
     c: NDArray[np.floating]
     sense: str
-    A_ub: NDArray[np.floating] | None
+    A_ub: Any  # NDArray or scipy.sparse matrix or None
     b_ub: NDArray[np.floating] | None
-    A_eq: NDArray[np.floating] | None
+    A_eq: Any  # NDArray or scipy.sparse matrix or None
     b_eq: NDArray[np.floating] | None
     bounds: list[tuple[float | None, float | None]]
     variables: list[str]
@@ -959,6 +960,20 @@ def _extract_all_coefficients_impl(
         return
 
 
+def _vstack(a: Any, b: Any) -> Any:
+    """Vertically stack two matrices, preserving sparsity when possible."""
+    from scipy import sparse as sp
+
+    if sp.issparse(a) or sp.issparse(b):
+        # Convert dense to sparse if needed for concatenation
+        if not sp.issparse(a):
+            a = sp.csr_matrix(a)
+        if not sp.issparse(b):
+            b = sp.csr_matrix(b)
+        return sp.vstack([a, b], format="csr")
+    return np.vstack([a, b])
+
+
 class LinearProgramExtractor:
     """Extracts LP coefficients from a Problem for use with scipy.optimize.linprog.
 
@@ -1008,6 +1023,11 @@ class LinearProgramExtractor:
 
         # Use batch extraction - O(n) instead of O(n²)
         c = extract_all_linear_coefficients(problem.objective, var_index, n)
+
+        # Add Variable.obj contributions (linear objective coefficients set at creation)
+        for i, var in enumerate(variables):
+            if var.obj != 0.0:
+                c[i] += var.obj
 
         sense = "min" if problem.sense == "minimize" else "max"
         return c, sense, variables
@@ -1078,6 +1098,82 @@ class LinearProgramExtractor:
         A_eq = np.array(eq_rows, dtype=np.float64) if eq_rows else None
         b_eq = np.array(eq_rhs, dtype=np.float64) if eq_rhs else None
 
+        # Merge structured matrix constraints collected via subject_to(A @ x <= b)
+        A_ub, b_ub, A_eq, b_eq = self._merge_matrix_constraints(
+            problem, variables, A_ub, b_ub, A_eq, b_eq
+        )
+
+        return A_ub, b_ub, A_eq, b_eq
+
+    @staticmethod
+    def _merge_matrix_constraints(
+        problem: Problem,
+        variables: Sequence[Variable],
+        A_ub: Any,
+        b_ub: NDArray[np.floating] | None,
+        A_eq: Any,
+        b_eq: NDArray[np.floating] | None,
+    ) -> tuple[Any, NDArray[np.floating] | None, Any, NDArray[np.floating] | None]:
+        """Merge matrix constraints into the extracted constraint matrices."""
+        from scipy import sparse as sp
+
+        if not problem._matrix_constraints:
+            return A_ub, b_ub, A_eq, b_eq
+
+        n = len(variables)
+        var_index = {var.name: i for i, var in enumerate(variables)}
+
+        for mc in problem._matrix_constraints:
+            # Build column permutation: mc.variables may be a subset or
+            # reordered relative to the full variable list
+            mc_n = len(mc.variables)
+            col_indices = np.array(
+                [var_index[v.name] for v in mc.variables], dtype=np.intp
+            )
+
+            # Build the full-width matrix for this constraint block
+            if sp.issparse(mc.A):
+                if mc_n == n and np.array_equal(col_indices, np.arange(n)):
+                    A_full = mc.A  # noqa: N806
+                else:
+                    # Permutation matrix P (mc_n x n): P[j, col_indices[j]] = 1
+                    # A_full = mc.A @ P  ->  (m, mc_n) @ (mc_n, n) = (m, n)
+                    P = sp.csr_matrix(  # noqa: N806
+                        (np.ones(mc_n), (np.arange(mc_n), col_indices)),
+                        shape=(mc_n, n),
+                    )
+                    A_full = (mc.A @ P).tocsr()  # noqa: N806
+            else:
+                # Dense path
+                if mc_n == n and np.array_equal(col_indices, np.arange(n)):
+                    # Variables already aligned — zero-copy
+                    A_full = mc.A  # noqa: N806
+                else:
+                    A_full = np.zeros((mc.A.shape[0], n), dtype=np.float64)  # noqa: N806
+                    A_full[:, col_indices] = mc.A
+
+            b_block = mc.b
+
+            if mc.sense == ">=":
+                A_full = -A_full  # noqa: N806
+                b_block = -b_block
+
+            if mc.sense == "==":
+                if A_eq is None:
+                    A_eq = A_full
+                    b_eq = b_block
+                else:
+                    A_eq = _vstack(A_eq, A_full)
+                    b_eq = np.concatenate([b_eq, b_block])  # type: ignore[arg-type]
+            else:
+                # <= (including >= converted to <=)
+                if A_ub is None:
+                    A_ub = A_full
+                    b_ub = b_block
+                else:
+                    A_ub = _vstack(A_ub, A_full)
+                    b_ub = np.concatenate([b_ub, b_block])  # type: ignore[arg-type]
+
         return A_ub, b_ub, A_eq, b_eq
 
     def extract_bounds(
@@ -1125,6 +1221,49 @@ class LinearProgramExtractor:
             bounds=bounds,
             variables=[v.name for v in variables],
         )
+
+
+# =============================================================================
+# Issue #106: Quadratic Coefficient Extraction
+# =============================================================================
+
+
+def extract_quadratic_coefficients(
+    expr: Expression,
+    variables: list[Variable],
+) -> NDArray[np.floating]:
+    """Extract the quadratic coefficient matrix from a quadratic expression.
+
+    For an expression of the form x'Qx + c'x + d, returns the matrix Q
+    such that the quadratic part is sum_{i,j} Q[i,j] * x_i * x_j.
+
+    Args:
+        expr: A quadratic expression.
+        variables: List of variables in the desired ordering.
+
+    Returns:
+        Symmetric (n, n) matrix of quadratic coefficients.
+
+    Raises:
+        NonLinearError: If the expression is not quadratic.
+    """
+    from optyx.io import _is_at_most_quadratic, _collect_quadratic_coefficients
+
+    if not _is_at_most_quadratic(expr):
+        raise NonLinearError(
+            expression=repr(expr)[:100],
+            context="quadratic coefficient extraction",
+            suggestion="Ensure the expression is at most quadratic.",
+        )
+
+    n = len(variables)
+    var_index = {v.name: i for i, v in enumerate(variables)}
+    Q = np.zeros((n, n), dtype=np.float64)
+    _collect_quadratic_coefficients(expr, var_index, Q, 1.0)
+
+    # Symmetrize: Q_sym = (Q + Q.T) / 2
+    Q_sym = (Q + Q.T) / 2.0
+    return Q_sym
 
 
 # =============================================================================

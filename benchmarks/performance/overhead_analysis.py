@@ -2,7 +2,10 @@
 
 Measures the overhead of using Optyx compared to calling SciPy directly.
 Uses numpy vectorization for optimal performance.
-Target: < 1.5x overhead for LP (cached), < 2x for NLP.
+
+Acceptance thresholds in this file:
+- small LP and NLP reference cases: < 3.0x median overhead
+- medium LP cached case: < 2.0x median overhead
 """
 
 from __future__ import annotations
@@ -53,10 +56,10 @@ class TestLPOverhead:
 
         result = compare_timing(optyx_solve, scipy_solve, n_warmup=3, n_runs=20)
 
-        print(f"\nSmall LP Overhead:\n{result}")
-        assert (
-            result.overhead_ratio < 3.0
-        ), f"Too much overhead: {result.overhead_ratio:.2f}x"
+        print(f"\nSmall LP Cached Overhead Reference:\n{result}")
+        assert result.overhead_ratio < 3.0, (
+            f"Too much overhead: {result.overhead_ratio:.2f}x"
+        )
 
     def test_medium_lp_overhead(self):
         """Medium LP (20 vars, 15 constraints) with vectorized operations."""
@@ -86,10 +89,10 @@ class TestLPOverhead:
 
         result = compare_timing(optyx_solve, scipy_solve, n_warmup=3, n_runs=20)
 
-        print(f"\nMedium LP Overhead:\n{result}")
-        assert (
-            result.overhead_ratio < 2.0
-        ), f"Too much overhead: {result.overhead_ratio:.2f}x"
+        print(f"\nMedium LP Cached Overhead Reference:\n{result}")
+        assert result.overhead_ratio < 2.0, (
+            f"Too much overhead: {result.overhead_ratio:.2f}x"
+        )
 
 
 class TestNLPOverhead:
@@ -125,13 +128,13 @@ class TestNLPOverhead:
 
         result = compare_timing(optyx_solve, scipy_solve, n_warmup=3, n_runs=20)
 
-        print(f"\nRosenbrock Overhead:\n{result}")
+        print(f"\nRosenbrock Cached Overhead Reference:\n{result}")
 
         # NLP overhead is justified (autodiff vs manual gradients)
         # But should still be reasonable
-        assert (
-            result.overhead_ratio < 3.0
-        ), f"Too much overhead: {result.overhead_ratio:.2f}x"
+        assert result.overhead_ratio < 3.0, (
+            f"Too much overhead: {result.overhead_ratio:.2f}x"
+        )
 
     def test_constrained_nlp_overhead(self):
         """Constrained NLP overhead."""
@@ -174,11 +177,11 @@ class TestNLPOverhead:
 
         result = compare_timing(optyx_solve, scipy_solve, n_warmup=3, n_runs=20)
 
-        print(f"\nConstrained NLP Overhead:\n{result}")
+        print(f"\nConstrained NLP Cached Overhead Reference:\n{result}")
 
-        assert (
-            result.overhead_ratio < 3.0
-        ), f"Too much overhead: {result.overhead_ratio:.2f}x"
+        assert result.overhead_ratio < 3.0, (
+            f"Too much overhead: {result.overhead_ratio:.2f}x"
+        )
 
 
 if __name__ == "__main__":

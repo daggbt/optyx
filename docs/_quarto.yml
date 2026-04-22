@@ -17,6 +17,8 @@ quartodoc:
       desc: "Fundamental building blocks for optimization models"
       contents:
         - core.expressions.Variable
+        - BinaryVariable
+        - IntegerVariable
         - core.expressions.Constant
         - core.expressions.Expression
     
@@ -24,6 +26,7 @@ quartodoc:
       desc: "High-dimensional decision variables for scalable optimization"
       contents:
         - core.vectors.VectorVariable
+        - core.variable_dict.VariableDict
         - core.vectors.VectorExpression
         - core.vectors.DotProduct
         - core.vectors.L2Norm
@@ -50,6 +53,7 @@ quartodoc:
         - problem.Problem
         - solution.Solution
         - solution.SolverStatus
+        - solution.SolverProgress
     
     - title: Mathematical Functions
       desc: "Transcendental and special functions for expressions"
@@ -81,8 +85,8 @@ quartodoc:
 website:
   title: "Optyx"
   description: "Symbolic optimization for people who hate writing gradients"
-  site-url: https://daggbt.github.io/optyx/
-  repo-url: https://github.com/daggbt/optyx
+  site-url: https://optyx-dev.github.io/optyx/
+  repo-url: https://github.com/optyx-dev/optyx
   repo-actions: [issue, source]
   
   navbar:
@@ -101,28 +105,50 @@ website:
             href: getting-started/how-it-works.qmd
       - text: "Tutorials"
         menu:
+          - text: "Modeling Fundamentals"
           - text: "Basic Optimization"
             href: tutorials/basic-optimization.qmd
           - text: "Working with Constraints"
             href: tutorials/constraints.qmd
           - text: "Automatic Differentiation"
             href: tutorials/autodiff.qmd
+          - text: "---"
+          - text: "Variables"
           - text: "Vector Variables"
             href: tutorials/vectors.qmd
           - text: "Matrix Variables"
             href: tutorials/matrices.qmd
-          - text: "Performance Guide"
+          - text: "Named Variables (VariableDict)"
+            href: tutorials/variable-dict.qmd
+          - text: "Integer Programming (MILP)"
+            href: tutorials/integer-programming.qmd
+          - text: "---"
+          - text: "Advanced"
+          - text: "Performance & Scaling"
             href: tutorials/performance.qmd
       - text: "Examples"
         menu:
+          - text: "Industry Applications"
           - text: "Portfolio Optimization"
             href: examples/portfolio.qmd
           - text: "Fleet Dispatch"
             href: examples/fleet-dispatch.qmd
           - text: "Mine Scheduling"
             href: examples/mine-scheduling.qmd
+          - text: "Mine Production Planning"
+            href: examples/mine-production-planning.qmd
+          - text: "Mine Equipment (MILP)"
+            href: examples/mine-equipment-milp.qmd
           - text: "Road Maintenance"
             href: examples/road-maintenance.qmd
+          - text: "---"
+          - text: "Techniques"
+          - text: "Modify and Re-solve"
+            href: examples/modify-and-resolve.qmd
+          - text: "Solver Callbacks"
+            href: examples/solver-callbacks.qmd
+          - text: "LP Export"
+            href: examples/lp-export.qmd
           - text: "Rosenbrock Function"
             href: examples/rosenbrock.qmd
           - text: "---"
@@ -136,7 +162,7 @@ website:
           - text: "Overview"
             href: api/index.qmd
           - text: "---"
-          - text: "Guides"
+          - text: "Topic Guides"
           - text: "Expressions"
             href: api/expressions.qmd
           - text: "Vector Variables"
@@ -157,13 +183,15 @@ website:
           - text: "Auto-Generated"
           - text: "Full API Reference"
             href: api/reference/index.qmd
+      - text: "What's New"
+        href: whats-new.qmd
       - text: "Benchmarks"
         href: benchmarks.qmd
       - text: "Contributing"
         href: contributing.qmd
     right:
       - icon: github
-        href: https://github.com/daggbt/optyx
+        href: https://github.com/optyx-dev/optyx
       - text: "PyPI"
         href: https://pypi.org/project/optyx/
   
@@ -171,7 +199,7 @@ website:
     left: "© 2025 Optyx Contributors"
     right:
       - icon: github
-        href: https://github.com/daggbt/optyx
+        href: https://github.com/optyx-dev/optyx
 
 format:
   html:

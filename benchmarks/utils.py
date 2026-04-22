@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import json
+import os
+import platform
 import time
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
+from importlib import metadata as importlib_metadata
 from pathlib import Path
 from statistics import mean, stdev
 from typing import TYPE_CHECKING, Callable
+
+import numpy as np
 
 
 if TYPE_CHECKING:
@@ -24,12 +31,19 @@ class TimingResult:
 
     mean_ms: float
     std_ms: float
+    median_ms: float
+    p05_ms: float
+    p95_ms: float
     min_ms: float
     max_ms: float
     n_runs: int
 
     def __str__(self) -> str:
-        return f"{self.mean_ms:.3f} ± {self.std_ms:.3f} ms (n={self.n_runs})"
+        return (
+            f"median={self.median_ms:.3f} ms "
+            f"(p05-p95: {self.p05_ms:.3f}-{self.p95_ms:.3f}, "
+            f"mean={self.mean_ms:.3f} ± {self.std_ms:.3f}, n={self.n_runs})"
+        )
 
 
 @dataclass
@@ -93,9 +107,14 @@ def time_function(
         elapsed = (time.perf_counter() - start) * 1000
         times_ms.append(elapsed)
 
+    times_arr = np.array(times_ms, dtype=float)
+
     return TimingResult(
         mean_ms=mean(times_ms),
         std_ms=stdev(times_ms) if len(times_ms) > 1 else 0.0,
+        median_ms=float(np.median(times_arr)),
+        p05_ms=float(np.percentile(times_arr, 5)),
+        p95_ms=float(np.percentile(times_arr, 95)),
         min_ms=min(times_ms),
         max_ms=max(times_ms),
         n_runs=n_runs,
@@ -144,7 +163,7 @@ class ComparisonResult:
         return (
             f"Optyx: {self.optyx_timing}\n"
             f"Baseline: {self.baseline_timing}\n"
-            f"Overhead: {self.overhead_ratio:.2f}x"
+            f"Median overhead: {self.overhead_ratio:.2f}x"
         )
 
 
@@ -169,8 +188,8 @@ def compare_timing(
     baseline_timing = time_function(baseline_func, n_warmup=n_warmup, n_runs=n_runs)
 
     overhead = (
-        optyx_timing.mean_ms / baseline_timing.mean_ms
-        if baseline_timing.mean_ms > 0
+        optyx_timing.median_ms / baseline_timing.median_ms
+        if baseline_timing.median_ms > 0
         else float("inf")
     )
 
@@ -179,6 +198,52 @@ def compare_timing(
         baseline_timing=baseline_timing,
         overhead_ratio=overhead,
     )
+
+
+def collect_benchmark_metadata(
+    extra: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Collect machine and dependency metadata for benchmark output."""
+    metadata: dict[str, object] = {
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "processor": platform.processor() or "unknown",
+        "cpu_count": os.cpu_count(),
+        "python_version": platform.python_version(),
+        "python_implementation": platform.python_implementation(),
+        "numpy_version": np.__version__,
+    }
+
+    try:
+        import scipy
+
+        metadata["scipy_version"] = scipy.__version__
+    except Exception:
+        metadata["scipy_version"] = "unknown"
+
+    try:
+        metadata["optyx_version"] = importlib_metadata.version("optyx")
+    except Exception:
+        metadata["optyx_version"] = "local-worktree"
+
+    if extra:
+        metadata.update(extra)
+
+    return metadata
+
+
+def write_benchmark_metadata(
+    results_dir: Path,
+    file_name: str = "benchmark_metadata.json",
+    extra: dict[str, object] | None = None,
+) -> Path:
+    """Write benchmark metadata alongside generated outputs."""
+    results_dir.mkdir(parents=True, exist_ok=True)
+    metadata = collect_benchmark_metadata(extra=extra)
+    output_path = results_dir / file_name
+    output_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+    return output_path
 
 
 def check_solution_accuracy(

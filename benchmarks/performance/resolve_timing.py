@@ -1,7 +1,7 @@
 """Performance benchmark: Repeated solve timing.
 
 Measures the benefit of caching when solving the same problem multiple times.
-Target: > 3x speedup on repeated solves.
+Target: > 2x minimum speedup on repeated solves, with > 3x as the aspirational goal.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ class TestLPResolveTiming:
     def test_lp_cache_benefit(self):
         """Measure cache benefit on LP repeated solves.
 
-        Target: > 3x speedup on cached solves.
+        Target: > 2x minimum speedup on cached solves, with > 3x aspirational.
         """
         n, m = 20, 15
         np.random.seed(42)
@@ -51,15 +51,20 @@ class TestLPResolveTiming:
             sol = prob.solve()
             times_cached.append((time.perf_counter() - start) * 1000)
 
-        mean_cached = np.mean(times_cached)
-        std_cached = np.std(times_cached)
+        times_cached_arr = np.array(times_cached)
+        median_cached = float(np.median(times_cached_arr))
+        p05_cached = float(np.percentile(times_cached_arr, 5))
+        p95_cached = float(np.percentile(times_cached_arr, 95))
 
-        speedup = first_solve_ms / mean_cached if mean_cached > 0 else float("inf")
+        speedup = first_solve_ms / median_cached if median_cached > 0 else float("inf")
 
         print("\nLP Cache Benefit:")
         print(f"  First solve: {first_solve_ms:.3f} ms")
-        print(f"  Cached mean: {mean_cached:.3f} ± {std_cached:.3f} ms")
-        print(f"  Speedup: {speedup:.2f}x")
+        print(
+            f"  Cached median: {median_cached:.3f} ms "
+            f"(p05-p95: {p05_cached:.3f}-{p95_cached:.3f} ms)"
+        )
+        print(f"  Median speedup: {speedup:.2f}x")
 
         assert sol.is_optimal
         assert speedup > 2.0, f"Cache speedup too low: {speedup:.2f}x"
@@ -97,10 +102,12 @@ class TestLPResolveTiming:
         print("\nLP vs NLP Resolve:")
         print(f"  LP:  {lp_timing}")
         print(f"  NLP: {nlp_timing}")
-        print(f"  LP advantage: {nlp_timing.mean_ms / lp_timing.mean_ms:.2f}x faster")
+        print(
+            f"  LP advantage: {nlp_timing.median_ms / lp_timing.median_ms:.2f}x faster"
+        )
 
         # LP should be faster than NLP due to caching
-        assert lp_timing.mean_ms < nlp_timing.mean_ms
+        assert lp_timing.median_ms < nlp_timing.median_ms
 
 
 class TestNLPResolveTiming:
@@ -128,15 +135,20 @@ class TestNLPResolveTiming:
             sol = prob.solve(x0=x0)
             times_cached.append((time.perf_counter() - start) * 1000)
 
-        mean_cached = np.mean(times_cached)
-        std_cached = np.std(times_cached)
+        times_cached_arr = np.array(times_cached)
+        median_cached = float(np.median(times_cached_arr))
+        p05_cached = float(np.percentile(times_cached_arr, 5))
+        p95_cached = float(np.percentile(times_cached_arr, 95))
 
-        speedup = first_solve_ms / mean_cached if mean_cached > 0 else float("inf")
+        speedup = first_solve_ms / median_cached if median_cached > 0 else float("inf")
 
         print("\nNLP Compiled Cache Benefit:")
         print(f"  First solve: {first_solve_ms:.3f} ms")
-        print(f"  Cached mean: {mean_cached:.3f} ± {std_cached:.3f} ms")
-        print(f"  Speedup: {speedup:.2f}x")
+        print(
+            f"  Cached median: {median_cached:.3f} ms "
+            f"(p05-p95: {p05_cached:.3f}-{p95_cached:.3f} ms)"
+        )
+        print(f"  Median speedup: {speedup:.2f}x")
 
         assert sol.is_optimal
 

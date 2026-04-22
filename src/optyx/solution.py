@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING
+import json
+import os
 
 import numpy as np
 
@@ -18,6 +20,7 @@ if TYPE_CHECKING:
     from optyx.core.expressions import Variable
     from optyx.core.vectors import VectorVariable
     from optyx.core.matrices import MatrixVariable
+    from optyx.core.variable_dict import VariableDict
 else:
     from optyx.core.expressions import Variable
 
@@ -29,8 +32,28 @@ class SolverStatus(Enum):
     INFEASIBLE = "infeasible"
     UNBOUNDED = "unbounded"
     MAX_ITERATIONS = "max_iterations"
+    TERMINATED = "terminated"
     FAILED = "failed"
     NOT_SOLVED = "not_solved"
+
+
+@dataclass
+class SolverProgress:
+    """Snapshot of solver state passed to user callbacks during optimization.
+
+    Attributes:
+        iteration: Current iteration number.
+        objective_value: Current objective function value (in original sense).
+        constraint_violation: Maximum constraint violation (0.0 if feasible).
+        elapsed_time: Wall-clock time since solve started (seconds).
+        x: Current variable values as a numpy array.
+    """
+
+    iteration: int
+    objective_value: float
+    constraint_violation: float
+    elapsed_time: float
+    x: NDArray[np.floating]
 
 
 @dataclass
@@ -60,6 +83,8 @@ class Solution:
     iterations: int | None = None
     message: str = ""
     solve_time: float | None = None
+    mip_gap: float | None = None
+    best_bound: float | None = None
 
     @property
     def is_optimal(self) -> bool:
@@ -69,19 +94,92 @@ class Solution:
     @property
     def is_feasible(self) -> bool:
         """Check if a feasible solution was found."""
-        return self.status in (SolverStatus.OPTIMAL, SolverStatus.MAX_ITERATIONS)
+        return self.status in (
+            SolverStatus.OPTIMAL,
+            SolverStatus.MAX_ITERATIONS,
+            SolverStatus.TERMINATED,
+        )
+
+    def to_dict(self) -> dict:
+        """Convert solution to dictionary."""
+        return {
+            "status": self.status.value,
+            "objective_value": self.objective_value,
+            "values": self.values,
+            "multipliers": self.multipliers,
+            "iterations": self.iterations,
+            "message": self.message,
+            "solve_time": self.solve_time,
+            "mip_gap": self.mip_gap,
+            "best_bound": self.best_bound,
+        }
+
+    def to_json(self, path: str | None = None) -> str:
+        """Convert solution to JSON string or save to file.
+
+        Args:
+            path: Optional file path to save JSON to.
+
+        Returns:
+            JSON string if path is None, otherwise empty string.
+        """
+        data = self.to_dict()
+        if path:
+            with open(path, "w") as f:
+                json.dump(data, f, indent=2)
+            return ""
+        return json.dumps(data, indent=2)
+
+    @classmethod
+    def from_json(cls, json_str_or_path: str) -> Solution:
+        """Create solution from JSON string or file path.
+
+        Args:
+            json_str_or_path: JSON string or path to JSON file.
+
+        Returns:
+            Solution object.
+        """
+        if os.path.isfile(json_str_or_path):
+            with open(json_str_or_path, "r") as f:
+                data = json.load(f)
+        else:
+            data = json.loads(json_str_or_path)
+
+        return cls(
+            status=SolverStatus(data["status"]),
+            objective_value=data.get("objective_value"),
+            values=data.get("values", {}),
+            multipliers=data.get("multipliers"),
+            iterations=data.get("iterations"),
+            message=data.get("message", ""),
+            solve_time=data.get("solve_time"),
+            mip_gap=data.get("mip_gap"),
+            best_bound=data.get("best_bound"),
+        )
+
+    def print_vars(self) -> None:
+        """Pretty-print variable values."""
+        print(f"Status: {self.status.value}")
+        if self.objective_value is not None:
+            print(f"Objective: {self.objective_value:.6g}")
+        print("Variables:")
+        for name, value in sorted(self.values.items()):
+            print(f"  {name}: {value:.6g}")
 
     def __getitem__(
         self, var: Variable | VectorVariable | MatrixVariable | str
-    ) -> float | NDArray[np.floating]:
+    ) -> float | NDArray[np.floating] | dict[str, float]:
         """Get the optimal value of a variable.
 
         For scalar Variable: returns float.
         For VectorVariable: returns 1D numpy array.
         For MatrixVariable: returns 2D numpy array.
+        For VariableDict: returns dict mapping keys to float values.
 
         Args:
-            var: Variable, VectorVariable, MatrixVariable, or variable name.
+            var: Variable, VectorVariable, MatrixVariable, VariableDict,
+                or variable name.
 
         Returns:
             The optimal value(s).
@@ -100,8 +198,11 @@ class Solution:
         # Import here to avoid circular imports
         from optyx.core.vectors import VectorVariable
         from optyx.core.matrices import MatrixVariable
+        from optyx.core.variable_dict import VariableDict
 
-        if isinstance(var, VectorVariable):
+        if isinstance(var, VariableDict):
+            return self._get_variable_dict(var)
+        elif isinstance(var, VectorVariable):
             return self._get_vector(var)
         elif isinstance(var, MatrixVariable):
             return self._get_matrix(var)
@@ -128,6 +229,20 @@ class Solution:
             result[i] = self.values[v.name]
         return result
 
+    def _get_variable_dict(self, vd: VariableDict) -> dict[str, float]:
+        """Extract VariableDict values as a dict mapping keys to floats.
+
+        Args:
+            vd: VariableDict to extract.
+
+        Returns:
+            Dict mapping each key to its optimal value.
+
+        Raises:
+            KeyError: If any variable not found in solution.
+        """
+        return {key: self.values[var.name] for key, var in vd.items()}
+
     def _get_matrix(self, mat: MatrixVariable) -> NDArray[np.floating]:
         """Extract MatrixVariable values as 2D numpy array.
 
@@ -151,8 +266,8 @@ class Solution:
     def get(
         self,
         var: Variable | VectorVariable | MatrixVariable | str,
-        default: float | NDArray[np.floating] | None = None,
-    ) -> float | NDArray[np.floating] | None:
+        default: float | NDArray[np.floating] | dict[str, float] | None = None,
+    ) -> float | NDArray[np.floating] | dict[str, float] | None:
         """Get the optimal value of a variable with a default.
 
         For scalar Variable: returns float.

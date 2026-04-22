@@ -678,6 +678,39 @@ class IntegerVariableError(SolverConfigurationError):
         )
 
 
+class UnsupportedOperationError(SolverConfigurationError, ValueError):
+    """Raised when Optyx cannot solve the requested problem class.
+
+    This is used for cases where the model itself is valid, but the current
+    solver stack does not support the requested combination of features,
+    such as MIQP/MINLP.
+    """
+
+    def __init__(
+        self,
+        operation: str,
+        solver_name: str = "optyx",
+        problem_feature: str | None = None,
+        suggestion: str | None = None,
+    ) -> None:
+        """Create an unsupported-operation error.
+
+        Args:
+            operation: Name of the unsupported operation or problem class.
+            solver_name: Name of the solver stack rejecting the request.
+            problem_feature: Optional feature combination causing the rejection.
+            suggestion: Optional remediation advice.
+        """
+        self.operation = operation
+
+        super().__init__(
+            f"Operation '{operation}' is not supported",
+            solver_name,
+            problem_feature=problem_feature,
+            suggestion=suggestion,
+        )
+
+
 # =============================================================================
 # Matrix-Specific Errors
 # =============================================================================
@@ -899,6 +932,7 @@ __all__ = [
     "SolverError",
     "SolverConfigurationError",
     "IntegerVariableError",
+    "UnsupportedOperationError",
     "InfeasibleError",
     "UnboundedError",
     "NotSolvedError",
