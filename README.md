@@ -155,22 +155,25 @@ print(df.evaluate({"x": 2.0}))  # 15.0
 ### Mixed-Integer Programming
 
 ```python
-from optyx import BinaryVariable, VectorVariable, Problem
-import numpy as np
+from optyx import BinaryVariable, Problem
 
-# Binary knapsack: select items to maximize value within weight limit
-n = 5
-x = VectorVariable("x", n, domain="binary")
-values = np.array([10, 20, 15, 25, 30])
-weights = np.array([5, 10, 8, 12, 15])
+# Decision: pick an item (1) or leave it out (0)
+x1 = BinaryVariable("x1")
+x2 = BinaryVariable("x2")
+x3 = BinaryVariable("x3")
+x4 = BinaryVariable("x4")
+x5 = BinaryVariable("x5")
+
+value = 10*x1 + 20*x2 + 15*x3 + 25*x4 + 30*x5
+weight = 5*x1 + 10*x2 + 8*x3 + 12*x4 + 15*x5
 
 solution = (
     Problem()
-    .maximize(x.dot(values))
-    .subject_to(x.dot(weights) <= 30)
+    .maximize(value)
+    .subject_to(weight <= 30)
     .solve()
 )
-# Automatically routes to HiGHS MILP solver
+# Automatically routes to a MILP solver
 ```
 
 ---
