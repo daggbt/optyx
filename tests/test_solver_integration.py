@@ -19,6 +19,47 @@ from optyx import (
 class TestVectorVariableSolverIntegration:
     """Tests for VectorVariable with Problem.solve()."""
 
+    def test_single_vector_lp_solve_keeps_lazy_cache(self):
+        """Pure vector LP solves should not force full Variable materialization."""
+        n = 200
+        x = VectorVariable("x", n, lb=0, ub=1)
+        coeffs = np.ones(n)
+
+        prob = Problem().maximize(coeffs @ x).subject_to(x.sum() <= 1)
+        assert x._variable_cache is None
+
+        sol = prob.solve()
+
+        assert sol.is_optimal
+        assert x._variable_cache is None
+
+    def test_single_vector_lp_respects_cached_bound_override(self):
+        """Bounds overridden on cached elements are preserved by the LP fast path."""
+        x = VectorVariable("x", 3, lb=0, ub=1)
+        x[1].ub = 0.0
+
+        prob = Problem().maximize(np.ones(3) @ x)
+        sol = prob.solve()
+
+        assert sol.is_optimal
+        assert sol["x[1]"] == pytest.approx(0.0, abs=1e-8)
+        assert sol["x[0]"] == pytest.approx(1.0, abs=1e-8)
+        assert sol["x[2]"] == pytest.approx(1.0, abs=1e-8)
+
+    def test_single_vector_unconstrained_nlp_solve_keeps_lazy_cache(self):
+        """Unconstrained vector NLP solves should avoid first-time scalar materialization."""
+        n = 200
+        x = VectorVariable("x", n)
+        prob = Problem().minimize(x.dot(x) - x.sum())
+
+        assert x._variable_cache is None
+
+        sol = prob.solve(x0=np.zeros(n))
+
+        assert sol.is_optimal
+        assert x._variable_cache is None
+        assert sol["x[0]"] == pytest.approx(0.5, abs=1e-6)
+
     def test_vector_minimize_sum_of_squares(self):
         """Minimize sum of squares with vector variable."""
 

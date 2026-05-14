@@ -1085,7 +1085,7 @@ def run_overhead_summary(
     ax.axhline(y=2.0, color="gray", linestyle=":", alpha=0.5)
 
     ax.set_ylabel("Overhead vs SciPy (×)", fontsize=11)
-    ax.set_yscale("log")
+    # ax.set_yscale("log")
     ax.set_title(
         "Optyx End-to-End Overhead by Problem Type\n(VectorVariable, lower is better)",
         fontsize=12,

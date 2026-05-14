@@ -3,7 +3,18 @@
 import numpy as np
 import pytest
 
-from optyx import Variable, Constant, sin, cos, exp, log, sqrt, tanh, abs_
+from optyx import (
+    Variable,
+    VectorVariable,
+    Constant,
+    sin,
+    cos,
+    exp,
+    log,
+    sqrt,
+    tanh,
+    abs_,
+)
 from optyx.core.autodiff import (
     gradient,
     compute_jacobian,
@@ -379,6 +390,19 @@ class TestJacobian:
 
         expected = np.array([[4.0, 1.0], [3.0, 2.0]])
         np.testing.assert_array_almost_equal(result, expected)
+
+    def test_compiled_jacobian_loop_built_power_sum(self):
+        x = VectorVariable("x", 5)
+        expr = x[0] ** 3
+        for i in range(1, 5):
+            expr = expr + x[i] ** 3
+
+        jac_fn = compile_jacobian([expr], list(x))
+        values = np.arange(5, dtype=np.float64)
+
+        np.testing.assert_array_almost_equal(
+            jac_fn(values), np.array([3.0 * values**2])
+        )
 
 
 class TestHessian:

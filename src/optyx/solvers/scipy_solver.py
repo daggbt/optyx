@@ -32,6 +32,111 @@ class _EarlyTermination(Exception):
         self.message = message
 
 
+def _build_single_vector_bounds(source_vector: Any) -> Bounds | None:
+    """Build SciPy bounds directly from VectorVariable metadata."""
+    lb_arr = np.empty(source_vector.size)
+    ub_arr = np.empty(source_vector.size)
+    has_finite_bound = False
+
+    for i, (_, bounds, _, _) in enumerate(source_vector._iter_lp_metadata()):
+        lb = bounds[0] if bounds[0] is not None else -np.inf
+        ub = bounds[1] if bounds[1] is not None else np.inf
+        lb_arr[i] = lb
+        ub_arr[i] = ub
+        if not has_finite_bound and (np.isfinite(lb) or np.isfinite(ub)):
+            has_finite_bound = True
+
+    if not has_finite_bound:
+        return None
+
+    return Bounds(lb=lb_arr, ub=ub_arr)  # type: ignore[arg-type]
+
+
+def _compute_single_vector_initial_point(source_vector: Any) -> np.ndarray:
+    """Compute an initial point directly from VectorVariable metadata."""
+    x0 = np.zeros(source_vector.size)
+
+    _INTERIOR_EPSILON = 1e-4
+    _INTERIOR_FRACTION = 0.01
+
+    for i, (_, bounds, _, _) in enumerate(source_vector._iter_lp_metadata()):
+        lb = bounds[0] if bounds[0] is not None else -np.inf
+        ub = bounds[1] if bounds[1] is not None else np.inf
+
+        if np.isfinite(lb) and np.isfinite(ub):
+            range_size = ub - lb
+            epsilon = max(_INTERIOR_EPSILON, _INTERIOR_FRACTION * range_size)
+            x0[i] = min(lb + epsilon, (lb + ub) / 2)
+        elif np.isfinite(lb):
+            x0[i] = lb + _INTERIOR_EPSILON
+        elif np.isfinite(ub):
+            x0[i] = ub - 1.0
+        else:
+            x0[i] = 0.0
+
+    return x0
+
+
+def _single_vector_values_loader(
+    source_vector: Any,
+    raw_x: np.ndarray,
+) -> dict[str, float]:
+    """Build a solution values dict using metadata-backed variable names."""
+    return {
+        name: float(raw_x[i])
+        for i, (name, _, _, _) in enumerate(source_vector._iter_lp_metadata())
+    }
+
+
+def _variable_values_loader(
+    variables: list[Any],
+    raw_x: np.ndarray,
+) -> dict[str, float]:
+    """Build a solution values dict from an explicit variable list."""
+    return {v.name: float(raw_x[i]) for i, v in enumerate(variables)}
+
+
+def _make_single_vector_loader(
+    source_vector: Any,
+    raw_x: np.ndarray,
+) -> Callable[[], dict[str, float]]:
+    def load() -> dict[str, float]:
+        return _single_vector_values_loader(source_vector, raw_x)
+
+    return load
+
+
+def _make_variable_loader(
+    variables: list[Any],
+    raw_x: np.ndarray,
+) -> Callable[[], dict[str, float]]:
+    def load() -> dict[str, float]:
+        return _variable_values_loader(variables, raw_x)
+
+    return load
+
+
+def _build_bounds(variables: list) -> Bounds | None:
+    """Build SciPy bounds, skipping all-infinite no-op bounds."""
+    lb_arr = np.empty(len(variables))
+    ub_arr = np.empty(len(variables))
+    has_finite_bound = False
+
+    for i, v in enumerate(variables):
+        lb = v.lb if v.lb is not None else -np.inf
+        ub = v.ub if v.ub is not None else np.inf
+        lb_arr[i] = lb
+        ub_arr[i] = ub
+
+        if not has_finite_bound and (np.isfinite(lb) or np.isfinite(ub)):
+            has_finite_bound = True
+
+    if not has_finite_bound:
+        return None
+
+    return Bounds(lb=lb_arr, ub=ub_arr)  # type: ignore[arg-type]
+
+
 def solve_scipy(
     problem: Problem,
     method: str = "SLSQP",
@@ -81,7 +186,7 @@ def solve_scipy(
             reaches this solver directly.
     """
     from optyx.core.autodiff import compile_hessian
-    from optyx.solution import Solution, SolverStatus
+    from optyx.solution import LazyValuesDict, Solution, SolverStatus
 
     # Methods that support Hessian
     HESSIAN_METHODS = {
@@ -109,8 +214,20 @@ def solve_scipy(
         "Nelder-Mead",
     }
 
-    variables = problem.variables
-    n = len(variables)
+    source_vector = problem._single_vector_source()
+    use_lazy_single_vector = (
+        source_vector is not None
+        and not problem._has_general_constraints()
+        and method not in HESSIAN_METHODS
+    )
+
+    variables: list[Any] | None = None
+    if use_lazy_single_vector:
+        assert source_vector is not None
+        n = source_vector.size
+    else:
+        variables = problem.variables
+        n = len(variables)
 
     if n == 0:
         return Solution(
@@ -121,12 +238,24 @@ def solve_scipy(
     # Check for non-continuous domains — always raise for MINLP.
     # The caller (Problem.solve) should have caught this already, but
     # guard here as a safety net.
-    non_continuous = [v for v in variables if v.domain != "continuous"]
+    if use_lazy_single_vector:
+        assert source_vector is not None
+        if source_vector._has_non_continuous_domain():
+            non_continuous = [
+                name
+                for name, _, domain, _ in source_vector._iter_lp_metadata()
+                if domain != "continuous"
+            ]
+        else:
+            non_continuous = []
+    else:
+        assert variables is not None
+        non_continuous = [v.name for v in variables if v.domain != "continuous"]
     if non_continuous:
         if problem._is_linear_problem():
             raise IntegerVariableError(
                 solver_name="SciPy",
-                variable_names=[v.name for v in non_continuous],
+                variable_names=non_continuous,
             )
 
         raise UnsupportedOperationError(
@@ -134,7 +263,7 @@ def solve_scipy(
             solver_name="SciPy",
             problem_feature=(
                 "nonlinear objective or constraints with integer/binary "
-                f"variables {[v.name for v in non_continuous]}"
+                f"variables {non_continuous}"
             ),
             suggestion=(
                 "Use the MILP path for linear discrete models, or switch to a "
@@ -145,10 +274,16 @@ def solve_scipy(
     # Check for cached compiled callables
     cache = problem._solver_cache
     if cache is None:
-        cache = _build_solver_cache(problem, variables)
+        if use_lazy_single_vector:
+            assert source_vector is not None
+            cache = _build_single_vector_solver_cache(problem, source_vector)
+        else:
+            assert variables is not None
+            cache = _build_solver_cache(problem, variables)
         problem._solver_cache = cache
-    elif "scipy_constraints" not in cache:
+    elif "scipy_constraints" not in cache and not use_lazy_single_vector:
         # Selective invalidation: objective cache preserved, rebuild constraints only
+        assert variables is not None
         _rebuild_constraint_cache(cache, problem, variables)
 
     # Extract cached callables
@@ -159,13 +294,18 @@ def solve_scipy(
         list[LinearConstraint], cache.get("linear_constraints", [])
     )
 
-    # Recompute bounds each time to ensure updates to variable properties are respected
-    lb_arr = np.empty(n)
-    ub_arr = np.empty(n)
-    for i, v in enumerate(variables):
-        lb_arr[i] = v.lb if v.lb is not None else -np.inf
-        ub_arr[i] = v.ub if v.ub is not None else np.inf
-    bounds = Bounds(lb=lb_arr, ub=ub_arr)  # type: ignore[arg-type]  # scipy stubs are wrong, Bounds accepts arrays
+    # Recompute bounds each time to ensure updates to variable properties are
+    # respected, but skip the scan entirely for the common single-vector case
+    # where the vector remains fully unbounded.
+    bounds = None
+    if method in BOUNDS_METHODS:
+        if not (source_vector is not None and source_vector._can_skip_scipy_bounds()):
+            if use_lazy_single_vector:
+                assert source_vector is not None
+                bounds = _build_single_vector_bounds(source_vector)
+            else:
+                assert variables is not None
+                bounds = _build_bounds(variables)
 
     def objective(x: np.ndarray) -> float:
         return float(obj_fn(x))
@@ -204,7 +344,12 @@ def solve_scipy(
         ):
             x0 = problem._last_solution.copy()
         else:
-            x0 = _compute_initial_point(variables)
+            if use_lazy_single_vector:
+                assert source_vector is not None
+                x0 = _compute_single_vector_initial_point(source_vector)
+            else:
+                assert variables is not None
+                x0 = _compute_initial_point(variables)
 
     # Solver options
     options: dict[str, Any] = {}
@@ -278,13 +423,21 @@ def solve_scipy(
         obj_value = float(obj_fn(et.x))
         if problem.sense == "maximize":
             obj_value = -obj_value
+        raw_x = np.asarray(et.x, dtype=np.float64).copy()
+        if use_lazy_single_vector:
+            assert source_vector is not None
+            loader = _make_single_vector_loader(source_vector, raw_x)
+        else:
+            assert variables is not None
+            loader = _make_variable_loader(variables, raw_x)
         return Solution(
             status=SolverStatus.TERMINATED,
             objective_value=obj_value,
-            values={v.name: float(et.x[i]) for i, v in enumerate(variables)},
+            values=LazyValuesDict(loader=loader),
             iterations=et.iteration,
             message=et.message,
             solve_time=solve_time,
+            _raw_x=raw_x,
         )
     except Exception as e:
         warnings.showwarning = old_showwarning
@@ -360,13 +513,22 @@ def solve_scipy(
     if linear_problem_detected:
         message = f"{message} (Note: problem appears linear)"
 
+    raw_x = np.asarray(result.x, dtype=np.float64).copy()
+    if use_lazy_single_vector:
+        assert source_vector is not None
+        loader = _make_single_vector_loader(source_vector, raw_x)
+    else:
+        assert variables is not None
+        loader = _make_variable_loader(variables, raw_x)
+
     return Solution(
         status=status,
         objective_value=obj_value,
-        values={v.name: float(result.x[i]) for i, v in enumerate(variables)},
+        values=LazyValuesDict(loader=loader),
         iterations=result.nit if hasattr(result, "nit") else None,
         message=message,
         solve_time=solve_time,
+        _raw_x=raw_x,
     )
 
 
@@ -525,6 +687,66 @@ def _build_solver_cache(problem: Problem, variables: list) -> dict[str, Any]:
         cache["constraint_senses"] = constraint_senses
         cache["constraint_variables"] = variables
 
+    return cache
+
+
+def _build_single_vector_solver_cache(
+    problem: Problem, source_vector: Any
+) -> dict[str, Any]:
+    """Build cache for unconstrained single-vector NLPs without Variable materialization."""
+    from optyx.core.compiler import (
+        ContiguousVectorVariables,
+        _sanitize_derivatives,
+        compile_expression,
+        compile_gradient,
+    )
+    from optyx.core.optimizer import flatten_expression
+
+    cache: dict[str, Any] = {}
+    variables = ContiguousVectorVariables(source_vector)
+
+    obj_expr = problem.objective
+    if obj_expr is None:
+        raise NoObjectiveError(
+            suggestion="Call minimize() or maximize() on the problem first.",
+        )
+
+    sign = -1.0 if problem.sense == "maximize" else 1.0
+    vector_cache = source_vector._variable_cache
+    if vector_cache is None:
+        obj_linear = None
+    else:
+        obj_linear = sign * np.fromiter(
+            (
+                float(variable.obj) if variable is not None else 0.0
+                for variable in vector_cache
+            ),
+            dtype=np.float64,
+            count=source_vector.size,
+        )
+    if problem.sense == "maximize":
+        obj_expr = -obj_expr  # type: ignore[operator]
+
+    obj_expr = flatten_expression(obj_expr)
+
+    compiled_obj = compile_expression(obj_expr, variables)
+    compiled_grad = compile_gradient(obj_expr, variables)
+
+    if obj_linear is not None and np.any(obj_linear):
+        cache["obj_fn"] = lambda x, fn=compiled_obj, c=obj_linear: float(fn(x)) + float(
+            np.dot(c, x)
+        )
+        cache["grad_fn"] = (
+            lambda x, fn=compiled_grad, c=obj_linear: _sanitize_derivatives(
+                np.asarray(fn(x), dtype=np.float64).ravel() + c
+            )
+        )
+    else:
+        cache["obj_fn"] = compiled_obj
+        cache["grad_fn"] = compiled_grad
+
+    cache["scipy_constraints"] = []
+    cache["linear_constraints"] = []
     return cache
 
 

@@ -11,6 +11,7 @@ Performance optimizations:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -59,9 +60,154 @@ if TYPE_CHECKING:
     from optyx.core.vectors import VectorPowerSum, VectorUnarySum
 
 
+class _ContiguousVectorCompileLayout:
+    """Index resolver for a single contiguous VectorVariable layout."""
+
+    __slots__ = ("vector_name", "vector_size", "_prefix", "_full_indices")
+
+    def __init__(self, vector_name: str, vector_size: int) -> None:
+        self.vector_name = vector_name
+        self.vector_size = vector_size
+        self._prefix = f"{vector_name}["
+        self._full_indices = np.arange(vector_size, dtype=np.intp)
+
+    def _parse_name_index(self, name: str) -> int | None:
+        if not name.startswith(self._prefix) or not name.endswith("]"):
+            return None
+
+        try:
+            index = int(name[len(self._prefix) : -1])
+        except ValueError:
+            return None
+
+        if 0 <= index < self.vector_size:
+            return index
+        return None
+
+    def contains_name(self, name: str) -> bool:
+        return self._parse_name_index(name) is not None
+
+    def index_of_name(self, name: str) -> int:
+        index = self._parse_name_index(name)
+        if index is None:
+            raise KeyError(name)
+        return index
+
+    def matches_vector(self, vec: Any) -> bool:
+        return (
+            getattr(vec, "name", None) == self.vector_name
+            and getattr(vec, "size", None) == self.vector_size
+        )
+
+    def vector_indices(self, vec: Any, *, allow_subset: bool = False) -> np.ndarray:
+        if self.matches_vector(vec):
+            return self._full_indices
+
+        if allow_subset:
+            return np.array(
+                [
+                    index
+                    for name in vec._iter_variable_names()
+                    if (index := self._parse_name_index(name)) is not None
+                ],
+                dtype=np.intp,
+            )
+
+        return np.fromiter(
+            (self.index_of_name(name) for name in vec._iter_variable_names()),
+            dtype=np.intp,
+            count=vec.size,
+        )
+
+
+class ContiguousVectorVariables(Sequence[Any]):
+    """Vector-backed variable sequence for single-vector compile fast paths."""
+
+    __slots__ = ("source_vector", "_compile_layout")
+
+    def __init__(self, source_vector: Any) -> None:
+        self.source_vector = source_vector
+        self._compile_layout = _ContiguousVectorCompileLayout(
+            source_vector.name,
+            source_vector.size,
+        )
+
+    def __len__(self) -> int:
+        return self.source_vector.size
+
+    def __getitem__(self, index: int | slice) -> Any:
+        if isinstance(index, slice):
+            return [
+                self.source_vector._get_variable(i)
+                for i in range(*index.indices(len(self)))
+            ]
+
+        if index < 0:
+            index += len(self)
+        if index < 0 or index >= len(self):
+            raise IndexError(index)
+        return self.source_vector._get_variable(index)
+
+    def __iter__(self):
+        for index in range(len(self)):
+            yield self.source_vector._get_variable(index)
+
+    def materialize(self) -> list[Any]:
+        return list(self.source_vector._variables)
+
+
+def _contiguous_compile_layout(
+    variables: Any,
+) -> _ContiguousVectorCompileLayout | None:
+    if isinstance(variables, ContiguousVectorVariables):
+        return variables._compile_layout
+    return None
+
+
+def _build_var_index_data(
+    variables: Any,
+) -> dict[str, int] | _ContiguousVectorCompileLayout:
+    layout = _contiguous_compile_layout(variables)
+    if layout is not None:
+        return layout
+    return {var.name: i for i, var in enumerate(variables)}
+
+
+def _lookup_var_index(
+    var_indices: dict[str, int] | _ContiguousVectorCompileLayout,
+    name: str,
+) -> int:
+    if isinstance(var_indices, _ContiguousVectorCompileLayout):
+        return var_indices.index_of_name(name)
+    return var_indices[name]
+
+
+def _has_var_name(
+    var_indices: dict[str, int] | _ContiguousVectorCompileLayout,
+    name: str,
+) -> bool:
+    if isinstance(var_indices, _ContiguousVectorCompileLayout):
+        return var_indices.contains_name(name)
+    return name in var_indices
+
+
+def _iter_index_names(vec: Any):
+    """Yield stable variable names for indexing without forcing materialization."""
+    cache = getattr(vec, "_variable_cache", None)
+    if cache is not None:
+        for index, variable in enumerate(cache):
+            if variable is not None:
+                yield variable.name
+            else:
+                yield vec._name_at(index)
+        return
+
+    yield from vec._iter_variable_names()
+
+
 def compile_expression(
     expr: Expression,
-    variables: list[Variable],
+    variables: Any,
 ) -> Callable[[NDArray[np.floating]], NDArray[np.floating] | np.floating | float]:
     """Compile an expression tree into a fast callable.
 
@@ -83,6 +229,14 @@ def compile_expression(
         >>> f = compile_expression(expr, [x, y])
         >>> f(np.array([3.0, 4.0]))  # Returns 25.0
     """
+    layout = _contiguous_compile_layout(variables)
+    if layout is not None:
+        return _compile_contiguous_vector_cached(
+            expr,
+            layout.vector_name,
+            layout.vector_size,
+        )
+
     # Create mapping from variable name to array index
     var_indices = {var.name: i for i, var in enumerate(variables)}
 
@@ -103,14 +257,37 @@ def _compile_cached(
     Uses LRU cache to avoid recompiling the same expression.
     Switches to iterative compilation for deep expression trees.
     """
+    from optyx.core.optimizer import flatten_expression
+
     var_indices = dict(var_indices_items)
+    optimized_expr = flatten_expression(expr)
 
     # Check tree depth
-    depth = _estimate_tree_depth(expr)
+    depth = _estimate_tree_depth(optimized_expr)
     if depth >= _RECURSION_THRESHOLD:
-        eval_func = _build_evaluator_iterative(expr, var_indices)
+        eval_func = _build_evaluator_iterative(optimized_expr, var_indices)
     else:
-        eval_func = _build_evaluator(expr, var_indices)
+        eval_func = _build_evaluator(optimized_expr, var_indices)
+    return eval_func
+
+
+@lru_cache(maxsize=1024)
+def _compile_contiguous_vector_cached(
+    expr: Expression,
+    vector_name: str,
+    vector_size: int,
+) -> Callable[[NDArray[np.floating]], NDArray[np.floating] | np.floating | float]:
+    """Cached compilation for a single contiguous VectorVariable layout."""
+    from optyx.core.optimizer import flatten_expression
+
+    layout = _ContiguousVectorCompileLayout(vector_name, vector_size)
+    optimized_expr = flatten_expression(expr)
+
+    depth = _estimate_tree_depth(optimized_expr)
+    if depth >= _RECURSION_THRESHOLD:
+        eval_func = _build_evaluator_iterative(optimized_expr, layout)
+    else:
+        eval_func = _build_evaluator(optimized_expr, layout)
     return eval_func
 
 
@@ -145,9 +322,116 @@ def _estimate_tree_depth(expr: Expression) -> int:
     return depth
 
 
+def _vector_indices(
+    vec: Any,
+    var_indices: dict[str, int] | _ContiguousVectorCompileLayout,
+    *,
+    allow_subset: bool = False,
+) -> np.ndarray:
+    """Resolve VectorVariable element indices without materializing scalars."""
+    if isinstance(var_indices, _ContiguousVectorCompileLayout):
+        return var_indices.vector_indices(vec, allow_subset=allow_subset)
+
+    if allow_subset:
+        return np.array(
+            [
+                _lookup_var_index(var_indices, name)
+                for name in _iter_index_names(vec)
+                if _has_var_name(var_indices, name)
+            ],
+            dtype=np.intp,
+        )
+
+    return np.fromiter(
+        (_lookup_var_index(var_indices, name) for name in _iter_index_names(vec)),
+        dtype=np.intp,
+        count=vec.size,
+    )
+
+
+def _variables_match_vector_names(variables: Any, vec: Any) -> bool:
+    """Check whether the variable ordering matches a VectorVariable exactly."""
+    layout = _contiguous_compile_layout(variables)
+    if layout is not None:
+        return layout.matches_vector(vec)
+
+    if len(variables) != vec.size:
+        return False
+
+    for variable, name in zip(variables, _iter_index_names(vec)):
+        if variable.name != name:
+            return False
+    return True
+
+
+def _try_build_nary_sum_fast_evaluator(
+    expr: NarySum,
+    var_indices: dict[str, int] | _ContiguousVectorCompileLayout,
+) -> Callable[[NDArray[np.floating]], float] | None:
+    """Build a vectorized evaluator for common loop-built sum patterns."""
+    from optyx.core.expressions import BinaryOp, Constant, UnaryOp, Variable
+
+    terms = expr.terms
+    if not terms:
+        return lambda x: 0.0
+
+    if all(isinstance(term, Variable) for term in terms):
+        indices = np.array(
+            [_lookup_var_index(var_indices, term.name) for term in terms],
+            dtype=np.intp,
+        )
+        return lambda x, idx=indices: float(np.sum(x[idx]))
+
+    power_indices: list[int] = []
+    power_value: float | None = None
+    for term in terms:
+        if not isinstance(term, BinaryOp) or term.op != "**":
+            power_indices = []
+            break
+        if not isinstance(term.left, Variable) or not isinstance(term.right, Constant):
+            power_indices = []
+            break
+        exponent = term.right.value
+        if isinstance(exponent, np.ndarray):
+            power_indices = []
+            break
+        exponent_value = float(exponent)
+        if power_value is None:
+            power_value = exponent_value
+        elif exponent_value != power_value:
+            power_indices = []
+            break
+        power_indices.append(_lookup_var_index(var_indices, term.left.name))
+
+    if power_indices and power_value is not None:
+        indices = np.array(power_indices, dtype=np.intp)
+        return lambda x, idx=indices, power=power_value: float(np.sum(x[idx] ** power))
+
+    unary_indices: list[int] = []
+    unary_op: str | None = None
+    numpy_func: np.ufunc | None = None
+    for term in terms:
+        if not isinstance(term, UnaryOp) or not isinstance(term.operand, Variable):
+            unary_indices = []
+            break
+        if unary_op is None:
+            unary_op = term.op
+            numpy_func = term._numpy_func
+        elif term.op != unary_op:
+            unary_indices = []
+            break
+        unary_indices.append(_lookup_var_index(var_indices, term.operand.name))
+
+    if unary_indices and numpy_func is not None:
+        indices = np.array(unary_indices, dtype=np.intp)
+        return lambda x, idx=indices, np_f=numpy_func: float(np.sum(np_f(x[idx])))
+
+    return None
+
+
 def _build_evaluator(
     expr: Expression,
-    var_indices: dict[str, int],
+    var_indices: dict[str, int] | _ContiguousVectorCompileLayout,
 ) -> Callable[[NDArray[np.floating]], NDArray[np.floating] | np.floating | float]:
     """Recursively build an evaluator function for an expression.
 
@@ -182,14 +466,14 @@ def _build_evaluator(
         return lambda x, p=param: p.value
 
     elif isinstance(expr, Variable):
-        idx = var_indices[expr.name]
+        idx = _lookup_var_index(var_indices, expr.name)
         return lambda x, i=idx: x[i]
 
     elif isinstance(expr, LinearCombination):
         # c @ x = c[0]*x[0] + c[1]*x[1] + ... - efficient numpy implementation
         coeffs = np.asarray(expr.coefficients)
         if isinstance(expr.vector, VectorVariable):
-            indices = np.array([var_indices[v.name] for v in expr.vector._variables])
+            indices = _vector_indices(expr.vector, var_indices)
             return lambda x, c=coeffs, idx=indices: np.dot(c, x[idx])
         else:
             # VectorExpression/VectorBinaryOp - use vector evaluator
@@ -198,7 +482,7 @@ def _build_evaluator(
 
     elif isinstance(expr, VectorSum):
         # sum(x) = x[0] + x[1] + ... - efficient numpy implementation
-        indices = np.array([var_indices[v.name] for v in expr.vector._variables])
+        indices = _vector_indices(expr.vector, var_indices)
         return lambda x, idx=indices: np.sum(x[idx])
 
     elif isinstance(expr, VectorExpressionSum):
@@ -238,26 +522,26 @@ def _build_evaluator(
 
     elif isinstance(expr, VectorPowerSum):
         # sum(x ** k) - efficient numpy implementation
-        indices = np.array([var_indices[v.name] for v in expr.vector._variables])
+        indices = _vector_indices(expr.vector, var_indices)
         power = expr.power
         return lambda x, idx=indices, k=power: float(np.sum(x[idx] ** k))
 
     elif isinstance(expr, VectorUnarySum):
         # sum(f(x)) - efficient numpy implementation
-        indices = np.array([var_indices[v.name] for v in expr.vector._variables])
+        indices = _vector_indices(expr.vector, var_indices)
         op = expr.op
         numpy_func = VectorUnarySum._NUMPY_FUNCS[op]
         return lambda x, idx=indices, f=numpy_func: float(np.sum(f(x[idx])))
 
     elif isinstance(expr, ElementwisePower):
         # x ** k element-wise - returns array
-        indices = np.array([var_indices[v.name] for v in expr.vector._variables])
+        indices = _vector_indices(expr.vector, var_indices)
         power = expr.power
         return lambda x, idx=indices, k=power: x[idx] ** k
 
     elif isinstance(expr, ElementwiseUnary):
         # f(x) element-wise - returns array
-        indices = np.array([var_indices[v.name] for v in expr.vector._variables])
+        indices = _vector_indices(expr.vector, var_indices)
         op = expr.op
         numpy_func = ElementwiseUnary._NUMPY_FUNCS[op]
         return lambda x, idx=indices, f=numpy_func: f(x[idx])
@@ -289,6 +573,9 @@ def _build_evaluator(
         return lambda x, f=operand_fn, np_f=numpy_func: np_f(f(x))
 
     elif isinstance(expr, NarySum):
+        fast_sum = _try_build_nary_sum_fast_evaluator(expr, var_indices)
+        if fast_sum is not None:
+            return fast_sum
         term_fns = tuple(_build_evaluator(t, var_indices) for t in expr.terms)
         return lambda x, fns=term_fns: sum(fn(x) for fn in fns)
 
@@ -313,7 +600,7 @@ def _build_evaluator(
 
 def _build_vector_evaluator(
     vec: Any,
-    var_indices: dict[str, int],
+    var_indices: dict[str, int] | _ContiguousVectorCompileLayout,
 ) -> Callable[[NDArray[np.floating]], NDArray[np.floating]]:
     """Build an evaluator for a vector (returns array of values)."""
     from optyx.core.vectors import (
@@ -324,7 +611,7 @@ def _build_vector_evaluator(
     )
 
     if isinstance(vec, VectorVariable):
-        indices = np.array([var_indices[v.name] for v in vec._variables])
+        indices = _vector_indices(vec, var_indices)
         return lambda x, idx=indices: x[idx]
     elif isinstance(vec, VectorBinaryOp):
         # Single numpy op instead of N per-element evaluations
@@ -362,7 +649,7 @@ def _build_vector_evaluator(
 
 def _build_evaluator_iterative(
     expr: Expression,
-    var_indices: dict[str, int],
+    var_indices: dict[str, int] | _ContiguousVectorCompileLayout,
 ) -> Callable[[NDArray[np.floating]], NDArray[np.floating] | np.floating | float]:
     """Build evaluator using iterative post-order traversal.
 
@@ -409,7 +696,7 @@ def _build_evaluator_iterative(
             continue
 
         if isinstance(node, Variable):
-            idx = var_indices[node.name]
+            idx = _lookup_var_index(var_indices, node.name)
             result_stack.append(lambda x, i=idx: x[i])
             continue
 
@@ -417,9 +704,7 @@ def _build_evaluator_iterative(
         if isinstance(node, LinearCombination):
             coeffs = np.asarray(node.coefficients)
             if isinstance(node.vector, VectorVariable):
-                indices = np.array(
-                    [var_indices[v.name] for v in node.vector._variables]
-                )
+                indices = _vector_indices(node.vector, var_indices)
                 result_stack.append(lambda x, c=coeffs, idx=indices: np.dot(c, x[idx]))
             else:
                 # VectorExpression/VectorBinaryOp - use vector evaluator
@@ -428,7 +713,7 @@ def _build_evaluator_iterative(
             continue
 
         if isinstance(node, VectorSum):
-            indices = np.array([var_indices[v.name] for v in node.vector._variables])
+            indices = _vector_indices(node.vector, var_indices)
             result_stack.append(lambda x, idx=indices: np.sum(x[idx]))
             continue
 
@@ -444,7 +729,7 @@ def _build_evaluator_iterative(
             elem_fns = []
             for e in node.expression._expressions:
                 if isinstance(e, Variable):
-                    idx = var_indices[e.name]
+                    idx = _lookup_var_index(var_indices, e.name)
                     elem_fns.append(lambda x, i=idx: x[i])
                 elif isinstance(e, Constant):
                     val = e.value
@@ -597,7 +882,7 @@ def compile_to_dict_function(
 
 def compile_vector_gradient(
     expr: Expression,
-    variables: list[Variable],
+    variables: Any,
 ) -> Callable[[NDArray[np.floating]], NDArray[np.floating]] | None:
     """Attempt to compile a fast vector gradient O(1)."""
     from optyx.core.autodiff import detect_affine_gradient_pattern
@@ -607,16 +892,8 @@ def compile_vector_gradient(
         return None
 
     # Check if variables match exactly Pattern.vector
-    vec_vars = pattern.vector._variables
-    if len(variables) != len(vec_vars):
+    if not _variables_match_vector_names(variables, pattern.vector):
         return None
-
-    # Fast check: are they the same objects?
-    if variables != vec_vars:
-        # Check names
-        for v1, v2 in zip(variables, vec_vars):
-            if v1.name != v2.name:
-                return None
 
     b = pattern.constant_term
     lt = pattern.linear_type
@@ -689,7 +966,7 @@ def compile_vector_gradient(
 
 def compile_gradient(
     expr: Expression,
-    variables: list[Variable],
+    variables: Any,
 ) -> Callable[[NDArray[np.floating]], NDArray[np.floating]]:
     """Compile the gradient of an expression using symbolic differentiation.
 
@@ -714,13 +991,23 @@ def compile_gradient(
         >>> grad_fn = compile_gradient(expr, [x, y])
         >>> grad_fn(np.array([3.0, 4.0]))  # Returns [6.0, 8.0]
     """
+    from optyx.core.optimizer import flatten_expression
+    from optyx.core.expressions import NarySum  # noqa: F811
+
+    expr = flatten_expression(expr)
+    is_contiguous_single_vector = isinstance(variables, ContiguousVectorVariables)
+
+    if isinstance(expr, NarySum) and not is_contiguous_single_vector:
+        result = _compile_nary_sum_gradient_fast(expr, variables)
+        if result is not None:
+            return result
+
     # Fast path: Vector Gradient Pattern (Linear/Quadratic forms)
     vec_grad = compile_vector_gradient(expr, variables)
     if vec_grad is not None:
         return vec_grad
 
     from optyx.core.vectors import VectorPowerSum, VectorUnarySum, VectorBinaryOp
-    from optyx.core.expressions import NarySum  # noqa: F811
 
     # Fast path for VectorPowerSum: gradient is k * x^(k-1), vectorized
     if isinstance(expr, VectorPowerSum):
@@ -740,11 +1027,8 @@ def compile_gradient(
         if result is not None:
             return result
 
-    # Fast path for NarySum containing VectorExpressionSum(VectorBinaryOp) terms
-    if isinstance(expr, NarySum):
-        result = _compile_nary_sum_gradient_fast(expr, variables)
-        if result is not None:
-            return result
+    if is_contiguous_single_vector:
+        return compile_gradient(expr, variables.materialize())
 
     # General path: symbolic differentiation
     from optyx.core.autodiff import gradient
@@ -894,7 +1178,7 @@ def compile_gradient_with_sparsity(
 
 def _compile_vectorized_power_gradient(
     expr: "VectorPowerSum",
-    variables: list["Variable"],
+    variables: Any,
 ) -> Callable[[NDArray[np.floating]], NDArray[np.floating]]:
     """Compile O(1) gradient for VectorPowerSum.
 
@@ -905,9 +1189,8 @@ def _compile_vectorized_power_gradient(
     n = len(variables)
 
     # Build index mapping: which positions in the gradient correspond to vector vars
-    var_name_to_idx = {v.name: i for i, v in enumerate(variables)}
-    vector_vars = expr.vector._variables
-    indices = np.array([var_name_to_idx[v.name] for v in vector_vars], dtype=np.intp)
+    var_name_to_idx = _build_var_index_data(variables)
+    indices = _vector_indices(expr.vector, var_name_to_idx)
 
     # Check if vector variables form a contiguous block starting at 0
     if len(indices) == n and np.array_equal(indices, np.arange(n)):
@@ -944,7 +1227,7 @@ def _compile_vectorized_power_gradient(
 
 def _compile_vectorized_unary_gradient(
     expr: "VectorUnarySum",
-    variables: list["Variable"],
+    variables: Any,
 ) -> Callable[[NDArray[np.floating]], NDArray[np.floating]]:
     """Compile O(1) gradient for VectorUnarySum.
 
@@ -955,9 +1238,8 @@ def _compile_vectorized_unary_gradient(
     n = len(variables)
 
     # Build index mapping
-    var_name_to_idx = {v.name: i for i, v in enumerate(variables)}
-    vector_vars = expr.vector._variables
-    indices = np.array([var_name_to_idx[v.name] for v in vector_vars], dtype=np.intp)
+    var_name_to_idx = _build_var_index_data(variables)
+    indices = _vector_indices(expr.vector, var_name_to_idx)
 
     # Check if all variables are in the vector
     is_full = len(indices) == n and np.array_equal(indices, np.arange(n))
@@ -1155,7 +1437,7 @@ def _compile_vectorized_unary_gradient(
 
 def _compile_vectorized_binary_op_sum_gradient(
     vbo: Any,
-    variables: list["Variable"],
+    variables: Any,
 ) -> Callable[[NDArray[np.floating]], NDArray[np.floating]] | None:
     """Compile O(1) gradient for sum(VectorBinaryOp).
 
@@ -1178,21 +1460,14 @@ def _compile_vectorized_binary_op_sum_gradient(
     left = vbo.left
     right = vbo.right
     n = len(variables)
-    var_name_to_idx = {v.name: i for i, v in enumerate(variables)}
+    var_name_to_idx = _build_var_index_data(variables)
 
     def _get_indices(
         vec: Any,
     ) -> np.ndarray | None:
         """Get variable indices for a vector operand, or None if scalar/const."""
         if isinstance(vec, VectorVariable):
-            return np.array(
-                [
-                    var_name_to_idx[v.name]
-                    for v in vec._variables
-                    if v.name in var_name_to_idx
-                ],
-                dtype=np.intp,
-            )
+            return _vector_indices(vec, var_name_to_idx, allow_subset=True)
         return None
 
     left_idx = _get_indices(left)
@@ -1287,13 +1562,147 @@ def _compile_nary_sum_gradient_fast(
     expr: Any,
     variables: list["Variable"],
 ) -> Callable[[NDArray[np.floating]], NDArray[np.floating]] | None:
-    """Try to compile a fast gradient for NarySum with VectorBinaryOp terms.
+    """Try to compile a fast gradient for common NarySum patterns.
 
-    If some terms of the NarySum are VectorExpressionSum(VectorBinaryOp),
-    compile those with the fast path and use symbolic for the rest.
-    Only activates if at least one term benefits from the fast path.
+    Handles common loop-built scalar patterns directly, and falls back to the
+    existing mixed VectorBinaryOp strategy when only some terms are vectorized.
     """
+    from optyx.core.expressions import BinaryOp, Constant, UnaryOp, Variable
     from optyx.core.vectors import VectorExpressionSum, VectorBinaryOp
+
+    n = len(variables)
+    var_name_to_idx = {v.name: i for i, v in enumerate(variables)}
+    terms = expr.terms
+
+    if terms and all(isinstance(term, Variable) for term in terms):
+        indices = np.array(
+            [var_name_to_idx[term.name] for term in terms], dtype=np.intp
+        )
+        if len(indices) == n and np.array_equal(indices, np.arange(n)):
+            ones = np.ones(n)
+            return lambda x, values=ones: values
+
+        def grad_variable_sum(x: NDArray[np.floating]) -> NDArray[np.floating]:
+            result = np.zeros(n)
+            np.add.at(result, indices, 1.0)
+            return result
+
+        return grad_variable_sum
+
+    if terms:
+        power_indices: list[int] = []
+        power_value: float | None = None
+        for term in terms:
+            if not isinstance(term, BinaryOp) or term.op != "**":
+                power_indices = []
+                break
+            if not isinstance(term.left, Variable) or not isinstance(
+                term.right, Constant
+            ):
+                power_indices = []
+                break
+            exponent = term.right.value
+            if isinstance(exponent, np.ndarray):
+                power_indices = []
+                break
+            exponent_value = float(exponent)
+            if power_value is None:
+                power_value = exponent_value
+            elif exponent_value != power_value:
+                power_indices = []
+                break
+            power_indices.append(var_name_to_idx[term.left.name])
+
+        if power_indices and power_value is not None:
+            indices = np.array(power_indices, dtype=np.intp)
+            if len(indices) == n and np.array_equal(indices, np.arange(n)):
+                if power_value == 1.0:
+                    ones = np.ones(n)
+                    return lambda x, values=ones: values
+                if power_value == 2.0:
+                    return lambda x: 2.0 * x
+
+                def grad_full_power_sum(
+                    x: NDArray[np.floating],
+                ) -> NDArray[np.floating]:
+                    raw = power_value * np.power(x, power_value - 1.0)
+                    return _sanitize_derivatives(raw)
+
+                return grad_full_power_sum
+
+            def grad_sparse_power_sum(x: NDArray[np.floating]) -> NDArray[np.floating]:
+                result = np.zeros(n)
+                np.add.at(
+                    result,
+                    indices,
+                    power_value * np.power(x[indices], power_value - 1.0),
+                )
+                return _sanitize_derivatives(result)
+
+            return grad_sparse_power_sum
+
+    if terms:
+        unary_indices: list[int] = []
+        unary_op: str | None = None
+        for term in terms:
+            if not isinstance(term, UnaryOp) or not isinstance(term.operand, Variable):
+                unary_indices = []
+                break
+            if unary_op is None:
+                unary_op = term.op
+            elif term.op != unary_op:
+                unary_indices = []
+                break
+            unary_indices.append(var_name_to_idx[term.operand.name])
+
+        if unary_indices and unary_op is not None:
+            indices = np.array(unary_indices, dtype=np.intp)
+
+            def _eval_unary_derivative(
+                values: NDArray[np.floating],
+            ) -> NDArray[np.floating] | None:
+                if unary_op == "sin":
+                    return np.cos(values)
+                if unary_op == "cos":
+                    return -np.sin(values)
+                if unary_op == "exp":
+                    return np.exp(values)
+                if unary_op == "log":
+                    return 1.0 / values
+                if unary_op == "sqrt":
+                    return 1.0 / (2.0 * np.sqrt(values))
+                if unary_op == "sinh":
+                    return np.cosh(values)
+                if unary_op == "cosh":
+                    return np.sinh(values)
+                if unary_op == "tanh":
+                    return 1.0 - np.tanh(values) ** 2
+                return None
+
+            if len(indices) == n and np.array_equal(indices, np.arange(n)):
+
+                def grad_full_unary_sum(
+                    x: NDArray[np.floating],
+                ) -> NDArray[np.floating]:
+                    raw = _eval_unary_derivative(x)
+                    if raw is None:
+                        raise RuntimeError("unsupported unary sum gradient fast path")
+                    return _sanitize_derivatives(raw)
+
+                if _eval_unary_derivative(np.ones(1)) is not None:
+                    return grad_full_unary_sum
+            elif _eval_unary_derivative(np.ones(1)) is not None:
+
+                def grad_sparse_unary_sum(
+                    x: NDArray[np.floating],
+                ) -> NDArray[np.floating]:
+                    raw = _eval_unary_derivative(x[indices])
+                    assert raw is not None
+                    result = np.zeros(n)
+                    np.add.at(result, indices, raw)
+                    return _sanitize_derivatives(result)
+
+                return grad_sparse_unary_sum
 
     fast_grads: list[Callable] = []
     slow_terms: list[Any] = []
@@ -1319,8 +1728,6 @@ def _compile_nary_sum_gradient_fast(
         grad_exprs = [sym_gradient(term, var) for var in variables]
         compiled = [compile_expression(g, variables) for g in grad_exprs]
         slow_grad_fns.append(compiled)
-
-    n = len(variables)
 
     def nary_gradient(x: NDArray[np.floating]) -> NDArray[np.floating]:
         result = np.zeros(n)

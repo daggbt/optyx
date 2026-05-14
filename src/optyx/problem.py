@@ -10,7 +10,6 @@ Provides a fluent API for building optimization problems:
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Literal, Iterable
 from types import TracebackType
@@ -23,6 +22,7 @@ from optyx.core.errors import (
     NoObjectiveError,
     UnsupportedOperationError,
 )
+from optyx.core.expressions import _compute_name_sort_key
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -55,9 +55,6 @@ SPARSE_NLP_VARIABLE_THRESHOLD = 64
 SPARSE_NLP_DENSITY_THRESHOLD = 0.15
 SPARSE_MATRIX_ENTRY_THRESHOLD = 4096
 
-# Pre-compiled regex for natural sorting of variable names
-_NUMBER_SPLIT_RE = re.compile(r"(\d+)")
-
 
 def _natural_sort_key(var: Variable) -> tuple:
     """Generate a sort key for natural ordering of variable names.
@@ -75,11 +72,7 @@ def _natural_sort_key(var: Variable) -> tuple:
     if hasattr(var, "_sort_key"):
         return var._sort_key
 
-    name = var.name
-    # Split into text and number parts
-    parts = _NUMBER_SPLIT_RE.split(name)
-    # Convert number parts to integers for proper numeric sorting
-    return tuple(int(p) if p.isdigit() else p for p in parts)
+    return _compute_name_sort_key(var.name)
 
 
 def _try_get_single_vector_source(expr: "Expression") -> "VectorVariable | None":
@@ -554,6 +547,27 @@ class Problem:
         """List of constraints."""
         return self._constraints.copy()
 
+    def _single_vector_source(self) -> VectorVariable | None:
+        """Return the sole VectorVariable driving the problem, if any.
+
+        This fast path only applies when the objective and all scalar constraints
+        depend on the same VectorVariable and there are no structured matrix
+        constraint blocks that could reorder or subset the columns.
+        """
+        if self._objective is None or self._matrix_constraints:
+            return None
+
+        source_vector = _try_get_single_vector_source(self._objective)
+        if source_vector is None:
+            return None
+
+        for constraint in self._constraints:
+            constraint_source = _try_get_single_vector_source(constraint.expr)
+            if constraint_source is None or constraint_source is not source_vector:
+                return None
+
+        return source_vector
+
     @property
     def variables(self) -> list[Variable]:
         """All decision variables in the problem.
@@ -573,26 +587,11 @@ class Problem:
 
         from optyx.core.expressions import get_all_variables
 
-        # Fast path: check if objective is based on a single VectorVariable
-        # In this case, we can skip the expensive set operations and sorting
-        if self._objective is not None:
-            source_vector = _try_get_single_vector_source(self._objective)
-            if source_vector is not None:
-                # Check if all constraints use the same VectorVariable
-                all_same = True
-                for constraint in self._constraints:
-                    constraint_source = _try_get_single_vector_source(constraint.expr)
-                    if (
-                        constraint_source is None
-                        or constraint_source is not source_vector
-                    ):
-                        all_same = False
-                        break
-
-                if all_same:
-                    # All variables from one VectorVariable - already in order!
-                    self._variables = list(source_vector._variables)
-                    return self._variables
+        source_vector = self._single_vector_source()
+        if source_vector is not None:
+            # All variables from one VectorVariable - already in order!
+            self._variables = list(source_vector._variables)
+            return self._variables
 
         # General case: collect from all expressions and sort
         all_vars: set[Variable] = set()
@@ -628,6 +627,10 @@ class Problem:
         Returns:
             List of bounds in variable order.
         """
+        source_vector = self._single_vector_source()
+        if source_vector is not None:
+            return [bounds for _, bounds, _, _ in source_vector._iter_lp_metadata()]
+
         return [(v.lb, v.ub) for v in self.variables]
 
     def _is_linear_problem(self) -> bool:
@@ -884,9 +887,20 @@ class Problem:
             "trust-krylov",
         }
         if method in _NLP_METHODS:
-            discrete_names = [
-                v.name for v in self.variables if v.domain in ("integer", "binary")
-            ]
+            source_vector = self._single_vector_source()
+            if source_vector is not None:
+                if source_vector._has_non_continuous_domain():
+                    discrete_names = [
+                        name
+                        for name, _, domain, _ in source_vector._iter_lp_metadata()
+                        if domain in ("integer", "binary")
+                    ]
+                else:
+                    discrete_names = []
+            else:
+                discrete_names = [
+                    v.name for v in self.variables if v.domain in ("integer", "binary")
+                ]
             if discrete_names and not self._is_linear_problem():
                 raise UnsupportedOperationError(
                     "MIQP/MINLP solve",
@@ -942,9 +956,20 @@ class Problem:
 
     def _store_solution(self, solution: Solution) -> None:
         """Store solution values for warm starting subsequent solves."""
+        if solution._raw_x is not None:
+            self._last_solution = np.asarray(solution._raw_x, dtype=np.float64).copy()
+            return
+
         if solution.values:
-            variables = self.variables
-            x = np.array([solution.values.get(v.name, 0.0) for v in variables])
+            names: list[str] | None = None
+            if self._lp_cache is not None and all(
+                name in solution.values for name in self._lp_cache.variables
+            ):
+                names = self._lp_cache.variables
+            else:
+                names = [v.name for v in self.variables]
+
+            x = np.array([solution.values.get(name, 0.0) for name in names])
             self._last_solution = x
 
     def __repr__(self) -> str:

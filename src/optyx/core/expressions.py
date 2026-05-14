@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Callable, Literal
 from typing import Mapping
 
 import numpy as np
-import re
 
 from optyx.core.errors import MissingValueError, UnknownOperatorError
 
@@ -16,8 +15,36 @@ if TYPE_CHECKING:
     from optyx.constraints import Constraint
 
 
-# Pre-compiled regex for natural sorting of variable names
-_NUMBER_SPLIT_RE = re.compile(r"(\d+)")
+def _compute_name_sort_key(name: str) -> tuple[object, ...]:
+    """Split a variable name into text and integer runs for natural sorting.
+
+    This mirrors the old ``re.split(r"(\\d+)", name)`` behavior but avoids
+    regex dispatch and intermediate string digit checks on the hot path.
+    """
+    parts: list[object] = []
+    text_start = 0
+    idx = 0
+    name_len = len(name)
+
+    while idx < name_len:
+        if name[idx].isdigit():
+            parts.append(name[text_start:idx])
+            digit_start = idx
+            idx += 1
+            while idx < name_len and name[idx].isdigit():
+                idx += 1
+            parts.append(int(name[digit_start:idx]))
+            text_start = idx
+            continue
+        idx += 1
+
+    parts.append(name[text_start:])
+    return tuple(parts)
+
+
+def _vector_name_sort_key(prefix: str, index: int) -> tuple[object, ...]:
+    """Build the natural sort key for a VectorVariable element name."""
+    return (f"{prefix}[", index, "]")
 
 
 class Expression(ABC):
@@ -245,7 +272,15 @@ class Variable(Expression):
         5.0
     """
 
-    __slots__ = ("name", "lb", "ub", "domain", "_sort_key", "obj")
+    __slots__ = (
+        "name",
+        "_lb",
+        "_ub",
+        "domain",
+        "_sort_key",
+        "obj",
+        "_metadata_callback",
+    )
 
     def __init__(
         self,
@@ -254,14 +289,17 @@ class Variable(Expression):
         ub: float | None = None,
         domain: Literal["continuous", "integer", "binary"] = "continuous",
         obj: float | int = 0.0,
+        sort_key: tuple[object, ...] | None = None,
+        metadata_callback: Callable[[], None] | None = None,
     ) -> None:
         self._hash = None
         self._degree = None
         self.name = name
-        self.lb = lb
-        self.ub = ub
+        self._lb = float(lb) if lb is not None else None
+        self._ub = float(ub) if ub is not None else None
         self.domain = domain
         self.obj = float(obj)  # Linear objective coefficient
+        self._metadata_callback = None
 
         # Validate domain
         if domain not in ("continuous", "integer", "binary"):
@@ -270,8 +308,9 @@ class Variable(Expression):
             )
 
         # Pre-compute sort key for consistent ordering
-        parts = _NUMBER_SPLIT_RE.split(name)
-        self._sort_key = tuple(int(p) if p.isdigit() else p for p in parts)
+        self._sort_key = (
+            sort_key if sort_key is not None else _compute_name_sort_key(name)
+        )
 
         # Binary variables have implicit bounds
         if domain == "binary":
@@ -279,8 +318,72 @@ class Variable(Expression):
                 raise ValueError(f"Binary variable must have lb=0, got {lb!r}")
             if ub is not None and float(ub) != 1.0:
                 raise ValueError(f"Binary variable must have ub=1, got {ub!r}")
-            self.lb = 0.0
-            self.ub = 1.0
+            self._lb = 0.0
+            self._ub = 1.0
+
+        self._metadata_callback = metadata_callback
+
+    @classmethod
+    def _from_vector_element(
+        cls,
+        name: str,
+        *,
+        lb: float | None,
+        ub: float | None,
+        domain: Literal["continuous", "integer", "binary"],
+        sort_key: tuple[object, ...],
+        metadata_callback: Callable[[], None] | None,
+    ) -> Variable:
+        """Construct a vector-backed scalar variable with minimal overhead."""
+        variable = cls.__new__(cls)
+        variable._hash = None
+        variable._degree = None
+        variable.name = name
+        variable.domain = domain
+        variable.obj = 0.0
+        variable._sort_key = sort_key
+        variable._metadata_callback = metadata_callback
+
+        if domain == "binary":
+            variable._lb = 0.0
+            variable._ub = 1.0
+        else:
+            variable._lb = lb
+            variable._ub = ub
+
+        return variable
+
+    @property
+    def lb(self) -> float | None:
+        return self._lb
+
+    @lb.setter
+    def lb(self, value: float | None) -> None:
+        if self.domain == "binary" and value is not None and float(value) != 0.0:
+            raise ValueError(f"Binary variable must have lb=0, got {value!r}")
+        self._lb = (
+            0.0
+            if self.domain == "binary"
+            else (float(value) if value is not None else None)
+        )
+        if self._metadata_callback is not None:
+            self._metadata_callback()
+
+    @property
+    def ub(self) -> float | None:
+        return self._ub
+
+    @ub.setter
+    def ub(self, value: float | None) -> None:
+        if self.domain == "binary" and value is not None and float(value) != 1.0:
+            raise ValueError(f"Binary variable must have ub=1, got {value!r}")
+        self._ub = (
+            1.0
+            if self.domain == "binary"
+            else (float(value) if value is not None else None)
+        )
+        if self._metadata_callback is not None:
+            self._metadata_callback()
 
     def evaluate(
         self, values: Mapping[str, ArrayLike | float]

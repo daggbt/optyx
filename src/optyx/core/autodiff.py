@@ -1573,16 +1573,13 @@ def _register_vector_gradient_rules() -> None:
         vec = expr.vector
         Q = expr.matrix
 
-        # Compute Q + Q' (symmetric part times 2)
-        Q_sym = Q + Q.T
-
         # Find if wrt is in the vector
         if isinstance(vec, VectorVariable):
             for i, var in enumerate(vec._variables):
                 if var.name == wrt.name:
                     # ∂(x'Qx)/∂x_i = [(Q + Q')x]_i = Σ_j (Q + Q')_{ij} * x_j
-                    # This is a LinearCombination with coefficients from row i of Q_sym
-                    row_coeffs = Q_sym[i, :]
+                    # This is a LinearCombination with coefficients from row i of Q + Q'
+                    row_coeffs = Q[i, :] + Q[:, i]
                     return LinearCombination(row_coeffs, vec)
             return Constant(0.0)
         else:
@@ -1592,10 +1589,11 @@ def _register_vector_gradient_rules() -> None:
             elems = list(vec._expressions)
             for i, elem in enumerate(elems):
                 d_elem = gradient(elem, wrt)
-                # [(Q + Q')f]_i = Σ_j Q_sym[i,j] * f_j
+                coeffs = Q[i, :] + Q[:, i]
+                # [(Q + Q')f]_i = Σ_j (Q[i,j] + Q[j,i]) * f_j
                 qf_i: Expression = Constant(0.0)
                 for j, elem_j in enumerate(elems):
-                    coeff = Q_sym[i, j]
+                    coeff = coeffs[j]
                     if coeff != 0:
                         qf_i = _simplify_add(
                             qf_i, _simplify_mul(Constant(coeff), elem_j)
@@ -2039,16 +2037,15 @@ def compile_jacobian(
         compile_vector_gradient,
         _compile_vectorized_power_gradient,
         _compile_vectorized_unary_gradient,
+        _compile_nary_sum_gradient_fast,
     )
-    from optyx.core.expressions import Constant
+    from optyx.core.expressions import Constant, NarySum
     from optyx.core.vectors import VectorPowerSum, VectorUnarySum
+    from optyx.core.optimizer import flatten_expression
 
     m = len(exprs)
     n = len(variables)
     row_fns = []
-
-    for i in range(m):
-        expr = exprs[i]
 
     # Check if ALL rows are constant, for global optimization
     # This restores the optimization tested by test_constant_jacobian_returns_same_object
@@ -2058,7 +2055,14 @@ def compile_jacobian(
     processed_rows = []
 
     for i in range(m):
-        expr = exprs[i]
+        expr = flatten_expression(exprs[i])
+
+        if isinstance(expr, NarySum):
+            grad_fn = _compile_nary_sum_gradient_fast(expr, variables)
+            if grad_fn is not None:
+                row_fns.append(grad_fn)
+                processed_rows.append(None)
+                continue
 
         # 1. Try vector gradient pattern (linear/quadratic => O(1) compile)
         pattern_fn = compile_vector_gradient(expr, variables)

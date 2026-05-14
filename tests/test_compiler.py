@@ -4,8 +4,9 @@ import time
 
 import numpy as np
 
-from optyx import Variable, sin, cos, exp, log, sqrt
+from optyx import Variable, VectorVariable, sin, cos, exp, log, sqrt
 from optyx.core.compiler import (
+    ContiguousVectorVariables,
     compile_expression,
     compile_to_dict_function,
     compile_gradient,
@@ -77,6 +78,34 @@ class TestCompileExpression:
 
         f = compile_expression(expr, [x])
         assert f(np.array([4.0])) == 16.0
+
+    def test_loop_built_power_sum(self):
+        x = VectorVariable("x", 5)
+        expr = x[0] ** 3
+        for i in range(1, 5):
+            expr = expr + x[i] ** 3
+
+        f = compile_expression(expr, list(x))
+        values = np.arange(5, dtype=np.float64)
+
+        assert f(values) == np.sum(values**3)
+
+    def test_contiguous_single_vector_compile_path_keeps_lazy_cache(self):
+        x = VectorVariable("x", 4)
+        variables = ContiguousVectorVariables(x)
+        expr = x.dot(x) - x.sum()
+        values = np.array([1.0, 2.0, 3.0, 4.0])
+
+        assert x._variable_cache is None
+
+        value_fn = compile_expression(expr, variables)
+        grad_fn = compile_gradient(expr, variables)
+
+        np.testing.assert_allclose(
+            value_fn(values), np.dot(values, values) - np.sum(values)
+        )
+        np.testing.assert_allclose(grad_fn(values), 2.0 * values - 1.0)
+        assert x._variable_cache is None
 
 
 class TestCompileToDictFunction:
