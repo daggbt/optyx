@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-05-14
+
 ### Changed
 - **Lazy `VectorVariable` fast paths**: LP extraction, bounds handling, and solver setup now preserve vector-backed metadata longer instead of forcing immediate scalar `Variable` materialization.
 - **Single-vector NLP cold-start path**: Unconstrained `VectorVariable` objectives such as `x.dot(x) - x.sum()` now compile through a contiguous vector layout, reuse vector-backed solver metadata, and avoid first-solve scalar materialization on the hot path.
