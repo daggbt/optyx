@@ -1316,6 +1316,15 @@ class VectorVariable:
         ) and variable.ub == self._bound_at(self.ub, index)
 
     def _iter_variable_names(self) -> Iterator[str]:
+        cache = self._variable_cache
+        if cache is not None:
+            for index, variable in enumerate(cache):
+                if variable is not None:
+                    yield variable.name
+                else:
+                    yield self._name_at(index)
+            return
+
         for index in range(self.size):
             yield self._name_at(index)
 
