@@ -239,6 +239,35 @@ class TestMatrixVariableSolverIntegration:
         # Should be symmetric
         assert S_vals[0, 1] == pytest.approx(S_vals[1, 0], abs=1e-6)
 
+    def test_matrix_transport_problem_with_row_and_column_sums(self):
+        """Matrix row and column slice sums should produce a feasible LP."""
+        supply = np.array([100, 150, 200])
+        demand = np.array([80, 120, 100, 150])
+        costs = np.array(
+            [
+                [4, 6, 9, 5],
+                [5, 3, 7, 8],
+                [6, 8, 4, 3],
+            ]
+        )
+
+        ship = MatrixVariable("ship", 3, 4, lb=0)
+        total_cost = sum(costs[i, j] * ship[i, j] for i in range(3) for j in range(4))
+
+        prob = Problem("transport").minimize(total_cost)
+        for i in range(3):
+            prob = prob.subject_to(ship[i, :].sum() <= supply[i])
+        for j in range(4):
+            prob = prob.subject_to(ship[:, j].sum().eq(demand[j]))
+
+        sol = prob.solve()
+
+        assert sol.is_optimal
+        ship_vals = sol[ship]
+        np.testing.assert_allclose(ship_vals.sum(axis=1) <= supply + 1e-8, True)
+        np.testing.assert_allclose(ship_vals.sum(axis=0), demand, atol=1e-8)
+        assert sol.objective_value is not None
+
 
 # =============================================================================
 # Mixed Variable Types Tests
