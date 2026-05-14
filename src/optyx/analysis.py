@@ -252,6 +252,7 @@ def _compute_degree_impl(expr: Expression) -> Optional[int]:
         DotProduct,
         LinearCombination,
         VectorSum,
+        VectorVariable,
         VectorPowerSum,
         VectorUnarySum,
         ElementwisePower,
@@ -267,7 +268,7 @@ def _compute_degree_impl(expr: Expression) -> Optional[int]:
     # Vector expressions
     if isinstance(expr, LinearCombination):
         # Check if vector contains variables (degree 1) or expressions
-        if hasattr(expr.vector, "_variables"):
+        if isinstance(expr.vector, VectorVariable):
             return 1
         # Check expressions in vector (VectorExpression case)
         if hasattr(expr.vector, "_expressions"):
@@ -281,7 +282,7 @@ def _compute_degree_impl(expr: Expression) -> Optional[int]:
         return 1  # Default for unknown vector types
 
     if isinstance(expr, VectorSum):
-        if hasattr(expr.vector, "_variables"):
+        if isinstance(expr.vector, VectorVariable):
             return 1
         if hasattr(expr.vector, "_expressions"):
             max_deg = 0
@@ -766,21 +767,21 @@ def extract_all_linear_coefficients(
     # Fast path: VectorSum over VectorVariable covering all variables
     # This is O(1) using numpy instead of O(n) Python loop
     if isinstance(expr, VectorSum) and isinstance(expr.vector, VectorVariable):
-        vec_n = len(expr.vector._variables)
+        vec_n = expr.vector.size
         if vec_n == n:
             # Check if variables are in order (common case)
-            first_var = expr.vector._variables[0]
-            first_idx = var_index.get(first_var.name, -1)
+            first_name = expr.vector._name_at(0)
+            first_idx = var_index.get(first_name, -1)
             if first_idx == 0:
                 # All variables in order, return ones directly
                 return np.ones(n, dtype=np.float64)
 
     # Fast path: LinearCombination over VectorVariable covering all variables
     if isinstance(expr, LinearCombination) and isinstance(expr.vector, VectorVariable):
-        vec_n = len(expr.vector._variables)
+        vec_n = expr.vector.size
         if vec_n == n:
-            first_var = expr.vector._variables[0]
-            first_idx = var_index.get(first_var.name, -1)
+            first_name = expr.vector._name_at(0)
+            first_idx = var_index.get(first_name, -1)
             if first_idx == 0:
                 # Variables in order, return coefficients directly
                 return np.asarray(expr.coefficients, dtype=np.float64).copy()
@@ -814,10 +815,10 @@ def _try_extract_fast_binop(
         if isinstance(expr.left, VectorSum) and isinstance(
             expr.left.vector, VectorVariable
         ):
-            vec_n = len(expr.left.vector._variables)
+            vec_n = expr.left.vector.size
             if vec_n == n:
-                first_var = expr.left.vector._variables[0]
-                first_idx = var_index.get(first_var.name, -1)
+                first_name = expr.left.vector._name_at(0)
+                first_idx = var_index.get(first_name, -1)
                 if first_idx == 0 and isinstance(expr.right, (Constant, int, float)):
                     return np.ones(n, dtype=np.float64)
 
@@ -825,10 +826,10 @@ def _try_extract_fast_binop(
         if isinstance(expr.left, LinearCombination) and isinstance(
             expr.left.vector, VectorVariable
         ):
-            vec_n = len(expr.left.vector._variables)
+            vec_n = expr.left.vector.size
             if vec_n == n:
-                first_var = expr.left.vector._variables[0]
-                first_idx = var_index.get(first_var.name, -1)
+                first_name = expr.left.vector._name_at(0)
+                first_idx = var_index.get(first_name, -1)
                 if first_idx == 0 and isinstance(expr.right, (Constant, int, float)):
                     return np.asarray(expr.left.coefficients, dtype=np.float64).copy()
 
@@ -838,10 +839,10 @@ def _try_extract_fast_binop(
             if isinstance(expr.right, VectorSum) and isinstance(
                 expr.right.vector, VectorVariable
             ):
-                vec_n = len(expr.right.vector._variables)
+                vec_n = expr.right.vector.size
                 if vec_n == n:
-                    first_var = expr.right.vector._variables[0]
-                    first_idx = var_index.get(first_var.name, -1)
+                    first_name = expr.right.vector._name_at(0)
+                    first_idx = var_index.get(first_name, -1)
                     if first_idx == 0:
                         return np.full(n, float(expr.left.value), dtype=np.float64)
 
@@ -849,10 +850,10 @@ def _try_extract_fast_binop(
             if isinstance(expr.left, VectorSum) and isinstance(
                 expr.left.vector, VectorVariable
             ):
-                vec_n = len(expr.left.vector._variables)
+                vec_n = expr.left.vector.size
                 if vec_n == n:
-                    first_var = expr.left.vector._variables[0]
-                    first_idx = var_index.get(first_var.name, -1)
+                    first_name = expr.left.vector._name_at(0)
+                    first_idx = var_index.get(first_name, -1)
                     if first_idx == 0:
                         return np.full(n, float(expr.right.value), dtype=np.float64)
 
@@ -888,8 +889,8 @@ def _extract_all_coefficients_impl(
 
     # VectorSum: sum(x) - each variable has coefficient 1 * multiplier
     if isinstance(expr, VectorSum):
-        for var in expr.vector._variables:
-            idx = var_index.get(var.name)
+        for name in expr.vector._iter_variable_names():
+            idx = var_index.get(name)
             if idx is not None:
                 result[idx] += multiplier
         return
@@ -897,8 +898,8 @@ def _extract_all_coefficients_impl(
     # LinearCombination: c @ x - coefficient is c[i] * multiplier
     if isinstance(expr, LinearCombination):
         if isinstance(expr.vector, VectorVariable):
-            for i, var in enumerate(expr.vector._variables):
-                idx = var_index.get(var.name)
+            for i, name in enumerate(expr.vector._iter_variable_names()):
+                idx = var_index.get(name)
                 if idx is not None:
                     result[idx] += float(expr.coefficients[i]) * multiplier
         else:
@@ -1207,6 +1208,70 @@ class LinearProgramExtractor:
         Raises:
             ValueError: If problem is not a valid LP.
         """
+        source_vector = problem._single_vector_source()
+        if source_vector is not None:
+            n = source_vector.size
+            names: list[str] = []
+            bounds: list[tuple[float | None, float | None]] = []
+            obj_terms = np.zeros(n, dtype=np.float64)
+            var_index: dict[str, int] = {}
+
+            for index, (name, bound_pair, _, obj_coeff) in enumerate(
+                source_vector._iter_lp_metadata()
+            ):
+                names.append(name)
+                bounds.append(bound_pair)
+                var_index[name] = index
+                if obj_coeff != 0.0:
+                    obj_terms[index] = obj_coeff
+
+            assert problem.objective is not None
+            c = extract_all_linear_coefficients(problem.objective, var_index, n)
+            if np.any(obj_terms):
+                c = c + obj_terms
+
+            ub_rows: list[NDArray[np.floating]] = []
+            ub_rhs: list[float] = []
+            eq_rows: list[NDArray[np.floating]] = []
+            eq_rhs: list[float] = []
+
+            for constraint in problem.constraints:
+                if not is_linear(constraint.expr):
+                    raise NonLinearError(
+                        expression=repr(constraint.expr)[:100],
+                        context="LP constraint extraction",
+                        suggestion="All constraints must be linear for LP solvers.",
+                    )
+
+                row = extract_all_linear_coefficients(constraint.expr, var_index, n)
+                rhs = -extract_constant_term(constraint.expr)
+
+                if constraint.sense == "==":
+                    eq_rows.append(row)
+                    eq_rhs.append(rhs)
+                elif constraint.sense == "<=":
+                    ub_rows.append(row)
+                    ub_rhs.append(rhs)
+                elif constraint.sense == ">=":
+                    ub_rows.append(-row)
+                    ub_rhs.append(-rhs)
+
+            A_ub = np.array(ub_rows, dtype=np.float64) if ub_rows else None
+            b_ub = np.array(ub_rhs, dtype=np.float64) if ub_rhs else None
+            A_eq = np.array(eq_rows, dtype=np.float64) if eq_rows else None
+            b_eq = np.array(eq_rhs, dtype=np.float64) if eq_rhs else None
+
+            return LPData(
+                c=c,
+                sense="min" if problem.sense == "minimize" else "max",
+                A_ub=A_ub,
+                b_ub=b_ub,
+                A_eq=A_eq,
+                b_eq=b_eq,
+                bounds=bounds,
+                variables=names,
+            )
+
         c, sense, variables = self.extract_objective(problem)
         A_ub, b_ub, A_eq, b_eq = self.extract_constraints(problem, variables)
         bounds = self.extract_bounds(variables)

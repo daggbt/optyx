@@ -16,6 +16,7 @@ from optyx.core.expressions import (
     Variable,
     Constant,
     BinaryOp,
+    _vector_name_sort_key,
 )
 from optyx.core.errors import (
     DimensionMismatchError,
@@ -1225,7 +1226,15 @@ class VectorVariable:
         >>> for v in x: print(v.name)  # x[0], x[1], ..., x[4]
     """
 
-    __slots__ = ("name", "size", "lb", "ub", "domain", "_variables")
+    __slots__ = (
+        "name",
+        "size",
+        "lb",
+        "ub",
+        "domain",
+        "_variable_cache",
+        "_has_bound_overrides",
+    )
 
     # Tell NumPy to defer to Python's operators (enables numpy_array @ vector)
     __array_ufunc__ = None
@@ -1236,7 +1245,8 @@ class VectorVariable:
     lb: float | Sequence[float] | NDArray | None
     ub: float | Sequence[float] | NDArray | None
     domain: DomainType
-    _variables: list[Variable]
+    _variable_cache: list[Variable | None] | None
+    _has_bound_overrides: bool
 
     def __init__(
         self,
@@ -1259,35 +1269,150 @@ class VectorVariable:
         self.ub = ub
         self.domain = domain
 
-        # Helper to get bound for index i
-        def get_bound(
-            b: float | Sequence[float] | NDArray | None, i: int, param_name: str
-        ) -> float | None:
-            if b is None:
-                return None
-            if isinstance(b, (int, float, np.number)):
-                return float(b)
-            if hasattr(b, "__len__") and hasattr(b, "__getitem__"):
-                if len(b) != size:
-                    raise InvalidSizeError(
-                        entity=f"{param_name} for {name}",
-                        size=len(b),
-                        reason=f"must match vector size {size}",
-                    )
-                return float(b[i])
-            # Fallback
-            if hasattr(b, "__float__"):
-                return float(b)  # type: ignore
-            return None
+        self._validate_bound_length(lb, "lb")
+        self._validate_bound_length(ub, "ub")
+        self._variable_cache = None
+        self._has_bound_overrides = False
 
-        # Create individual variables
-        self._variables: list[Variable] = []
-        for i in range(size):
-            val_l = get_bound(lb, i, "lb")
-            val_u = get_bound(ub, i, "ub")
-            self._variables.append(
-                Variable(f"{name}[{i}]", lb=val_l, ub=val_u, domain=domain)
-            )
+    def _validate_bound_length(
+        self,
+        bound: float | Sequence[float] | NDArray | None,
+        param_name: str,
+    ) -> None:
+        if bound is None or isinstance(bound, (int, float, np.number)):
+            return
+        if hasattr(bound, "__len__") and hasattr(bound, "__getitem__"):
+            if len(bound) != self.size:
+                raise InvalidSizeError(
+                    entity=f"{param_name} for {self.name}",
+                    size=len(bound),
+                    reason=f"must match vector size {self.size}",
+                )
+
+    def _bound_at(
+        self,
+        bound: float | Sequence[float] | NDArray | None,
+        index: int,
+    ) -> float | None:
+        if bound is None:
+            return None
+        if isinstance(bound, (int, float, np.number)):
+            return float(bound)
+        if hasattr(bound, "__getitem__"):
+            return float(bound[index])
+        if hasattr(bound, "__float__"):
+            return float(bound)  # type: ignore[arg-type]
+        return None
+
+    def _name_at(self, index: int) -> str:
+        return f"{self.name}[{index}]"
+
+    def _mark_bound_override(self) -> None:
+        self._has_bound_overrides = True
+
+    def _matches_default_bounds(self, variable: Variable, index: int) -> bool:
+        return variable.lb == self._bound_at(
+            self.lb, index
+        ) and variable.ub == self._bound_at(self.ub, index)
+
+    def _iter_variable_names(self) -> Iterator[str]:
+        for index in range(self.size):
+            yield self._name_at(index)
+
+    def _can_skip_scipy_bounds(self) -> bool:
+        return (
+            self.domain == "continuous"
+            and self.lb is None
+            and self.ub is None
+            and not self._has_bound_overrides
+        )
+
+    def _lp_metadata_at(
+        self, index: int
+    ) -> tuple[str, tuple[float | None, float | None], DomainType, float]:
+        cache = self._variable_cache
+        if cache is not None:
+            variable = cache[index]
+            if variable is not None:
+                return (
+                    variable.name,
+                    (variable.lb, variable.ub),
+                    cast(DomainType, variable.domain),
+                    variable.obj,
+                )
+
+        return (
+            self._name_at(index),
+            (self._bound_at(self.lb, index), self._bound_at(self.ub, index)),
+            self.domain,
+            0.0,
+        )
+
+    def _iter_lp_metadata(
+        self,
+    ) -> Iterator[tuple[str, tuple[float | None, float | None], DomainType, float]]:
+        for index in range(self.size):
+            yield self._lp_metadata_at(index)
+
+    def _has_non_continuous_domain(self) -> bool:
+        if self.domain != "continuous":
+            return True
+
+        cache = self._variable_cache
+        if cache is None:
+            return False
+
+        return any(
+            variable is not None and variable.domain != "continuous"
+            for variable in cache
+        )
+
+    def _create_variable(self, index: int) -> Variable:
+        return Variable._from_vector_element(
+            self._name_at(index),
+            lb=self._bound_at(self.lb, index),
+            ub=self._bound_at(self.ub, index),
+            domain=self.domain,
+            sort_key=_vector_name_sort_key(self.name, index),
+            metadata_callback=self._mark_bound_override,
+        )
+
+    def _get_variable(self, index: int) -> Variable:
+        cache = self._variable_cache
+        if cache is None:
+            cache = [None] * self.size
+            self._variable_cache = cache
+
+        variable = cache[index]
+        if variable is None:
+            variable = self._create_variable(index)
+            cache[index] = variable
+        return variable
+
+    @property
+    def _variables(self) -> list[Variable]:
+        cache = self._variable_cache
+        if cache is None:
+            variables = [self._create_variable(index) for index in range(self.size)]
+            self._variable_cache = variables
+            return variables
+
+        for index, variable in enumerate(cache):
+            if variable is None:
+                cache[index] = self._create_variable(index)
+
+        return cast(list[Variable], cache)
+
+    @_variables.setter
+    def _variables(self, value: list[Variable]) -> None:
+        cache = list(value)
+        self._variable_cache = cache
+        self._has_bound_overrides = False
+
+        for index, variable in enumerate(cache):
+            variable._metadata_callback = self._mark_bound_override
+            if not self._matches_default_bounds(variable, index):
+                self._has_bound_overrides = True
 
     @overload
     def __getitem__(self, key: int) -> Variable: ...
@@ -1321,11 +1446,12 @@ class VectorVariable:
                 raise IndexError(
                     f"Index {key} out of range for VectorVariable of size {self.size}"
                 )
-            return self._variables[key]
+            return self._get_variable(key)
 
         elif isinstance(key, slice):
             # Get the sliced variables
-            sliced_vars = self._variables[key]
+            indices = range(*key.indices(self.size))
+            sliced_vars = [self._get_variable(i) for i in indices]
             if len(sliced_vars) == 0:
                 raise IndexError("Slice results in empty VectorVariable")
 
@@ -1359,7 +1485,7 @@ class VectorVariable:
                     i = self.size + i
                 if i < 0 or i >= self.size:
                     raise IndexError(f"Index {i} out of range")
-                selected_vars.append(self._variables[i])
+                selected_vars.append(self._get_variable(i))
 
             if len(selected_vars) == 0:
                 raise IndexError("Fancy indexing results in empty VectorVariable")
@@ -1410,7 +1536,8 @@ class VectorVariable:
 
     def __iter__(self) -> Iterator[Variable]:
         """Iterate over all variables in the vector."""
-        return iter(self._variables)
+        for i in range(self.size):
+            yield self._get_variable(i)
 
     def get_variables(self) -> list[Variable]:
         """Return all variables in this vector.
@@ -1418,7 +1545,7 @@ class VectorVariable:
         Returns:
             List of Variable instances in order.
         """
-        return list(self._variables)
+        return [self._get_variable(i) for i in range(self.size)]
 
     def __repr__(self) -> str:
         bounds = ""

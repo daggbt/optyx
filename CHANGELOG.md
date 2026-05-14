@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Lazy `VectorVariable` fast paths**: LP extraction, bounds handling, and solver setup now preserve vector-backed metadata longer instead of forcing immediate scalar `Variable` materialization.
+- **Single-vector NLP cold-start path**: Unconstrained `VectorVariable` objectives such as `x.dot(x) - x.sum()` now compile through a contiguous vector layout, reuse vector-backed solver metadata, and avoid first-solve scalar materialization on the hot path.
+- **Lazy solution value loading**: SciPy solve results continue to defer building large name-to-value maps until values are actually accessed, while keeping warm-start behavior intact.
+
+### Performance
+- **Single-vector NLP**: Benchmarked cold overhead for the `x.dot(x) - x.sum()` path is now near raw SciPy parity at large `n`, with warm solves staying close to SciPy while keeping the vector cache lazy.
+
 ## [1.3.0] - 2026-04-07
 
 ### Added

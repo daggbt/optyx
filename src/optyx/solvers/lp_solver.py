@@ -91,8 +91,17 @@ def solve_lp(
             )
 
     # Check for non-continuous domains — route to MILP solver
-    variables = problem.variables
-    non_continuous = [v for v in variables if v.domain != "continuous"]
+    source_vector = problem._single_vector_source()
+    variables = None
+    non_continuous = []
+    if source_vector is not None:
+        if source_vector._has_non_continuous_domain():
+            variables = problem.variables
+            non_continuous = [v for v in variables if v.domain != "continuous"]
+    else:
+        variables = problem.variables
+        non_continuous = [v for v in variables if v.domain != "continuous"]
+
     if non_continuous:
         from optyx.solvers.milp_solver import solve_milp
 
@@ -110,6 +119,7 @@ def solve_lp(
                     solver_name="milp",
                 ) from e
 
+        assert variables is not None
         return solve_milp(lp_data, variables, **kwargs)
 
     # Check SciPy version and select method
@@ -161,7 +171,7 @@ def solve_lp(
 
     # Always re-extract bounds from live variable properties to ensure
     # updates to v.lb/v.ub are respected even when LP data is cached.
-    fresh_bounds = [(v.lb, v.ub) for v in variables]
+    fresh_bounds = problem.get_bounds()
     if fresh_bounds:
         linprog_kwargs["bounds"] = fresh_bounds
 

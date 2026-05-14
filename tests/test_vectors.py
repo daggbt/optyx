@@ -134,6 +134,11 @@ class TestVectorVariableIndexing:
         x = VectorVariable("x", 5)
         assert isinstance(x[0], Variable)
 
+    def test_repeated_index_returns_same_variable(self):
+        """Repeated indexing returns the same cached Variable object."""
+        x = VectorVariable("x", 5)
+        assert x[0] is x[0]
+
     def test_index_out_of_range(self):
         """Out of range index raises IndexError."""
         x = VectorVariable("x", 5)

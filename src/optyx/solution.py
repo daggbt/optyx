@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 import json
 import os
 
@@ -35,6 +35,78 @@ class SolverStatus(Enum):
     TERMINATED = "terminated"
     FAILED = "failed"
     NOT_SOLVED = "not_solved"
+
+
+class LazyValuesDict(dict[str, float]):
+    """Dictionary that materializes solution values on first access."""
+
+    __slots__ = ("_loader", "_loaded")
+
+    def __init__(
+        self,
+        initial: dict[str, float] | None = None,
+        loader: Callable[[], dict[str, float]] | None = None,
+    ) -> None:
+        super().__init__(initial or {})
+        self._loader = loader
+        self._loaded = initial is not None or loader is None
+
+    def _ensure_loaded(self) -> None:
+        if self._loaded:
+            return
+
+        assert self._loader is not None
+        super().update(self._loader())
+        self._loader = None
+        self._loaded = True
+
+    def __getitem__(self, key: str) -> float:
+        self._ensure_loaded()
+        return super().__getitem__(key)
+
+    def __contains__(self, key: object) -> bool:
+        self._ensure_loaded()
+        return super().__contains__(key)
+
+    def __iter__(self):
+        self._ensure_loaded()
+        return super().__iter__()
+
+    def __len__(self) -> int:
+        self._ensure_loaded()
+        return super().__len__()
+
+    def __bool__(self) -> bool:
+        self._ensure_loaded()
+        return super().__len__() > 0
+
+    def __repr__(self) -> str:
+        self._ensure_loaded()
+        return super().__repr__()
+
+    def __eq__(self, other: object) -> bool:
+        self._ensure_loaded()
+        return super().__eq__(other)
+
+    def get(self, key: str, default: float | None = None) -> float | None:
+        self._ensure_loaded()
+        return super().get(key, default)
+
+    def items(self):
+        self._ensure_loaded()
+        return super().items()
+
+    def keys(self):
+        self._ensure_loaded()
+        return super().keys()
+
+    def values(self):
+        self._ensure_loaded()
+        return super().values()
+
+    def copy(self) -> dict[str, float]:
+        self._ensure_loaded()
+        return dict(self)
 
 
 @dataclass
@@ -85,6 +157,7 @@ class Solution:
     solve_time: float | None = None
     mip_gap: float | None = None
     best_bound: float | None = None
+    _raw_x: NDArray[np.floating] | None = field(default=None, repr=False, compare=False)
 
     @property
     def is_optimal(self) -> bool:
@@ -105,7 +178,7 @@ class Solution:
         return {
             "status": self.status.value,
             "objective_value": self.objective_value,
-            "values": self.values,
+            "values": dict(self.values),
             "multipliers": self.multipliers,
             "iterations": self.iterations,
             "message": self.message,

@@ -3,10 +3,12 @@
 import warnings
 import pytest
 import numpy as np
+from scipy.optimize import Bounds, OptimizeResult
 
-from optyx import Variable
+from optyx import Variable, VectorVariable
 from optyx.core.errors import UnsupportedOperationError
 from optyx.problem import Problem
+from optyx.solvers import scipy_solver
 
 
 class TestIntegerBinaryWarning:
@@ -330,6 +332,112 @@ class TestSolverMethods:
 
         assert sol.is_optimal
         assert abs(sol["x"] - 1.0) < 1e-4
+
+    def test_lbfgsb_skips_all_infinite_bounds(self, monkeypatch):
+        """Unbounded L-BFGS-B problems should not pass no-op bounds to SciPy."""
+        captured: dict[str, object] = {}
+
+        def fake_minimize(*args, **kwargs):
+            captured["bounds"] = kwargs.get("bounds")
+            x0 = np.asarray(kwargs["x0"], dtype=float)
+            return OptimizeResult(
+                x=x0,
+                fun=float(kwargs["fun"](x0)),
+                success=True,
+                message="ok",
+                nit=0,
+            )
+
+        monkeypatch.setattr(scipy_solver, "minimize", fake_minimize)
+
+        x = Variable("x")
+        prob = Problem().minimize(x**2)
+        sol = prob.solve(method="L-BFGS-B", x0=np.array([0.0]))
+
+        assert sol.is_optimal
+        assert captured["bounds"] is None
+
+    def test_lbfgsb_preserves_finite_bounds(self, monkeypatch):
+        """Finite bounds should still be forwarded to SciPy."""
+        captured: dict[str, object] = {}
+
+        def fake_minimize(*args, **kwargs):
+            captured["bounds"] = kwargs.get("bounds")
+            x0 = np.asarray(kwargs["x0"], dtype=float)
+            return OptimizeResult(
+                x=x0,
+                fun=float(kwargs["fun"](x0)),
+                success=True,
+                message="ok",
+                nit=0,
+            )
+
+        monkeypatch.setattr(scipy_solver, "minimize", fake_minimize)
+
+        x = Variable("x", lb=1.0, ub=2.0)
+        prob = Problem().minimize(x**2)
+        sol = prob.solve(method="L-BFGS-B", x0=np.array([1.5]))
+
+        assert sol.is_optimal
+        assert isinstance(captured["bounds"], Bounds)
+
+    def test_lbfgsb_skips_unbounded_single_vector_bounds(self, monkeypatch):
+        """Unbounded single-vector problems should bypass bounds scanning."""
+        captured: dict[str, object] = {}
+
+        def fake_minimize(*args, **kwargs):
+            captured["bounds"] = kwargs.get("bounds")
+            x0 = np.asarray(kwargs["x0"], dtype=float)
+            return OptimizeResult(
+                x=x0,
+                fun=float(kwargs["fun"](x0)),
+                success=True,
+                message="ok",
+                nit=0,
+            )
+
+        def fail_build_bounds(_variables):
+            raise AssertionError(
+                "_build_bounds should not run for unbounded vector problems"
+            )
+
+        monkeypatch.setattr(scipy_solver, "minimize", fake_minimize)
+        monkeypatch.setattr(scipy_solver, "_build_bounds", fail_build_bounds)
+
+        x = VectorVariable("x", 3)
+        prob = Problem().minimize(x.dot(x) - x.sum())
+        sol = prob.solve(method="L-BFGS-B", x0=np.zeros(3))
+
+        assert sol.is_optimal
+        assert captured["bounds"] is None
+
+    def test_lbfgsb_vector_bound_override_preserves_bounds(self, monkeypatch):
+        """Per-element bound overrides must still flow through to SciPy."""
+        captured: dict[str, object] = {}
+
+        def fake_minimize(*args, **kwargs):
+            captured["bounds"] = kwargs.get("bounds")
+            x0 = np.asarray(kwargs["x0"], dtype=float)
+            return OptimizeResult(
+                x=x0,
+                fun=float(kwargs["fun"](x0)),
+                success=True,
+                message="ok",
+                nit=0,
+            )
+
+        monkeypatch.setattr(scipy_solver, "minimize", fake_minimize)
+
+        x = VectorVariable("x", 3)
+        x[1].lb = 2.0
+        prob = Problem().minimize(x.dot(x) - x.sum())
+        sol = prob.solve(method="L-BFGS-B", x0=np.zeros(3))
+
+        assert sol.is_optimal
+        assert isinstance(captured["bounds"], Bounds)
+        bounds = captured["bounds"]
+        assert isinstance(bounds, Bounds)
+        assert bounds.lb[1] == pytest.approx(2.0)
 
 
 class TestEdgeCases:
