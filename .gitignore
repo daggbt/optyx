@@ -51,21 +51,10 @@ Thumbs.db
 .github/ISSUE_TEMPLATE/
 .github/PULL_REQUEST_TEMPLATE.md
 
-# Comparison scripts (local analysis only)
-compare_*.py
+# Local analysis scripts (kept out of version control)
+diagnostics/
 benchmarks/comparison/bench_vector_vs_loop.py
 benchmarks/comparison/bench_matrix_vs_alternatives.py
-debug_*.py
-diagnose*.py 
-
-test_scalability.py
-test_scipy_scalability.py
-# Profiling scripts (local analysis only)
-profile_*.py
-
-dense*.py
-
-setup_*.py
 
 benchmarks_be*.txt
 benchmarks_af*.txt
