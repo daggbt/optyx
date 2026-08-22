@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 import json
 import os
 
@@ -158,6 +158,9 @@ class Solution:
     mip_gap: float | None = None
     best_bound: float | None = None
     _raw_x: NDArray[np.floating] | None = field(default=None, repr=False, compare=False)
+    _raw_layout_signature: tuple[Any, ...] | None = field(
+        default=None, repr=False, compare=False
+    )
 
     @property
     def is_optimal(self) -> bool:

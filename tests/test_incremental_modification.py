@@ -16,6 +16,7 @@ from optyx import Variable
 from optyx.core.vectors import VectorVariable
 from optyx.problem import Problem
 from optyx.solution import SolverStatus
+from optyx.solvers import scipy_solver
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +233,66 @@ class TestRemoveConstraintCaching:
         sol = prob.solve(method="SLSQP")
         assert sol.values["x"] == pytest.approx(3.0, abs=1e-4)
 
+    def test_added_variable_rebuilds_slsqp_cache(self):
+        """A constraint-introduced variable must rebuild objective derivatives."""
+        x = Variable("x")
+        y = Variable("y")
+        prob = Problem().minimize((x - 1) ** 2)
+
+        prob.solve(method="BFGS")
+        old_obj_fn = prob._solver_cache["obj_fn"]
+        prob.subject_to(y >= 2)
+
+        # Start from a feasible constraint point so this regression isolates
+        # cache-layout correctness from SLSQP's one-step stopping behavior.
+        sol = prob.solve(method="SLSQP", x0=np.array([0.0, 2.0]), warm_start=False)
+
+        assert sol.status == SolverStatus.OPTIMAL
+        assert sol.values["x"] == pytest.approx(1.0, abs=1e-4)
+        assert sol.values["y"] == pytest.approx(2.0, abs=1e-4)
+        assert prob._solver_cache["obj_fn"] is not old_obj_fn
+
+    def test_added_variable_rebuilds_trust_constr_hessian_cache(self):
+        """trust-constr must not reuse a Hessian compiled for an old layout."""
+        x = Variable("x")
+        y = Variable("y")
+        prob = Problem().minimize((x - 1) ** 2)
+
+        prob.solve(method="trust-constr")
+        prob.subject_to(y >= 2)
+
+        sol = prob.solve(method="trust-constr", warm_start=False)
+
+        assert sol.status == SolverStatus.OPTIMAL
+        assert sol.values["x"] == pytest.approx(1.0, abs=1e-4)
+        assert sol.values["y"] >= 2.0 - 1e-4
+
+    def test_existing_variable_constraint_keeps_compatible_objective_cache(self):
+        """Selective invalidation remains available when layout is unchanged."""
+        x = Variable("x", lb=-10, ub=10)
+        prob = Problem().minimize((x - 1) ** 2).subject_to(x >= 0)
+
+        prob.solve(method="SLSQP")
+        obj_fn = prob._solver_cache["obj_fn"]
+        prob.subject_to(x <= 2)
+        prob.solve(method="SLSQP")
+
+        assert prob._solver_cache["obj_fn"] is obj_fn
+
+    def test_matrix_constraint_variable_rebuilds_cache(self):
+        """A matrix constraint introducing a vector also changes the layout."""
+        x = Variable("x")
+        y = VectorVariable("y", 1)
+        prob = Problem().minimize((x - 1) ** 2)
+
+        prob.solve(method="BFGS")
+        prob.subject_to(np.array([[1.0]]) @ y >= np.array([2.0]))
+        sol = prob.solve(method="SLSQP", x0=np.array([0.0, 2.0]), warm_start=False)
+
+        assert sol.status == SolverStatus.OPTIMAL
+        assert sol.values["x"] == pytest.approx(1.0, abs=1e-4)
+        assert sol.values["y[0]"] == pytest.approx(2.0, abs=1e-4)
+
 
 # ---------------------------------------------------------------------------
 # Warm start tests
@@ -327,6 +388,27 @@ class TestWarmStart:
         sol2 = prob.solve(method="SLSQP", x0=np.array([1.0]))
         assert sol2.status == SolverStatus.OPTIMAL
         assert sol2.values["x"] == pytest.approx(5.0, abs=1e-4)
+
+    def test_same_size_replacement_layout_discards_warm_start(self, monkeypatch):
+        """Equal vector length is insufficient when a variable was replaced."""
+        captured: dict[str, np.ndarray] = {}
+        x = Variable("x")
+        y = Variable("y")
+        z = Variable("z")
+        prob = Problem().minimize((x - 1) ** 2).subject_to(y >= 2)
+        prob.solve(method="SLSQP")
+
+        prob.remove_constraint(0)
+        prob.subject_to(z >= 7)
+
+        def capture_x0(**kwargs):
+            captured["x0"] = np.asarray(kwargs["x0"], dtype=float)
+            raise RuntimeError("stop after capturing the initial point")
+
+        monkeypatch.setattr(scipy_solver, "minimize", capture_x0)
+        prob.solve(method="SLSQP")
+
+        assert captured["x0"] == pytest.approx(np.zeros(2))
 
 
 # ---------------------------------------------------------------------------

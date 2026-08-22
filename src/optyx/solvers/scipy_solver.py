@@ -32,6 +32,26 @@ class _EarlyTermination(Exception):
         self.message = message
 
 
+def _variable_layout_signature(variables: list[Any]) -> tuple[Any, ...]:
+    """Return the ordered variable identity expected by compiled callables."""
+    return ("variables", tuple((id(variable), variable.name) for variable in variables))
+
+
+def _single_vector_layout_signature(source_vector: Any) -> tuple[Any, ...]:
+    """Return a layout signature without materializing a VectorVariable."""
+    return (
+        "single_vector",
+        id(source_vector),
+        source_vector.name,
+        source_vector.size,
+    )
+
+
+def _objective_signature(problem: Problem) -> tuple[Any, ...]:
+    """Return the objective identity and sense used by derivative caches."""
+    return (id(problem.objective), problem.sense)
+
+
 def _build_single_vector_bounds(source_vector: Any) -> Bounds | None:
     """Build SciPy bounds directly from VectorVariable metadata."""
     lb_arr = np.empty(source_vector.size)
@@ -225,9 +245,11 @@ def solve_scipy(
     if use_lazy_single_vector:
         assert source_vector is not None
         n = source_vector.size
+        layout_signature = _single_vector_layout_signature(source_vector)
     else:
         variables = problem.variables
         n = len(variables)
+        layout_signature = _variable_layout_signature(variables)
 
     if n == 0:
         return Solution(
@@ -273,7 +295,12 @@ def solve_scipy(
 
     # Check for cached compiled callables
     cache = problem._solver_cache
-    if cache is None:
+    cache_is_compatible = (
+        cache is not None
+        and cache.get("variable_layout_signature") == layout_signature
+        and cache.get("objective_signature") == _objective_signature(problem)
+    )
+    if not cache_is_compatible:
         if use_lazy_single_vector:
             assert source_vector is not None
             cache = _build_single_vector_solver_cache(problem, source_vector)
@@ -281,7 +308,12 @@ def solve_scipy(
             assert variables is not None
             cache = _build_solver_cache(problem, variables)
         problem._solver_cache = cache
-    elif "scipy_constraints" not in cache and not use_lazy_single_vector:
+    assert cache is not None
+    if (
+        cache_is_compatible
+        and "scipy_constraints" not in cache
+        and not use_lazy_single_vector
+    ):
         # Selective invalidation: objective cache preserved, rebuild constraints only
         assert variables is not None
         _rebuild_constraint_cache(cache, problem, variables)
@@ -319,6 +351,7 @@ def solve_scipy(
     # Build Hessian for methods that support it (not cached - method-dependent)
     hess_fn: Callable[[np.ndarray], np.ndarray] | None = None
     if use_hessian and method in HESSIAN_METHODS:
+        assert variables is not None
         # Check if Hessian is cached for this method
         if "hess_fn" not in cache:
             obj_expr = problem.objective
@@ -340,6 +373,7 @@ def solve_scipy(
         if (
             warm_start
             and problem._last_solution is not None
+            and problem._last_solution_layout_signature == layout_signature
             and len(problem._last_solution) == n
         ):
             x0 = problem._last_solution.copy()
@@ -438,6 +472,7 @@ def solve_scipy(
             message=et.message,
             solve_time=solve_time,
             _raw_x=raw_x,
+            _raw_layout_signature=layout_signature,
         )
     except Exception as e:
         warnings.showwarning = old_showwarning
@@ -529,6 +564,7 @@ def solve_scipy(
         message=message,
         solve_time=solve_time,
         _raw_x=raw_x,
+        _raw_layout_signature=layout_signature,
     )
 
 
@@ -596,7 +632,10 @@ def _build_solver_cache(problem: Problem, variables: list) -> dict[str, Any]:
     )
     from optyx.core.optimizer import flatten_expression
 
-    cache: dict[str, Any] = {}
+    cache: dict[str, Any] = {
+        "variable_layout_signature": _variable_layout_signature(variables),
+        "objective_signature": _objective_signature(problem),
+    }
 
     # Build objective function
     obj_expr = problem.objective
@@ -702,7 +741,10 @@ def _build_single_vector_solver_cache(
     )
     from optyx.core.optimizer import flatten_expression
 
-    cache: dict[str, Any] = {}
+    cache: dict[str, Any] = {
+        "variable_layout_signature": _single_vector_layout_signature(source_vector),
+        "objective_signature": _objective_signature(problem),
+    }
     variables = ContiguousVectorVariables(source_vector)
 
     obj_expr = problem.objective

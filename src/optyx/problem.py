@@ -235,6 +235,7 @@ class Problem:
         self._is_linear_cache: bool | None = None
         # Warm start: last solution array (used as x0 on re-solve)
         self._last_solution: NDArray[np.floating] | None = None
+        self._last_solution_layout_signature: tuple[Any, ...] | None = None
 
     def _invalidate_caches(self) -> None:
         """Invalidate all cached data when problem is modified."""
@@ -458,6 +459,7 @@ class Problem:
         """
         self._invalidate_caches()
         self._last_solution = None
+        self._last_solution_layout_signature = None
 
     def _validate_expression(
         self, expr: Expression | float | int, context: str
@@ -958,6 +960,7 @@ class Problem:
         """Store solution values for warm starting subsequent solves."""
         if solution._raw_x is not None:
             self._last_solution = np.asarray(solution._raw_x, dtype=np.float64).copy()
+            self._last_solution_layout_signature = solution._raw_layout_signature
             return
 
         if solution.values:
@@ -971,6 +974,10 @@ class Problem:
 
             x = np.array([solution.values.get(name, 0.0) for name in names])
             self._last_solution = x
+            # LP/MILP solutions do not currently expose the exact ordered Variable
+            # identities used by the SciPy compiler. Keep their warm-start data,
+            # but do not reuse it on the NLP path based on length alone.
+            self._last_solution_layout_signature = None
 
     def __repr__(self) -> str:
         obj_str = "not set" if self._objective is None else f"{self._sense}"
