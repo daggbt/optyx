@@ -486,24 +486,54 @@ def solve_scipy(
 
     solve_time = time.perf_counter() - start_time
 
-    # Check if constraints are satisfied (SLSQP can return "optimal" with violated constraints)
-    # Use scaled tolerance: atol + rtol * max(1, |constraint_value|)
+    raw_x = np.asarray(result.x, dtype=np.float64).copy()
+
+    # Validate every candidate independently of SciPy's success flag. Some
+    # methods return an unsuccessful result with a usable point, while SLSQP
+    # can also report success for a point that violates constraints.
     atol = tol if tol is not None else 1e-6
     rtol = 1e-6
-    constraints_violated = False
     max_violation = 0.0
+    candidate_is_finite = (
+        raw_x.shape == (n,)
+        and bool(np.all(np.isfinite(raw_x)))
+        and bool(np.isfinite(result.fun))
+    )
 
-    if result.success and constraint_monitors:
+    if candidate_is_finite and constraint_monitors:
         max_violation = _compute_constraint_violation(
-            result.x,
+            raw_x,
             constraint_monitors,
             atol=atol,
             rtol=rtol,
         )
-        constraints_violated = max_violation > 0.0
 
-    # If SLSQP returned "optimal" but constraints are violated, retry with trust-constr
-    if constraints_violated and method == "SLSQP":
+    if candidate_is_finite:
+        if method in BOUNDS_METHODS:
+            candidate_bounds = bounds
+        elif use_lazy_single_vector:
+            assert source_vector is not None
+            candidate_bounds = _build_single_vector_bounds(source_vector)
+        else:
+            assert variables is not None
+            candidate_bounds = _build_bounds(variables)
+        if candidate_bounds is not None:
+            max_violation = max(
+                max_violation,
+                _compute_bound_violation(
+                    raw_x,
+                    candidate_bounds.lb,
+                    candidate_bounds.ub,
+                    atol=atol,
+                    rtol=rtol,
+                ),
+            )
+
+    candidate_is_feasible = candidate_is_finite and max_violation == 0.0
+
+    # Retry every finite, measurably infeasible SLSQP candidate, regardless of
+    # whether SciPy described the termination as successful.
+    if candidate_is_finite and max_violation > 0.0 and method == "SLSQP":
         warnings.warn(
             f"SLSQP returned a solution that violates constraints (max violation: {max_violation:.2e}). "
             "Retrying with trust-constr method for more robust optimization.",
@@ -525,15 +555,20 @@ def solve_scipy(
         )
 
     # Map SciPy result to Solution
-    if result.success and not constraints_violated:
+    result_message = str(result.message) if hasattr(result, "message") else ""
+    result_message_lower = result_message.lower()
+    if result.success and candidate_is_feasible:
         status = SolverStatus.OPTIMAL
-    elif "maximum" in result.message.lower() and "iteration" in result.message.lower():
+    elif "maximum" in result_message_lower and "iteration" in result_message_lower:
         status = SolverStatus.MAX_ITERATIONS
-    elif "infeasible" in result.message.lower() or constraints_violated:
+    elif "infeasible" in result_message_lower:
         status = SolverStatus.INFEASIBLE
-    elif "positive directional derivative" in result.message.lower():
+    elif (
+        "positive directional derivative" in result_message_lower
+        and candidate_is_feasible
+    ):
         # SLSQP reports this when it converged but hit numerical precision limits
-        # The solution is typically still good - treat as optimal
+        # Treat the result as optimal only after independently confirming feasibility.
         status = SolverStatus.OPTIMAL
     else:
         status = SolverStatus.FAILED
@@ -544,11 +579,18 @@ def solve_scipy(
         obj_value = -obj_value
 
     # Build message, noting if problem appears linear
-    message = result.message if hasattr(result, "message") else ""
+    message = result_message
+    if not candidate_is_finite:
+        message = (
+            f"{message} (Candidate contains non-finite objective or variable values)"
+        )
+    elif max_violation > 0.0:
+        message = (
+            f"{message} (Maximum constraint or bound violation: {max_violation:.2e})"
+        )
     if linear_problem_detected:
         message = f"{message} (Note: problem appears linear)"
 
-    raw_x = np.asarray(result.x, dtype=np.float64).copy()
     if use_lazy_single_vector:
         assert source_vector is not None
         loader = _make_single_vector_loader(source_vector, raw_x)
@@ -987,6 +1029,8 @@ def _compute_constraint_violation(
     for c in constraints:
         if isinstance(c, dict):
             val = float(c["fun"](x))
+            if not np.isfinite(val):
+                return float("inf")
             scaled_tol = atol + rtol * max(1.0, abs(val))
             if c["type"] == "ineq":
                 violation = -val if val < -scaled_tol else 0.0
@@ -1019,6 +1063,8 @@ def _compute_bound_violation(
 ) -> float:
     """Compute maximum bound-style constraint violation for a vector of values."""
     vals = np.asarray(values, dtype=np.float64).reshape(-1)
+    if not np.all(np.isfinite(vals)):
+        return float("inf")
     lb_arr = np.broadcast_to(np.asarray(lb, dtype=np.float64), vals.shape)
     ub_arr = np.broadcast_to(np.asarray(ub, dtype=np.float64), vals.shape)
 

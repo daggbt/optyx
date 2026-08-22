@@ -8,6 +8,7 @@ from scipy.optimize import Bounds, OptimizeResult
 from optyx import Variable, VectorVariable
 from optyx.core.errors import UnsupportedOperationError
 from optyx.problem import Problem
+from optyx.solution import SolverStatus
 from optyx.solvers import scipy_solver
 
 
@@ -418,9 +419,11 @@ class TestSolverMethods:
         def fake_minimize(*args, **kwargs):
             captured["bounds"] = kwargs.get("bounds")
             x0 = np.asarray(kwargs["x0"], dtype=float)
+            bounds = kwargs["bounds"]
+            result_x = np.maximum(x0, bounds.lb)
             return OptimizeResult(
-                x=x0,
-                fun=float(kwargs["fun"](x0)),
+                x=result_x,
+                fun=float(kwargs["fun"](result_x)),
                 success=True,
                 message="ok",
                 nit=0,
@@ -535,6 +538,102 @@ class TestHessianIntegration:
         assert sol.is_optimal
         assert abs(sol["x"] - 0.5) < 1e-3
         assert abs(sol["y"] - 0.5) < 1e-3
+
+
+class TestPostSolveFeasibilityValidation:
+    """Candidate feasibility must be independent of SciPy's success flag."""
+
+    def test_infeasible_positive_directional_result_is_not_optimal(self):
+        x = Variable("x")
+        prob = Problem().minimize(x**2).subject_to([x >= 1, x <= 0])
+
+        with pytest.warns(UserWarning, match="SLSQP returned a solution"):
+            sol = prob.solve(method="SLSQP")
+
+        assert not sol.is_optimal
+        assert sol.status in (SolverStatus.FAILED, SolverStatus.INFEASIBLE)
+        assert "Maximum constraint or bound violation" in sol.message
+
+    def test_feasible_positive_directional_result_remains_compatible(self, monkeypatch):
+        def fake_minimize(**kwargs):
+            x = np.array([1.0])
+            return OptimizeResult(
+                x=x,
+                fun=float(kwargs["fun"](x)),
+                success=False,
+                message="Positive directional derivative for linesearch",
+                nit=1,
+            )
+
+        monkeypatch.setattr(scipy_solver, "minimize", fake_minimize)
+        x = Variable("x")
+        prob = Problem().minimize(x**2).subject_to(x >= 0)
+
+        sol = prob.solve(method="SLSQP")
+
+        assert sol.status == SolverStatus.OPTIMAL
+
+    def test_successful_result_that_violates_variable_bound_is_not_optimal(
+        self, monkeypatch
+    ):
+        def fake_minimize(**kwargs):
+            x = np.array([-1.0])
+            return OptimizeResult(
+                x=x,
+                fun=float(kwargs["fun"](x)),
+                success=True,
+                message="Optimization terminated successfully",
+                nit=1,
+            )
+
+        monkeypatch.setattr(scipy_solver, "minimize", fake_minimize)
+        x = Variable("x", lb=0)
+        prob = Problem().minimize(x**2)
+
+        sol = prob.solve(method="L-BFGS-B")
+
+        assert sol.status == SolverStatus.FAILED
+        assert "Maximum constraint or bound violation: 1.00e+00" in sol.message
+
+    def test_matrix_constraint_violation_is_not_optimal(self, monkeypatch):
+        def fake_minimize(**kwargs):
+            x = np.zeros(2)
+            return OptimizeResult(
+                x=x,
+                fun=float(kwargs["fun"](x)),
+                success=True,
+                message="Optimization terminated successfully",
+                nit=1,
+            )
+
+        monkeypatch.setattr(scipy_solver, "minimize", fake_minimize)
+        x = VectorVariable("x", 2)
+        prob = Problem().minimize(x.dot(x))
+        prob.subject_to(np.eye(2) @ x >= np.ones(2))
+
+        sol = prob.solve(method="trust-constr")
+
+        assert sol.status == SolverStatus.FAILED
+        assert "Maximum constraint or bound violation: 1.00e+00" in sol.message
+
+    def test_non_finite_candidate_is_not_optimal(self, monkeypatch):
+        def fake_minimize(**kwargs):
+            return OptimizeResult(
+                x=np.array([np.nan]),
+                fun=np.nan,
+                success=True,
+                message="Optimization terminated successfully",
+                nit=1,
+            )
+
+        monkeypatch.setattr(scipy_solver, "minimize", fake_minimize)
+        x = Variable("x")
+        prob = Problem().minimize(x**2)
+
+        sol = prob.solve(method="BFGS")
+
+        assert sol.status == SolverStatus.FAILED
+        assert "Candidate contains non-finite" in sol.message
 
 
 class TestSolverCaching:
