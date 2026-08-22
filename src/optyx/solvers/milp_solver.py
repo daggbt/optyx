@@ -13,6 +13,10 @@ import numpy as np
 from scipy.optimize import milp, LinearConstraint, Bounds
 
 from optyx.solution import Solution, SolverStatus
+from optyx.solvers.feasibility import (
+    DEFAULT_FEASIBILITY_ATOL,
+    compute_linear_problem_violation,
+)
 
 if TYPE_CHECKING:
     from optyx.analysis import LPData
@@ -131,6 +135,20 @@ def solve_milp(
 
     message = result.message if hasattr(result, "message") else ""
 
+    constraint_violation = compute_linear_problem_violation(
+        result.x,
+        A_ub=lp_data.A_ub,
+        b_ub=lp_data.b_ub,
+        A_eq=lp_data.A_eq,
+        b_eq=lp_data.b_eq,
+        lb=lb_arr,
+        ub=ub_arr,
+        integrality=integrality,
+    )
+    feasibility_tolerance = (
+        DEFAULT_FEASIBILITY_ATOL if constraint_violation is not None else None
+    )
+
     return Solution(
         status=status,
         objective_value=objective_value,
@@ -139,6 +157,8 @@ def solve_milp(
         solve_time=solve_time,
         mip_gap=mip_gap,
         best_bound=best_bound,
+        constraint_violation=constraint_violation,
+        feasibility_tolerance=feasibility_tolerance,
     )
 
 

@@ -17,6 +17,7 @@ from optyx.core.errors import (
     NoObjectiveError,
     UnsupportedOperationError,
 )
+from optyx.solvers.feasibility import compute_bound_violation
 
 if TYPE_CHECKING:
     from optyx.problem import Problem
@@ -30,6 +31,26 @@ class _EarlyTermination(Exception):
         self.x = x
         self.iteration = iteration
         self.message = message
+
+
+def _variable_layout_signature(variables: list[Any]) -> tuple[Any, ...]:
+    """Return the ordered variable identity expected by compiled callables."""
+    return ("variables", tuple((id(variable), variable.name) for variable in variables))
+
+
+def _single_vector_layout_signature(source_vector: Any) -> tuple[Any, ...]:
+    """Return a layout signature without materializing a VectorVariable."""
+    return (
+        "single_vector",
+        id(source_vector),
+        source_vector.name,
+        source_vector.size,
+    )
+
+
+def _objective_signature(problem: Problem) -> tuple[Any, ...]:
+    """Return the objective identity and sense used by derivative caches."""
+    return (id(problem.objective), problem.sense)
 
 
 def _build_single_vector_bounds(source_vector: Any) -> Bounds | None:
@@ -225,9 +246,11 @@ def solve_scipy(
     if use_lazy_single_vector:
         assert source_vector is not None
         n = source_vector.size
+        layout_signature = _single_vector_layout_signature(source_vector)
     else:
         variables = problem.variables
         n = len(variables)
+        layout_signature = _variable_layout_signature(variables)
 
     if n == 0:
         return Solution(
@@ -273,7 +296,12 @@ def solve_scipy(
 
     # Check for cached compiled callables
     cache = problem._solver_cache
-    if cache is None:
+    cache_is_compatible = (
+        cache is not None
+        and cache.get("variable_layout_signature") == layout_signature
+        and cache.get("objective_signature") == _objective_signature(problem)
+    )
+    if not cache_is_compatible:
         if use_lazy_single_vector:
             assert source_vector is not None
             cache = _build_single_vector_solver_cache(problem, source_vector)
@@ -281,7 +309,12 @@ def solve_scipy(
             assert variables is not None
             cache = _build_solver_cache(problem, variables)
         problem._solver_cache = cache
-    elif "scipy_constraints" not in cache and not use_lazy_single_vector:
+    assert cache is not None
+    if (
+        cache_is_compatible
+        and "scipy_constraints" not in cache
+        and not use_lazy_single_vector
+    ):
         # Selective invalidation: objective cache preserved, rebuild constraints only
         assert variables is not None
         _rebuild_constraint_cache(cache, problem, variables)
@@ -319,6 +352,7 @@ def solve_scipy(
     # Build Hessian for methods that support it (not cached - method-dependent)
     hess_fn: Callable[[np.ndarray], np.ndarray] | None = None
     if use_hessian and method in HESSIAN_METHODS:
+        assert variables is not None
         # Check if Hessian is cached for this method
         if "hess_fn" not in cache:
             obj_expr = problem.objective
@@ -340,6 +374,7 @@ def solve_scipy(
         if (
             warm_start
             and problem._last_solution is not None
+            and problem._last_solution_layout_signature == layout_signature
             and len(problem._last_solution) == n
         ):
             x0 = problem._last_solution.copy()
@@ -389,6 +424,18 @@ def solve_scipy(
     constraint_monitors.extend(linear_constraints)
     constraints_arg: Any = constraint_monitors if constraint_monitors else ()
 
+    if method in BOUNDS_METHODS:
+        validation_bounds = bounds
+    elif use_lazy_single_vector:
+        assert source_vector is not None
+        validation_bounds = _build_single_vector_bounds(source_vector)
+    else:
+        assert variables is not None
+        validation_bounds = _build_bounds(variables)
+
+    atol = tol if tol is not None else 1e-6
+    rtol = 1e-6
+
     # Build composite callback for user callback and/or time_limit
     scipy_callback = _build_scipy_callback(
         callback=callback,
@@ -424,6 +471,15 @@ def solve_scipy(
         if problem.sense == "maximize":
             obj_value = -obj_value
         raw_x = np.asarray(et.x, dtype=np.float64).copy()
+        _, max_violation = _assess_candidate(
+            raw_x,
+            objective_value=obj_value,
+            expected_size=n,
+            constraints=constraint_monitors,
+            bounds=validation_bounds,
+            atol=atol,
+            rtol=rtol,
+        )
         if use_lazy_single_vector:
             assert source_vector is not None
             loader = _make_single_vector_loader(source_vector, raw_x)
@@ -437,7 +493,10 @@ def solve_scipy(
             iterations=et.iteration,
             message=et.message,
             solve_time=solve_time,
+            constraint_violation=max_violation,
+            feasibility_tolerance=atol,
             _raw_x=raw_x,
+            _raw_layout_signature=layout_signature,
         )
     except Exception as e:
         warnings.showwarning = old_showwarning
@@ -451,24 +510,26 @@ def solve_scipy(
 
     solve_time = time.perf_counter() - start_time
 
-    # Check if constraints are satisfied (SLSQP can return "optimal" with violated constraints)
-    # Use scaled tolerance: atol + rtol * max(1, |constraint_value|)
-    atol = tol if tol is not None else 1e-6
-    rtol = 1e-6
-    constraints_violated = False
-    max_violation = 0.0
+    raw_x = np.asarray(result.x, dtype=np.float64).copy()
 
-    if result.success and constraint_monitors:
-        max_violation = _compute_constraint_violation(
-            result.x,
-            constraint_monitors,
-            atol=atol,
-            rtol=rtol,
-        )
-        constraints_violated = max_violation > 0.0
+    # Validate every candidate independently of SciPy's success flag. Some
+    # methods return an unsuccessful result with a usable point, while SLSQP
+    # can also report success for a point that violates constraints.
+    candidate_is_finite, max_violation = _assess_candidate(
+        raw_x,
+        objective_value=result.fun,
+        expected_size=n,
+        constraints=constraint_monitors,
+        bounds=validation_bounds,
+        atol=atol,
+        rtol=rtol,
+    )
 
-    # If SLSQP returned "optimal" but constraints are violated, retry with trust-constr
-    if constraints_violated and method == "SLSQP":
+    candidate_is_feasible = candidate_is_finite and max_violation == 0.0
+
+    # Retry every finite, measurably infeasible SLSQP candidate, regardless of
+    # whether SciPy described the termination as successful.
+    if candidate_is_finite and max_violation > 0.0 and method == "SLSQP":
         warnings.warn(
             f"SLSQP returned a solution that violates constraints (max violation: {max_violation:.2e}). "
             "Retrying with trust-constr method for more robust optimization.",
@@ -489,16 +550,58 @@ def solve_scipy(
             **kwargs,
         )
 
+    result_message = str(result.message) if hasattr(result, "message") else ""
+    result_message_lower = result_message.lower()
+    positive_directional = "positive directional derivative" in result_message_lower
+    slsqp_candidate_would_be_optimal = (
+        method == "SLSQP"
+        and candidate_is_feasible
+        and (bool(result.success) or positive_directional)
+    )
+    if slsqp_candidate_would_be_optimal:
+        stationarity_residual = _compute_stationarity_residual(
+            raw_x,
+            gradient=gradient,
+            constraints=constraint_monitors,
+            bounds=validation_bounds,
+            atol=atol,
+            rtol=rtol,
+        )
+        stationarity_tolerance = max(1e-5, 10.0 * atol)
+        if (
+            stationarity_residual is not None
+            and stationarity_residual > stationarity_tolerance
+        ):
+            warnings.warn(
+                "SLSQP returned a feasible but non-stationary solution "
+                f"(stationarity residual: {stationarity_residual:.2e}). "
+                "Retrying with trust-constr method for more robust optimization.",
+                UserWarning,
+                stacklevel=3,
+            )
+            return solve_scipy(
+                problem=problem,
+                method="trust-constr",
+                x0=raw_x,
+                tol=tol,
+                maxiter=maxiter,
+                use_hessian=use_hessian,
+                strict=strict,
+                callback=callback,
+                time_limit=time_limit,
+                **kwargs,
+            )
+
     # Map SciPy result to Solution
-    if result.success and not constraints_violated:
+    if result.success and candidate_is_feasible:
         status = SolverStatus.OPTIMAL
-    elif "maximum" in result.message.lower() and "iteration" in result.message.lower():
+    elif "maximum" in result_message_lower and "iteration" in result_message_lower:
         status = SolverStatus.MAX_ITERATIONS
-    elif "infeasible" in result.message.lower() or constraints_violated:
+    elif "infeasible" in result_message_lower:
         status = SolverStatus.INFEASIBLE
-    elif "positive directional derivative" in result.message.lower():
+    elif positive_directional and candidate_is_feasible:
         # SLSQP reports this when it converged but hit numerical precision limits
-        # The solution is typically still good - treat as optimal
+        # Treat the result as optimal only after independently confirming feasibility.
         status = SolverStatus.OPTIMAL
     else:
         status = SolverStatus.FAILED
@@ -509,11 +612,18 @@ def solve_scipy(
         obj_value = -obj_value
 
     # Build message, noting if problem appears linear
-    message = result.message if hasattr(result, "message") else ""
+    message = result_message
+    if not candidate_is_finite:
+        message = (
+            f"{message} (Candidate contains non-finite objective or variable values)"
+        )
+    elif max_violation > 0.0:
+        message = (
+            f"{message} (Maximum constraint or bound violation: {max_violation:.2e})"
+        )
     if linear_problem_detected:
         message = f"{message} (Note: problem appears linear)"
 
-    raw_x = np.asarray(result.x, dtype=np.float64).copy()
     if use_lazy_single_vector:
         assert source_vector is not None
         loader = _make_single_vector_loader(source_vector, raw_x)
@@ -528,7 +638,10 @@ def solve_scipy(
         iterations=result.nit if hasattr(result, "nit") else None,
         message=message,
         solve_time=solve_time,
+        constraint_violation=max_violation,
+        feasibility_tolerance=atol,
         _raw_x=raw_x,
+        _raw_layout_signature=layout_signature,
     )
 
 
@@ -596,7 +709,10 @@ def _build_solver_cache(problem: Problem, variables: list) -> dict[str, Any]:
     )
     from optyx.core.optimizer import flatten_expression
 
-    cache: dict[str, Any] = {}
+    cache: dict[str, Any] = {
+        "variable_layout_signature": _variable_layout_signature(variables),
+        "objective_signature": _objective_signature(problem),
+    }
 
     # Build objective function
     obj_expr = problem.objective
@@ -702,7 +818,10 @@ def _build_single_vector_solver_cache(
     )
     from optyx.core.optimizer import flatten_expression
 
-    cache: dict[str, Any] = {}
+    cache: dict[str, Any] = {
+        "variable_layout_signature": _single_vector_layout_signature(source_vector),
+        "objective_signature": _objective_signature(problem),
+    }
     variables = ContiguousVectorVariables(source_vector)
 
     obj_expr = problem.objective
@@ -933,6 +1052,138 @@ def _build_matrix_linear_constraints(
     return linear_constraints
 
 
+def _compute_stationarity_residual(
+    x: np.ndarray,
+    *,
+    gradient: Callable[[np.ndarray], np.ndarray],
+    constraints: list[Any],
+    bounds: Bounds | None,
+    atol: float,
+    rtol: float,
+) -> float | None:
+    """Return a conservative first-order residual for an SLSQP candidate.
+
+    The objective gradient is projected onto the span of active constraint and
+    bound normals. A component outside that span proves the KKT stationarity
+    condition cannot hold. Multiplier signs are intentionally not checked, so
+    ambiguous candidates are accepted rather than producing false negatives.
+    """
+    try:
+        grad = np.asarray(gradient(x), dtype=np.float64).reshape(-1)
+        if grad.shape != x.shape or not np.all(np.isfinite(grad)):
+            return float("inf")
+
+        active_tolerance = max(1e-7, 10.0 * atol)
+        normals: list[np.ndarray] = []
+        active_bounds = np.zeros(x.size, dtype=bool)
+
+        for constraint in constraints:
+            if isinstance(constraint, dict):
+                value = float(constraint["fun"](x))
+                is_active = constraint["type"] == "eq" or value <= (
+                    active_tolerance + rtol * max(1.0, abs(value))
+                )
+                if is_active:
+                    jacobian = np.asarray(
+                        constraint["jac"](x), dtype=np.float64
+                    ).reshape(-1)
+                    normals.append(jacobian)
+            elif isinstance(constraint, LinearConstraint):
+                values = np.asarray(constraint.A @ x, dtype=np.float64).reshape(-1)
+                lb = np.broadcast_to(
+                    np.asarray(constraint.lb, dtype=np.float64), values.shape
+                )
+                ub = np.broadcast_to(
+                    np.asarray(constraint.ub, dtype=np.float64), values.shape
+                )
+                lower_tolerance = active_tolerance + rtol * np.maximum(
+                    1.0,
+                    np.maximum(
+                        np.abs(values), np.where(np.isfinite(lb), np.abs(lb), 0.0)
+                    ),
+                )
+                upper_tolerance = active_tolerance + rtol * np.maximum(
+                    1.0,
+                    np.maximum(
+                        np.abs(values), np.where(np.isfinite(ub), np.abs(ub), 0.0)
+                    ),
+                )
+                active_rows = (
+                    np.isfinite(lb) & (np.abs(values - lb) <= lower_tolerance)
+                ) | (np.isfinite(ub) & (np.abs(values - ub) <= upper_tolerance))
+                if np.any(active_rows):
+                    matrix: Any = constraint.A
+                    if hasattr(matrix, "toarray"):
+                        matrix = matrix.toarray()
+                    normals.extend(np.asarray(matrix, dtype=np.float64)[active_rows, :])
+
+        if bounds is not None:
+            lb = np.broadcast_to(np.asarray(bounds.lb, dtype=np.float64), x.shape)
+            ub = np.broadcast_to(np.asarray(bounds.ub, dtype=np.float64), x.shape)
+            lower_tolerance = active_tolerance + rtol * np.maximum(
+                1.0, np.maximum(np.abs(x), np.where(np.isfinite(lb), np.abs(lb), 0.0))
+            )
+            upper_tolerance = active_tolerance + rtol * np.maximum(
+                1.0, np.maximum(np.abs(x), np.where(np.isfinite(ub), np.abs(ub), 0.0))
+            )
+            active_bounds = (np.isfinite(lb) & (np.abs(x - lb) <= lower_tolerance)) | (
+                np.isfinite(ub) & (np.abs(x - ub) <= upper_tolerance)
+            )
+
+        free_variables = ~active_bounds
+        if not np.any(free_variables):
+            return 0.0
+
+        free_gradient = grad[free_variables]
+        usable_normals = []
+        for normal in normals:
+            normal = np.asarray(normal, dtype=np.float64).reshape(-1)
+            if normal.shape != x.shape:
+                continue
+            free_normal = normal[free_variables]
+            norm = float(np.linalg.norm(free_normal))
+            if np.isfinite(norm) and norm > 0.0:
+                usable_normals.append(free_normal / norm)
+
+        if not usable_normals:
+            return float(np.linalg.norm(free_gradient, ord=np.inf))
+
+        normal_matrix = np.vstack(usable_normals)
+        coefficients, *_ = np.linalg.lstsq(normal_matrix.T, free_gradient, rcond=None)
+        residual = free_gradient - normal_matrix.T @ coefficients
+        return float(np.linalg.norm(residual, ord=np.inf))
+    except (KeyError, TypeError, ValueError, np.linalg.LinAlgError):
+        return None
+
+
+def _assess_candidate(
+    x: np.ndarray,
+    *,
+    objective_value: Any,
+    expected_size: int,
+    constraints: list[Any],
+    bounds: Bounds | None,
+    atol: float,
+    rtol: float,
+) -> tuple[bool, float]:
+    """Return candidate finiteness and its maximum feasibility violation."""
+    candidate_is_finite = (
+        x.shape == (expected_size,)
+        and bool(np.all(np.isfinite(x)))
+        and bool(np.isfinite(objective_value))
+    )
+    if not candidate_is_finite:
+        return False, float("inf")
+
+    max_violation = _compute_constraint_violation(x, constraints, atol=atol, rtol=rtol)
+    if bounds is not None:
+        max_violation = max(
+            max_violation,
+            compute_bound_violation(x, bounds.lb, bounds.ub, atol=atol, rtol=rtol),
+        )
+    return True, max_violation
+
+
 def _compute_constraint_violation(
     x: np.ndarray,
     constraints: list[Any],
@@ -945,6 +1196,8 @@ def _compute_constraint_violation(
     for c in constraints:
         if isinstance(c, dict):
             val = float(c["fun"](x))
+            if not np.isfinite(val):
+                return float("inf")
             scaled_tol = atol + rtol * max(1.0, abs(val))
             if c["type"] == "ineq":
                 violation = -val if val < -scaled_tol else 0.0
@@ -952,62 +1205,18 @@ def _compute_constraint_violation(
                 violation = abs(val) if abs(val) > scaled_tol else 0.0
         elif isinstance(c, LinearConstraint):
             values = np.asarray(c.A @ x, dtype=np.float64).reshape(-1)
-            violation = _compute_bound_violation(
+            violation = compute_bound_violation(
                 values, c.lb, c.ub, atol=atol, rtol=rtol
             )
         elif isinstance(c, NonlinearConstraint):
             values = np.asarray(c.fun(x), dtype=np.float64).reshape(-1)
-            violation = _compute_bound_violation(
+            violation = compute_bound_violation(
                 values, c.lb, c.ub, atol=atol, rtol=rtol
             )
         else:
             continue
 
         max_violation = max(max_violation, violation)
-    return max_violation
-
-
-def _compute_bound_violation(
-    values: np.ndarray,
-    lb: Any,
-    ub: Any,
-    *,
-    atol: float = 0.0,
-    rtol: float = 0.0,
-) -> float:
-    """Compute maximum bound-style constraint violation for a vector of values."""
-    vals = np.asarray(values, dtype=np.float64).reshape(-1)
-    lb_arr = np.broadcast_to(np.asarray(lb, dtype=np.float64), vals.shape)
-    ub_arr = np.broadcast_to(np.asarray(ub, dtype=np.float64), vals.shape)
-
-    max_violation = 0.0
-
-    lower_mask = np.isfinite(lb_arr)
-    if np.any(lower_mask):
-        lower_vals = vals[lower_mask]
-        lower_bounds = lb_arr[lower_mask]
-        lower_scale = np.maximum(
-            1.0, np.maximum(np.abs(lower_vals), np.abs(lower_bounds))
-        )
-        lower_tol = atol + rtol * lower_scale
-        lower_violation = lower_bounds - lower_vals
-        lower_violation = lower_violation[lower_violation > lower_tol]
-        if lower_violation.size:
-            max_violation = max(max_violation, float(np.max(lower_violation)))
-
-    upper_mask = np.isfinite(ub_arr)
-    if np.any(upper_mask):
-        upper_vals = vals[upper_mask]
-        upper_bounds = ub_arr[upper_mask]
-        upper_scale = np.maximum(
-            1.0, np.maximum(np.abs(upper_vals), np.abs(upper_bounds))
-        )
-        upper_tol = atol + rtol * upper_scale
-        upper_violation = upper_vals - upper_bounds
-        upper_violation = upper_violation[upper_violation > upper_tol]
-        if upper_violation.size:
-            max_violation = max(max_violation, float(np.max(upper_violation)))
-
     return max_violation
 
 
