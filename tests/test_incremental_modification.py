@@ -396,7 +396,7 @@ class TestWarmStart:
         y = Variable("y")
         z = Variable("z")
         prob = Problem().minimize((x - 1) ** 2).subject_to(y >= 2)
-        prob.solve(method="SLSQP")
+        prob.solve(method="SLSQP", x0=np.array([0.0, 2.0]))
 
         prob.remove_constraint(0)
         prob.subject_to(z >= 7)

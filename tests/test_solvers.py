@@ -567,7 +567,7 @@ class TestPostSolveFeasibilityValidation:
 
         monkeypatch.setattr(scipy_solver, "minimize", fake_minimize)
         x = Variable("x")
-        prob = Problem().minimize(x**2).subject_to(x >= 0)
+        prob = Problem().minimize((x - 1) ** 2).subject_to(x >= 0)
 
         sol = prob.solve(method="SLSQP")
 
@@ -661,6 +661,68 @@ class TestPostSolveFeasibilityValidation:
         assert sol.status == SolverStatus.MAX_ITERATIONS
         assert sol.feasibility_checked
         assert sol.is_feasible is expected_feasible
+
+
+class TestSLSQPStationarityValidation:
+    """SLSQP candidates must satisfy a first-order necessary condition."""
+
+    def test_feasible_nonstationary_candidate_retries_with_trust_constr(self):
+        x = Variable("x")
+        y = Variable("y")
+        prob = Problem().minimize((x - 1) ** 2).subject_to(y >= 2)
+
+        with pytest.warns(UserWarning, match="feasible but non-stationary"):
+            sol = prob.solve(method="SLSQP", warm_start=False)
+
+        assert sol.status == SolverStatus.OPTIMAL
+        assert sol.objective_value == pytest.approx(0.0, abs=1e-8)
+        assert sol["x"] == pytest.approx(1.0, abs=1e-5)
+        assert sol["y"] >= 2.0 - 1e-5
+
+    @pytest.mark.parametrize("active_kind", ["constraint", "bound"])
+    def test_valid_active_optimum_does_not_trigger_fallback(
+        self, monkeypatch, active_kind
+    ):
+        original_minimize = scipy_solver.minimize
+        methods: list[str] = []
+
+        def tracking_minimize(*args, **kwargs):
+            methods.append(kwargs["method"])
+            return original_minimize(*args, **kwargs)
+
+        monkeypatch.setattr(scipy_solver, "minimize", tracking_minimize)
+        if active_kind == "constraint":
+            x = Variable("x")
+            prob = Problem().minimize(x**2).subject_to(x >= 1)
+        else:
+            x = Variable("x", lb=1)
+            prob = Problem().minimize(x)
+
+        sol = prob.solve(method="SLSQP", warm_start=False)
+
+        assert sol.status == SolverStatus.OPTIMAL
+        assert sol["x"] == pytest.approx(1.0, abs=1e-5)
+        assert methods == ["SLSQP"]
+
+    def test_valid_matrix_active_optimum_does_not_trigger_fallback(self, monkeypatch):
+        original_minimize = scipy_solver.minimize
+        methods: list[str] = []
+
+        def tracking_minimize(*args, **kwargs):
+            methods.append(kwargs["method"])
+            return original_minimize(*args, **kwargs)
+
+        monkeypatch.setattr(scipy_solver, "minimize", tracking_minimize)
+        x = VectorVariable("x", 2)
+        prob = Problem().minimize(x.dot(x))
+        prob.subject_to(np.array([[1.0, 1.0]]) @ x >= np.array([2.0]))
+
+        sol = prob.solve(method="SLSQP", warm_start=False)
+
+        assert sol.status == SolverStatus.OPTIMAL
+        assert sol["x[0]"] == pytest.approx(1.0, abs=1e-5)
+        assert sol["x[1]"] == pytest.approx(1.0, abs=1e-5)
+        assert methods == ["SLSQP"]
 
 
 class TestSolverCaching:
