@@ -635,6 +635,33 @@ class TestPostSolveFeasibilityValidation:
         assert sol.status == SolverStatus.FAILED
         assert "Candidate contains non-finite" in sol.message
 
+    @pytest.mark.parametrize(
+        ("candidate", "expected_feasible"),
+        [(1.0, True), (-1.0, False)],
+    )
+    def test_max_iterations_uses_candidate_feasibility(
+        self, monkeypatch, candidate, expected_feasible
+    ):
+        def fake_minimize(**kwargs):
+            x = np.array([candidate])
+            return OptimizeResult(
+                x=x,
+                fun=float(kwargs["fun"](x)),
+                success=False,
+                message="Maximum number of iterations reached",
+                nit=1,
+            )
+
+        monkeypatch.setattr(scipy_solver, "minimize", fake_minimize)
+        x = Variable("x")
+        prob = Problem().minimize(x**2).subject_to(x >= 0)
+
+        sol = prob.solve(method="trust-constr")
+
+        assert sol.status == SolverStatus.MAX_ITERATIONS
+        assert sol.feasibility_checked
+        assert sol.is_feasible is expected_feasible
+
 
 class TestSolverCaching:
     """Tests for solver cache behavior."""

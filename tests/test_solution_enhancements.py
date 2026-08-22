@@ -41,6 +41,8 @@ class TestSolutionToDict:
         assert d["iterations"] == 10
         assert d["message"] == "Optimal"
         assert d["solve_time"] == 0.5
+        assert d["constraint_violation"] is None
+        assert d["feasibility_tolerance"] is None
 
     def test_to_dict_none_fields(self):
         """to_dict handles None fields."""
@@ -114,6 +116,8 @@ class TestSolutionToJson:
             iterations=25,
             message="converged",
             solve_time=1.23,
+            constraint_violation=0.0,
+            feasibility_tolerance=1e-6,
         )
         json_str = sol.to_json()
         restored = Solution.from_json(json_str)
@@ -123,6 +127,9 @@ class TestSolutionToJson:
         assert restored.iterations == sol.iterations
         assert restored.message == sol.message
         assert restored.solve_time == sol.solve_time
+        assert restored.constraint_violation == 0.0
+        assert restored.feasibility_tolerance == 1e-6
+        assert restored.is_feasible
 
 
 class TestSolutionFromJson:
@@ -167,6 +174,8 @@ class TestSolutionFromJson:
         assert sol.iterations is None
         assert sol.message == ""
         assert sol.solve_time is None
+        assert not sol.feasibility_checked
+        assert not sol.is_feasible
 
     def test_from_json_all_statuses(self):
         """from_json handles all SolverStatus values."""
@@ -203,12 +212,15 @@ class TestSolutionFromJson:
         prob.minimize(x)
         prob.subject_to(x >= 3)
         sol = prob.solve()
+        assert sol.feasibility_checked
+        assert sol.is_feasible
 
         json_str = sol.to_json()
         restored = Solution.from_json(json_str)
         assert restored.status == SolverStatus.OPTIMAL
         assert abs(restored.objective_value - 3.0) < 1e-6
         assert abs(restored.values["x"] - 3.0) < 1e-6
+        assert restored.is_feasible
 
 
 # ============================================================
@@ -322,15 +334,25 @@ class TestSolverStatusTerminated:
         assert hasattr(SolverStatus, "TERMINATED")
         assert SolverStatus.TERMINATED.value == "terminated"
 
-    def test_terminated_is_feasible(self):
-        """TERMINATED counts as feasible in is_feasible."""
+    def test_terminated_without_feasibility_evidence_is_not_feasible(self):
+        """Termination status alone does not prove feasibility."""
         sol = Solution(
             status=SolverStatus.TERMINATED,
             objective_value=10.0,
             values={"x": 5.0},
         )
-        assert sol.is_feasible
+        assert not sol.feasibility_checked
+        assert not sol.is_feasible
         assert not sol.is_optimal
+
+    def test_terminated_with_feasibility_evidence_is_feasible(self):
+        sol = Solution(
+            status=SolverStatus.TERMINATED,
+            constraint_violation=0.0,
+            feasibility_tolerance=1e-6,
+        )
+        assert sol.feasibility_checked
+        assert sol.is_feasible
 
     def test_terminated_serialization(self):
         """TERMINATED roundtrips through JSON."""

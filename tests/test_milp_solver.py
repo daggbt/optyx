@@ -28,6 +28,8 @@ class TestMILPBinaryKnapsack:
         sol = prob.solve()
 
         assert sol.is_optimal
+        assert sol.feasibility_checked
+        assert sol.is_feasible
         # Optimal: take x2 + x3 (weight=7, value=10) or x1 (weight=5, value=10)
         # Both give value=10; x1 alone also works
         assert abs(sol.objective_value - 10) < 1e-6

@@ -219,13 +219,32 @@ class TestEarlyTermination:
         assert sol.solve_time > 0
 
     def test_terminated_is_feasible(self, simple_nlp):
-        """TERMINATED status should count as feasible."""
+        """A terminated candidate is feasible only when validation confirms it."""
         sol = simple_nlp.solve(
             method="SLSQP",
             callback=lambda p: True,
         )
         assert sol.status == SolverStatus.TERMINATED
+        assert sol.feasibility_checked
         assert sol.is_feasible
+
+    def test_terminated_infeasible_candidate_is_not_feasible(self, monkeypatch):
+        """Callback termination does not imply that its candidate is feasible."""
+        from optyx.solvers import scipy_solver
+
+        def fake_minimize(**kwargs):
+            kwargs["callback"](np.array([0.0]))
+            raise AssertionError("callback should terminate the solve")
+
+        monkeypatch.setattr(scipy_solver, "minimize", fake_minimize)
+        x = Variable("x")
+        prob = Problem().minimize(x**2).subject_to(x >= 1)
+
+        sol = prob.solve(method="SLSQP", callback=lambda progress: True)
+
+        assert sol.status == SolverStatus.TERMINATED
+        assert sol.constraint_violation == pytest.approx(1.0)
+        assert not sol.is_feasible
 
     def test_callback_returning_none_continues(self, simple_nlp):
         """Returning None from callback should continue solving."""

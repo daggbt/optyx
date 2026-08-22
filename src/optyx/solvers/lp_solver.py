@@ -10,12 +10,17 @@ import time
 import warnings
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 import scipy
 
 from optyx.core.errors import (
     NoObjectiveError,
     NonLinearError,
     SolverError,
+)
+from optyx.solvers.feasibility import (
+    DEFAULT_FEASIBILITY_ATOL,
+    compute_linear_problem_violation,
 )
 
 if TYPE_CHECKING:
@@ -225,6 +230,25 @@ def solve_lp(
     elif status == SolverStatus.INFEASIBLE:
         message = f"{message} No feasible solution exists."
 
+    lb = np.array(
+        [bound[0] if bound[0] is not None else -np.inf for bound in fresh_bounds]
+    )
+    ub = np.array(
+        [bound[1] if bound[1] is not None else np.inf for bound in fresh_bounds]
+    )
+    constraint_violation = compute_linear_problem_violation(
+        result.x,
+        A_ub=lp_data.A_ub,
+        b_ub=lp_data.b_ub,
+        A_eq=lp_data.A_eq,
+        b_eq=lp_data.b_eq,
+        lb=lb,
+        ub=ub,
+    )
+    feasibility_tolerance = (
+        DEFAULT_FEASIBILITY_ATOL if constraint_violation is not None else None
+    )
+
     return Solution(
         status=status,
         objective_value=objective_value,
@@ -232,4 +256,6 @@ def solve_lp(
         iterations=result.nit if hasattr(result, "nit") else None,
         message=message,
         solve_time=solve_time,
+        constraint_violation=constraint_violation,
+        feasibility_tolerance=feasibility_tolerance,
     )
