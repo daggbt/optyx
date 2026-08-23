@@ -94,7 +94,13 @@ def _try_get_single_vector_source(expr: "Expression") -> "VectorVariable | None"
         VectorExpressionSum,
         DotProduct,
     )
-    from optyx.core.expressions import BinaryOp, UnaryOp, Constant
+    from optyx.core.expressions import (
+        BinaryOp,
+        UnaryOp,
+        Constant,
+        NarySum,
+        NaryProduct,
+    )
     from optyx.core.parameters import Parameter
 
     # Iterative traversal using explicit stack
@@ -189,6 +195,16 @@ def _try_get_single_vector_source(expr: "Expression") -> "VectorVariable | None"
         # UnaryOp - push operand to stack
         if isinstance(current, UnaryOp):
             stack.append(current.operand)
+            continue
+
+        # Flattened associative nodes retain the same vector source as their
+        # children and should not force the slower general variable path.
+        if isinstance(current, NarySum):
+            stack.extend(current.terms)
+            continue
+
+        if isinstance(current, NaryProduct):
+            stack.extend(current.factors)
             continue
 
         # Any other type (e.g., scalar Variable) - not a vector source

@@ -21,15 +21,19 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from optyx.analysis import (
+    _get_scalar_constant_value,
+    compute_degree,
     is_linear,
     extract_linear_coefficient,
     extract_constant_term,
 )
 from optyx.core.errors import InvalidOperationError
+from optyx.core.parameters import Parameter
 from optyx.core.expressions import (
     BinaryOp,
     Constant,
     Expression,
+    NaryProduct,
     NarySum,
     UnaryOp,
     Variable,
@@ -40,101 +44,8 @@ if TYPE_CHECKING:
 
 
 def _compute_poly_degree(expr: Expression) -> int | None:
-    """Compute the true polynomial degree of an expression.
-
-    Unlike analysis.compute_degree() which treats var*var as non-polynomial
-    (optimized for LP detection), this correctly returns degree 2 for
-    quadratic expressions like x*y or x**2.
-
-    Returns:
-        Integer degree if polynomial, None if non-polynomial.
-    """
-    from optyx.core.matrices import QuadraticForm
-    from optyx.core.vectors import (
-        DotProduct,
-        LinearCombination,
-        VectorSum,
-        VectorPowerSum,
-        VectorUnarySum,
-        ElementwisePower,
-        ElementwiseUnary,
-    )
-    import numbers
-
-    if isinstance(expr, Constant):
-        return 0
-    if isinstance(expr, Variable):
-        return 1
-
-    # Vector expression types
-    if isinstance(expr, (LinearCombination, VectorSum)):
-        return 1
-    if isinstance(expr, (DotProduct, QuadraticForm)):
-        return 2
-    if isinstance(expr, VectorPowerSum):
-        p = expr.power
-        if isinstance(p, (int, float)) and float(p).is_integer() and p >= 0:
-            return int(p)
-        return None
-    if isinstance(expr, (VectorUnarySum, ElementwiseUnary)):
-        return None
-    if isinstance(expr, ElementwisePower):
-        p = expr.power
-        if isinstance(p, (int, float)) and float(p).is_integer() and p >= 0:
-            return int(p)
-        return None
-
-    if isinstance(expr, BinaryOp):
-        op = expr.op
-        if op == "**":
-            if not isinstance(expr.right, Constant):
-                return None
-            exp_val = expr.right.value
-            if not isinstance(exp_val, numbers.Number):
-                return None
-            exp_float = float(exp_val)
-            if not exp_float.is_integer() or exp_float < 0:
-                return None
-            left_deg = _compute_poly_degree(expr.left)
-            if left_deg is None:
-                return None
-            return left_deg * int(exp_float)
-        if op == "/":
-            if not isinstance(expr.right, Constant):
-                return None
-            return _compute_poly_degree(expr.left)
-        if op in ("+", "-"):
-            ld = _compute_poly_degree(expr.left)
-            if ld is None:
-                return None
-            rd = _compute_poly_degree(expr.right)
-            if rd is None:
-                return None
-            return max(ld, rd)
-        if op == "*":
-            ld = _compute_poly_degree(expr.left)
-            if ld is None:
-                return None
-            rd = _compute_poly_degree(expr.right)
-            if rd is None:
-                return None
-            return ld + rd
-
-    if isinstance(expr, UnaryOp):
-        if expr.op == "neg":
-            return _compute_poly_degree(expr.operand)
-        return None
-
-    if isinstance(expr, NarySum):
-        max_d = 0
-        for t in expr.terms:
-            d = _compute_poly_degree(t)
-            if d is None:
-                return None
-            max_d = max(max_d, d)
-        return max_d
-
-    return None
+    """Return polynomial degree using the canonical analysis implementation."""
+    return compute_degree(expr)
 
 
 def _is_at_most_quadratic(expr: Expression) -> bool:
@@ -465,8 +376,8 @@ def _collect_quadratic_coefficients(
         VectorPowerSum,
     )
 
-    # Leaf nodes — no quadratic contribution
-    if isinstance(expr, (Constant, Variable)):
+    # Constant leaves and variables have no quadratic contribution.
+    if isinstance(expr, (Constant, Parameter, Variable)):
         return
 
     # QuadraticForm: x' Q x
@@ -519,14 +430,16 @@ def _collect_quadratic_coefficients(
             return
         if expr.op == "*":
             # scalar * quadratic_expr or quadratic_expr * scalar
-            if isinstance(expr.left, Constant):
+            left_value = _get_scalar_constant_value(expr.left)
+            if left_value is not None:
                 _collect_quadratic_coefficients(
-                    expr.right, var_index, Q, multiplier * float(expr.left.value)
+                    expr.right, var_index, Q, multiplier * left_value
                 )
                 return
-            if isinstance(expr.right, Constant):
+            right_value = _get_scalar_constant_value(expr.right)
+            if right_value is not None:
                 _collect_quadratic_coefficients(
-                    expr.left, var_index, Q, multiplier * float(expr.right.value)
+                    expr.left, var_index, Q, multiplier * right_value
                 )
                 return
             # var * var — quadratic term
@@ -555,9 +468,10 @@ def _collect_quadratic_coefficients(
                         Q[li, li] += multiplier * lc * lc
             return
         if expr.op == "/":
-            if isinstance(expr.right, Constant):
+            right_value = _get_scalar_constant_value(expr.right)
+            if right_value is not None:
                 _collect_quadratic_coefficients(
-                    expr.left, var_index, Q, multiplier / float(expr.right.value)
+                    expr.left, var_index, Q, multiplier / right_value
                 )
             return
 
@@ -573,6 +487,37 @@ def _collect_quadratic_coefficients(
             _collect_quadratic_coefficients(term, var_index, Q, multiplier)
         return
 
+    if isinstance(expr, NaryProduct):
+        product_multiplier = multiplier
+        variable_factors: list[Expression] = []
+        for factor in expr.factors:
+            value = _get_scalar_constant_value(factor)
+            if value is not None:
+                product_multiplier *= value
+            else:
+                variable_factors.append(factor)
+
+        if len(variable_factors) == 1:
+            _collect_quadratic_coefficients(
+                variable_factors[0], var_index, Q, product_multiplier
+            )
+        elif len(variable_factors) == 2:
+            left, right = variable_factors
+            left_vars = left.get_variables()
+            right_vars = right.get_variables()
+            if len(left_vars) == 1 and len(right_vars) == 1:
+                left_var = next(iter(left_vars))
+                right_var = next(iter(right_vars))
+                left_idx = var_index.get(left_var.name)
+                right_idx = var_index.get(right_var.name)
+                if left_idx is not None and right_idx is not None:
+                    left_coeff = _get_scalar_linear_coeff(left, left_var)
+                    right_coeff = _get_scalar_linear_coeff(right, right_var)
+                    Q[left_idx, right_idx] += (
+                        product_multiplier * left_coeff * right_coeff
+                    )
+        return
+
 
 def _get_scalar_linear_coeff(expr: Expression, var: Variable) -> float:
     """Get the linear coefficient of a single-variable linear expression.
@@ -583,19 +528,25 @@ def _get_scalar_linear_coeff(expr: Expression, var: Variable) -> float:
         return 1.0
     if isinstance(expr, BinaryOp):
         if expr.op == "*":
-            if isinstance(expr.left, Constant):
-                return float(expr.left.value) * _get_scalar_linear_coeff(
-                    expr.right, var
-                )
-            if isinstance(expr.right, Constant):
-                return _get_scalar_linear_coeff(expr.left, var) * float(
-                    expr.right.value
-                )
+            left_value = _get_scalar_constant_value(expr.left)
+            if left_value is not None:
+                return left_value * _get_scalar_linear_coeff(expr.right, var)
+            right_value = _get_scalar_constant_value(expr.right)
+            if right_value is not None:
+                return _get_scalar_linear_coeff(expr.left, var) * right_value
         if expr.op == "/":
-            if isinstance(expr.right, Constant):
-                return _get_scalar_linear_coeff(expr.left, var) / float(
-                    expr.right.value
-                )
+            right_value = _get_scalar_constant_value(expr.right)
+            if right_value is not None:
+                return _get_scalar_linear_coeff(expr.left, var) / right_value
+    if isinstance(expr, NaryProduct):
+        coefficient = 1.0
+        for factor in expr.factors:
+            value = _get_scalar_constant_value(factor)
+            if value is not None:
+                coefficient *= value
+            else:
+                coefficient *= _get_scalar_linear_coeff(factor, var)
+        return coefficient
     if isinstance(expr, UnaryOp) and expr.op == "neg":
         return -_get_scalar_linear_coeff(expr.operand, var)
     return 1.0
@@ -631,8 +582,8 @@ def _collect_linear_from_quadratic(
         VectorPowerSum,
     )
 
-    # Constant — no linear contribution
-    if isinstance(expr, Constant):
+    # Constant leaves have no linear contribution.
+    if isinstance(expr, (Constant, Parameter)):
         return
 
     # Variable — linear contribution
@@ -675,22 +626,25 @@ def _collect_linear_from_quadratic(
             _collect_linear_from_quadratic(expr.right, var_index, result, -multiplier)
             return
         if expr.op == "*":
-            if isinstance(expr.left, Constant):
+            left_value = _get_scalar_constant_value(expr.left)
+            if left_value is not None:
                 _collect_linear_from_quadratic(
-                    expr.right, var_index, result, multiplier * float(expr.left.value)
+                    expr.right, var_index, result, multiplier * left_value
                 )
                 return
-            if isinstance(expr.right, Constant):
+            right_value = _get_scalar_constant_value(expr.right)
+            if right_value is not None:
                 _collect_linear_from_quadratic(
-                    expr.left, var_index, result, multiplier * float(expr.right.value)
+                    expr.left, var_index, result, multiplier * right_value
                 )
                 return
             # var * var — quadratic, no linear contribution
             return
         if expr.op == "/":
-            if isinstance(expr.right, Constant):
+            right_value = _get_scalar_constant_value(expr.right)
+            if right_value is not None:
                 _collect_linear_from_quadratic(
-                    expr.left, var_index, result, multiplier / float(expr.right.value)
+                    expr.left, var_index, result, multiplier / right_value
                 )
             return
         if expr.op == "**":
@@ -711,11 +665,28 @@ def _collect_linear_from_quadratic(
             _collect_linear_from_quadratic(term, var_index, result, multiplier)
         return
 
+    if isinstance(expr, NaryProduct):
+        product_multiplier = multiplier
+        variable_factors: list[Expression] = []
+        for factor in expr.factors:
+            value = _get_scalar_constant_value(factor)
+            if value is not None:
+                product_multiplier *= value
+            else:
+                variable_factors.append(factor)
+        if len(variable_factors) == 1:
+            _collect_linear_from_quadratic(
+                variable_factors[0], var_index, result, product_multiplier
+            )
+        return
+
 
 def _extract_constant_from_quadratic(expr: Expression) -> float:
     """Extract constant term from a quadratic expression."""
-    if isinstance(expr, Constant):
-        return float(expr.value)
+    if isinstance(expr, (Constant, Parameter)):
+        constant_value = _get_scalar_constant_value(expr)
+        assert constant_value is not None
+        return constant_value
     if isinstance(expr, Variable):
         return 0.0
     if isinstance(expr, BinaryOp):
@@ -728,20 +699,13 @@ def _extract_constant_from_quadratic(expr: Expression) -> float:
                 expr.left
             ) - _extract_constant_from_quadratic(expr.right)
         if expr.op == "*":
-            if isinstance(expr.left, Constant):
-                return float(expr.left.value) * _extract_constant_from_quadratic(
-                    expr.right
-                )
-            if isinstance(expr.right, Constant):
-                return _extract_constant_from_quadratic(expr.left) * float(
-                    expr.right.value
-                )
-            return 0.0
+            return _extract_constant_from_quadratic(
+                expr.left
+            ) * _extract_constant_from_quadratic(expr.right)
         if expr.op == "/":
-            if isinstance(expr.right, Constant):
-                return _extract_constant_from_quadratic(expr.left) / float(
-                    expr.right.value
-                )
+            right_value = _get_scalar_constant_value(expr.right)
+            if right_value is not None:
+                return _extract_constant_from_quadratic(expr.left) / right_value
             return 0.0
         if expr.op == "**":
             if isinstance(expr.right, Constant) and float(expr.right.value) == 0.0:
@@ -753,6 +717,11 @@ def _extract_constant_from_quadratic(expr: Expression) -> float:
         return 0.0
     if isinstance(expr, NarySum):
         return sum(_extract_constant_from_quadratic(t) for t in expr.terms)
+    if isinstance(expr, NaryProduct):
+        result = 1.0
+        for factor in expr.factors:
+            result *= _extract_constant_from_quadratic(factor)
+        return result
     return 0.0
 
 

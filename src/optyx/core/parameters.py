@@ -59,7 +59,7 @@ class Parameter(Expression):
         >>> sol2 = prob.solve()  # Uses cached structure
     """
 
-    __slots__ = ("name", "_value")
+    __slots__ = ("name", "_value", "_version")
 
     def __init__(self, name: str, value: float | int | ArrayLike = 0.0) -> None:
         """Create a new parameter.
@@ -68,10 +68,13 @@ class Parameter(Expression):
             name: Unique identifier for this parameter.
             value: Initial value (default: 0.0).
         """
+        self._hash = None
+        self._degree = None
         self.name = name
         self._value: float | NDArray[np.floating] = (
             np.asarray(value) if not isinstance(value, (int, float)) else float(value)
         )
+        self._version = 0
 
     @property
     def value(self) -> float | NDArray[np.floating]:
@@ -120,6 +123,7 @@ class Parameter(Expression):
                 )
 
         self._value = new_value
+        self._version += 1
 
     def evaluate(
         self, values: Mapping[str, ArrayLike | float]
