@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from optyx import Variable, Constant, sin, cos, exp, log, sqrt, abs_, tanh
+from optyx.core.errors import BoundsError
 
 
 class TestConstant:
@@ -39,6 +40,38 @@ class TestVariable:
         x = Variable("x", lb=0, ub=10)
         assert x.lb == 0
         assert x.ub == 10
+
+    def test_invalid_bound_order_raises(self):
+        with pytest.raises(BoundsError, match="Lower bound cannot exceed"):
+            Variable("x", lb=2, ub=1)
+
+    @pytest.mark.parametrize("bound", ["lb", "ub"])
+    def test_nan_bound_raises(self, bound):
+        with pytest.raises(BoundsError, match="cannot be NaN"):
+            Variable("x", **{bound: np.nan})
+
+    def test_infinite_and_open_bounds_remain_valid(self):
+        x = Variable("x", lb=-np.inf, ub=np.inf)
+        y = Variable("y", lb=None, ub=np.inf)
+
+        assert x.lb == -np.inf
+        assert x.ub == np.inf
+        assert y.lb is None
+
+    def test_failed_bound_mutations_are_atomic(self):
+        x = Variable("x", lb=0, ub=10)
+
+        with pytest.raises(BoundsError):
+            x.lb = 11
+        assert (x.lb, x.ub) == (0, 10)
+
+        with pytest.raises(BoundsError):
+            x.ub = -1
+        assert (x.lb, x.ub) == (0, 10)
+
+        with pytest.raises(BoundsError):
+            x.lb = np.nan
+        assert (x.lb, x.ub) == (0, 10)
 
     def test_binary_variable(self):
         b = Variable("b", domain="binary")

@@ -32,6 +32,16 @@ if TYPE_CHECKING:
 MIN_SCIPY_VERSION = "1.6.0"
 
 
+def _lp_cache_is_current(problem: Problem) -> bool:
+    """Return whether cached LP numerics match all mutable model inputs."""
+    return bool(
+        problem._lp_cache is not None
+        and problem._lp_cache.parameters_are_current()
+        and problem._lp_cache.objective_coefficient_signature
+        == problem._objective_coefficient_signature()
+    )
+
+
 def _check_scipy_version() -> bool:
     """Check if SciPy version supports HiGHS solver."""
     from packaging import version
@@ -111,10 +121,8 @@ def solve_lp(
         from optyx.solvers.milp_solver import solve_milp
 
         # Extract LP coefficients (use cache if available)
-        if (
-            problem._lp_cache is not None
-            and problem._lp_cache.parameters_are_current()
-        ):
+        if _lp_cache_is_current(problem):
+            assert problem._lp_cache is not None
             lp_data = problem._lp_cache
         else:
             extractor = LinearProgramExtractor()
@@ -145,7 +153,8 @@ def solve_lp(
         method = "highs-ds"
 
     # Extract LP coefficients (use cache if available)
-    if problem._lp_cache is not None and problem._lp_cache.parameters_are_current():
+    if _lp_cache_is_current(problem):
+        assert problem._lp_cache is not None
         lp_data = problem._lp_cache
     else:
         extractor = LinearProgramExtractor()

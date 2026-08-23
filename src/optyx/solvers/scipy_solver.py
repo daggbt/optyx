@@ -49,8 +49,12 @@ def _single_vector_layout_signature(source_vector: Any) -> tuple[Any, ...]:
 
 
 def _objective_signature(problem: Problem) -> tuple[Any, ...]:
-    """Return the objective identity and sense used by derivative caches."""
-    return (id(problem.objective), problem.sense)
+    """Return all mutable objective inputs used by derivative caches."""
+    return (
+        id(problem.objective),
+        problem.sense,
+        problem._objective_coefficient_signature(),
+    )
 
 
 def _build_single_vector_bounds(source_vector: Any) -> Bounds | None:

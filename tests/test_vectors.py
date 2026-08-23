@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from optyx.core.errors import (
+    BoundsError,
     DimensionMismatchError,
     EmptyContainerError,
     InvalidSizeError,
@@ -86,6 +87,46 @@ class TestVectorVariableBounds:
         assert x[0].lb is None
         assert x[0].ub is None
 
+    def test_invalid_scalar_bound_order_raises_without_materializing(self):
+        with pytest.raises(BoundsError, match=r"x\[0\]"):
+            VectorVariable("x", 100_000, lb=10, ub=0)
+
+    def test_invalid_array_bounds_report_index(self):
+        lb = np.array([0.0, 3.0, 0.0])
+        ub = np.array([1.0, 2.0, 1.0])
+
+        with pytest.raises(BoundsError, match=r"x\[1\]"):
+            VectorVariable("x", 3, lb=lb, ub=ub)
+
+    def test_mixed_scalar_array_bounds_are_validated_vectorially(self):
+        with pytest.raises(BoundsError, match=r"x\[2\]"):
+            VectorVariable("x", 3, lb=0, ub=[1, 2, -1])
+
+    def test_nan_array_bound_reports_index(self):
+        with pytest.raises(BoundsError, match=r"x\[1\]"):
+            VectorVariable("x", 3, lb=[0, np.nan, 0], ub=1)
+
+    def test_valid_large_array_bounds_remain_lazy(self):
+        size = 100_000
+        x = VectorVariable(
+            "x",
+            size,
+            lb=np.zeros(size),
+            ub=np.ones(size),
+        )
+
+        assert x._variable_cache is None
+
+    def test_failed_element_mutation_is_atomic(self):
+        x = VectorVariable("x", 3, lb=0, ub=10)
+        element = x[1]
+
+        with pytest.raises(BoundsError):
+            element.lb = 11
+
+        assert (element.lb, element.ub) == (0, 10)
+        assert not x._has_bound_overrides
+
 
 class TestVectorVariableDomain:
     """Tests for domain propagation."""
@@ -110,6 +151,21 @@ class TestVectorVariableDomain:
             assert v.domain == "binary"
             assert v.lb == 0.0
             assert v.ub == 1.0
+
+    def test_invalid_domain_raises_before_lazy_creation(self):
+        with pytest.raises(ValueError, match="Unknown domain"):
+            VectorVariable("x", 100_000, domain="bogus")  # type: ignore[arg-type]
+
+    def test_binary_bounds_are_validated_before_normalization(self):
+        with pytest.raises(ValueError, match="Binary variable must have lb=0"):
+            VectorVariable("x", 3, lb=[0, 1, 0], domain="binary")
+
+    def test_binary_metadata_uses_implicit_bounds_without_materialization(self):
+        x = VectorVariable("x", 100_000, domain="binary")
+
+        assert x.lb == 0.0
+        assert x.ub == 1.0
+        assert x._variable_cache is None
 
 
 class TestVectorVariableIndexing:
