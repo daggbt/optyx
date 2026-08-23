@@ -699,6 +699,117 @@ def get_all_variables(expr: Expression) -> set[Variable]:
     return _get_variables_iterative(expr)
 
 
+def get_all_variables_by_identity(expr: Expression) -> list[Variable]:
+    """Extract variables without applying name-based equality.
+
+    ``Variable`` deliberately compares and hashes by name.  Problem assembly
+    needs a separate identity-aware view so it can distinguish a reused
+    variable from two declarations that happen to share a name.
+    """
+    from optyx.core.matrices import MatrixExpression, MatrixVariable
+    from optyx.core.vectors import VectorBinaryOp, VectorExpression, VectorVariable
+
+    variables: list[Variable] = []
+    stack: list[object] = [expr]
+    seen_nodes: set[int] = set()
+    seen_variables: set[int] = set()
+
+    while stack:
+        node = stack.pop()
+
+        if isinstance(node, Variable):
+            node_id = id(node)
+            if node_id not in seen_variables:
+                seen_variables.add(node_id)
+                variables.append(node)
+            continue
+
+        if isinstance(node, Constant):
+            continue
+
+        node_id = id(node)
+        if node_id in seen_nodes:
+            continue
+        seen_nodes.add(node_id)
+
+        if isinstance(node, VectorVariable):
+            stack.extend(reversed(node.get_variables()))
+            continue
+
+        if isinstance(node, MatrixVariable):
+            stack.extend(reversed(node.get_variables()))
+            continue
+
+        if isinstance(node, MatrixExpression):
+            stack.extend(reversed(node.flatten()))
+            continue
+
+        if isinstance(node, VectorBinaryOp):
+            if isinstance(node.right, (VectorVariable, VectorExpression)):
+                stack.append(node.right)
+            stack.append(node.left)
+            continue
+
+        if isinstance(node, VectorExpression):
+            stack.extend(reversed(node._expressions))
+            continue
+
+        if isinstance(node, BinaryOp):
+            stack.append(node.right)
+            stack.append(node.left)
+            continue
+
+        if isinstance(node, UnaryOp):
+            stack.append(node.operand)
+            continue
+
+        if isinstance(node, NarySum):
+            stack.extend(reversed(node.terms))
+            continue
+
+        if isinstance(node, NaryProduct):
+            stack.extend(reversed(node.factors))
+            continue
+
+        # Specialized scalar nodes keep their semantic operands in slots.
+        # Walk only expression/container values and ignore numeric caches.
+        children: list[object] = []
+        for cls in type(node).__mro__:
+            slots = cls.__dict__.get("__slots__", ())
+            if isinstance(slots, str):
+                slots = (slots,)
+            for slot in slots:
+                if slot in {"_hash", "_degree", "_materialized"}:
+                    continue
+                try:
+                    value = getattr(node, slot)
+                except AttributeError:
+                    continue
+                if isinstance(
+                    value,
+                    (Expression, VectorVariable, VectorExpression, MatrixVariable, MatrixExpression),
+                ):
+                    children.append(value)
+                elif isinstance(value, (list, tuple)):
+                    children.extend(
+                        item
+                        for item in value
+                        if isinstance(
+                            item,
+                            (
+                                Expression,
+                                VectorVariable,
+                                VectorExpression,
+                                MatrixVariable,
+                                MatrixExpression,
+                            ),
+                        )
+                    )
+        stack.extend(reversed(children))
+
+    return variables
+
+
 def _get_variables_iterative(expr: Expression) -> set[Variable]:
     """Extract variables from expression using explicit stack.
 

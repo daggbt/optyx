@@ -178,6 +178,27 @@ class BoundsError(OptyxError, ValueError):
         super().__init__(msg)
 
 
+class VariableConflictError(OptyxError, ValueError):
+    """Raised when separate variables share a name but disagree on metadata."""
+
+    def __init__(
+        self,
+        variable_name: str,
+        conflicts: dict[str, tuple[Any, Any]],
+    ) -> None:
+        self.variable_name = variable_name
+        self.conflicts = conflicts
+
+        details = ", ".join(
+            f"{field} ({first!r} != {second!r})"
+            for field, (first, second) in conflicts.items()
+        )
+        super().__init__(
+            f"Conflicting declarations for variable '{variable_name}': {details}. "
+            "Reuse the same Variable object or use matching metadata."
+        )
+
+
 # Capture Python's builtin IndexError before we shadow it
 _BuiltinIndexError = IndexError
 
@@ -916,6 +937,7 @@ __all__ = [
     "InvalidExpressionError",
     # Variable errors
     "BoundsError",
+    "VariableConflictError",
     "IndexError",
     "EmptyContainerError",
     "MissingValueError",

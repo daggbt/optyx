@@ -21,6 +21,7 @@ from optyx.core.errors import (
     ConstraintError,
     NoObjectiveError,
     UnsupportedOperationError,
+    VariableConflictError,
 )
 from optyx.core.expressions import _compute_name_sort_key
 
@@ -243,6 +244,7 @@ class Problem:
         self._constraints: list[Constraint] = []
         self._matrix_constraints: list[_MatrixConstraint] = []
         self._variables: list[Variable] | None = None  # Cached
+        self._variable_aliases: tuple[tuple[Variable, ...], ...] | None = None
         # Solver cache for compiled callables (reused across solve() calls)
         self._solver_cache: dict | None = None
         # LP data cache (reused across solve() calls for LP problems)
@@ -256,6 +258,7 @@ class Problem:
     def _invalidate_caches(self) -> None:
         """Invalidate all cached data when problem is modified."""
         self._variables = None
+        self._variable_aliases = None
         self._solver_cache = None
         self._lp_cache = None
         self._is_linear_cache = None
@@ -267,6 +270,7 @@ class Problem:
         so they don't need to be recompiled when only constraints change.
         """
         self._variables = None
+        self._variable_aliases = None
         self._lp_cache = None
         self._is_linear_cache = None
         # Remove only constraint keys from solver cache, keeping obj_fn/grad_fn/hess_fn
@@ -586,6 +590,70 @@ class Problem:
 
         return source_vector
 
+    @staticmethod
+    def _variable_metadata_conflicts(
+        first: Variable,
+        second: Variable,
+    ) -> dict[str, tuple[Any, Any]]:
+        """Return metadata fields that prevent two declarations being aliases."""
+        conflicts: dict[str, tuple[Any, Any]] = {}
+        for field in ("lb", "ub", "domain", "obj"):
+            first_value = getattr(first, field)
+            second_value = getattr(second, field)
+            if first_value != second_value:
+                conflicts[field] = (first_value, second_value)
+        return conflicts
+
+    @classmethod
+    def _validate_alias_groups(
+        cls,
+        groups: Iterable[tuple[Variable, ...]],
+    ) -> None:
+        """Ensure same-name variable objects still have compatible metadata."""
+        for group in groups:
+            first = group[0]
+            for alias in group[1:]:
+                conflicts = cls._variable_metadata_conflicts(first, alias)
+                if conflicts:
+                    raise VariableConflictError(first.name, conflicts)
+
+    @staticmethod
+    def _validate_vector_source_aliases(source_vector: VectorVariable) -> None:
+        """Validate a lazy single-vector layout without materializing variables."""
+        if source_vector._variable_cache is None:
+            return
+
+        metadata_by_name: dict[
+            str,
+            tuple[tuple[float | None, float | None], str, float],
+        ] = {}
+        for name, bounds, domain, obj in source_vector._iter_lp_metadata():
+            metadata = (bounds, domain, obj)
+            existing = metadata_by_name.get(name)
+            if existing is None:
+                metadata_by_name[name] = metadata
+                continue
+            if existing != metadata:
+                fields = ("lb", "ub", "domain", "obj")
+                first_values = (*existing[0], existing[1], existing[2])
+                second_values = (*bounds, domain, obj)
+                conflicts = {
+                    field: (first, second)
+                    for field, first, second in zip(
+                        fields, first_values, second_values
+                    )
+                    if first != second
+                }
+                raise VariableConflictError(name, conflicts)
+
+    def _validate_variable_declarations(self) -> None:
+        """Validate name aliases before any solver data is constructed."""
+        source_vector = self._single_vector_source()
+        if source_vector is not None:
+            self._validate_vector_source_aliases(source_vector)
+            return
+        _ = self.variables
+
     @property
     def variables(self) -> list[Variable]:
         """All decision variables in the problem.
@@ -601,29 +669,51 @@ class Problem:
               guaranteed to be deterministic across runs.
         """
         if self._variables is not None:
+            if self._variable_aliases:
+                self._validate_alias_groups(self._variable_aliases)
             return self._variables
 
-        from optyx.core.expressions import get_all_variables
+        from optyx.core.expressions import get_all_variables_by_identity
 
         source_vector = self._single_vector_source()
         if source_vector is not None:
             # All variables from one VectorVariable - already in order!
             self._variables = list(source_vector._variables)
+            self._validate_vector_source_aliases(source_vector)
+            self._variable_aliases = ()
             return self._variables
 
-        # General case: collect from all expressions and sort
-        all_vars: set[Variable] = set()
+        # General case: retain identities until declarations have been checked.
+        discovered: list[Variable] = []
 
         if self._objective is not None:
-            all_vars.update(get_all_variables(self._objective))
+            discovered.extend(get_all_variables_by_identity(self._objective))
 
         for constraint in self._constraints:
-            all_vars.update(constraint.get_variables())
+            discovered.extend(get_all_variables_by_identity(constraint.expr))
 
         for mc in self._matrix_constraints:
-            all_vars.update(mc.variables)
+            discovered.extend(mc.variables)
 
-        self._variables = sorted(all_vars, key=_natural_sort_key)
+        groups_by_name: dict[str, list[Variable]] = {}
+        seen_ids: set[int] = set()
+        for variable in discovered:
+            variable_id = id(variable)
+            if variable_id in seen_ids:
+                continue
+            seen_ids.add(variable_id)
+            groups_by_name.setdefault(variable.name, []).append(variable)
+
+        alias_groups = tuple(
+            tuple(group) for group in groups_by_name.values() if len(group) > 1
+        )
+        self._validate_alias_groups(alias_groups)
+
+        self._variable_aliases = alias_groups
+        self._variables = sorted(
+            (group[0] for group in groups_by_name.values()),
+            key=_natural_sort_key,
+        )
         return self._variables
 
     @property
@@ -647,6 +737,7 @@ class Problem:
         """
         source_vector = self._single_vector_source()
         if source_vector is not None:
+            self._validate_vector_source_aliases(source_vector)
             return [bounds for _, bounds, _, _ in source_vector._iter_lp_metadata()]
 
         return [(v.lb, v.ub) for v in self.variables]
@@ -873,6 +964,8 @@ class Problem:
             raise NoObjectiveError(
                 suggestion="Call minimize() or maximize() on the problem first.",
             )
+
+        self._validate_variable_declarations()
 
         # Handle automatic method selection
         if method == "auto":
