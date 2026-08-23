@@ -151,8 +151,8 @@ class BoundsError(OptyxError, ValueError):
     def __init__(
         self,
         variable_name: str,
-        lower: float,
-        upper: float,
+        lower: float | None,
+        upper: float | None,
         reason: str | None = None,
     ) -> None:
         """Create a bounds error.
@@ -172,7 +172,7 @@ class BoundsError(OptyxError, ValueError):
 
         if reason:
             msg += f". {reason}"
-        elif lower > upper:
+        elif lower is not None and upper is not None and lower > upper:
             msg += ". Lower bound cannot exceed upper bound"
 
         super().__init__(msg)

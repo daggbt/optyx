@@ -9,6 +9,12 @@ from typing import Mapping
 import numpy as np
 
 from optyx.core.errors import MissingValueError, UnknownOperatorError
+from optyx.core.validation import (
+    VALID_DOMAINS,
+    validate_binary_bounds,
+    validate_domain,
+    validate_scalar_bounds,
+)
 
 if TYPE_CHECKING:
     from numpy.typing import ArrayLike, NDArray
@@ -295,31 +301,25 @@ class Variable(Expression):
         self._hash = None
         self._degree = None
         self.name = name
-        self._lb = float(lb) if lb is not None else None
-        self._ub = float(ub) if ub is not None else None
+        proposed_lb = float(lb) if lb is not None else None
+        proposed_ub = float(ub) if ub is not None else None
+        validate_domain(domain)
+        validate_scalar_bounds(name, proposed_lb, proposed_ub)
+        if domain == "binary":
+            validate_binary_bounds(lb, ub)
+            proposed_lb = 0.0
+            proposed_ub = 1.0
+
+        self._lb = proposed_lb
+        self._ub = proposed_ub
         self.domain = domain
         self.obj = float(obj)  # Linear objective coefficient
         self._metadata_callback = None
-
-        # Validate domain
-        if domain not in ("continuous", "integer", "binary"):
-            raise ValueError(
-                f"Unknown domain: {domain!r}. Must be 'continuous', 'integer', or 'binary'."
-            )
 
         # Pre-compute sort key for consistent ordering
         self._sort_key = (
             sort_key if sort_key is not None else _compute_name_sort_key(name)
         )
-
-        # Binary variables have implicit bounds
-        if domain == "binary":
-            if lb is not None and float(lb) != 0.0:
-                raise ValueError(f"Binary variable must have lb=0, got {lb!r}")
-            if ub is not None and float(ub) != 1.0:
-                raise ValueError(f"Binary variable must have ub=1, got {ub!r}")
-            self._lb = 0.0
-            self._ub = 1.0
 
         self._metadata_callback = metadata_callback
 
@@ -344,6 +344,9 @@ class Variable(Expression):
         variable._sort_key = sort_key
         variable._metadata_callback = metadata_callback
 
+        assert domain in VALID_DOMAINS
+        assert lb is None or ub is None or lb <= ub
+
         if domain == "binary":
             variable._lb = 0.0
             variable._ub = 1.0
@@ -359,13 +362,15 @@ class Variable(Expression):
 
     @lb.setter
     def lb(self, value: float | None) -> None:
-        if self.domain == "binary" and value is not None and float(value) != 0.0:
-            raise ValueError(f"Binary variable must have lb=0, got {value!r}")
-        self._lb = (
+        if self.domain == "binary":
+            validate_binary_bounds(value, None)
+        proposed_lb = (
             0.0
             if self.domain == "binary"
             else (float(value) if value is not None else None)
         )
+        validate_scalar_bounds(self.name, proposed_lb, self._ub)
+        self._lb = proposed_lb
         if self._metadata_callback is not None:
             self._metadata_callback()
 
@@ -375,13 +380,15 @@ class Variable(Expression):
 
     @ub.setter
     def ub(self, value: float | None) -> None:
-        if self.domain == "binary" and value is not None and float(value) != 1.0:
-            raise ValueError(f"Binary variable must have ub=1, got {value!r}")
-        self._ub = (
+        if self.domain == "binary":
+            validate_binary_bounds(None, value)
+        proposed_ub = (
             1.0
             if self.domain == "binary"
             else (float(value) if value is not None else None)
         )
+        validate_scalar_bounds(self.name, self._lb, proposed_ub)
+        self._ub = proposed_ub
         if self._metadata_callback is not None:
             self._metadata_callback()
 

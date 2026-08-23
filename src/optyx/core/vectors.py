@@ -25,6 +25,12 @@ from optyx.core.errors import (
     InvalidOperationError,
     WrongDimensionalityError,
 )
+from optyx.core.validation import (
+    validate_binary_bounds,
+    validate_domain,
+    validate_scalar_bounds,
+    validate_vector_bounds,
+)
 
 if TYPE_CHECKING:
     from optyx.constraints import Constraint
@@ -1265,12 +1271,18 @@ class VectorVariable:
 
         self.name = name
         self.size = size
+        self._validate_bound_length(lb, "lb")
+        self._validate_bound_length(ub, "ub")
+        validate_domain(domain)
+        validate_vector_bounds(name, size, lb, ub)
+        if domain == "binary":
+            validate_binary_bounds(lb, ub)
+            lb = 0.0
+            ub = 1.0
+
         self.lb = lb
         self.ub = ub
         self.domain = domain
-
-        self._validate_bound_length(lb, "lb")
-        self._validate_bound_length(ub, "ub")
         self._variable_cache = None
         self._has_bound_overrides = False
 
@@ -1529,6 +1541,8 @@ class VectorVariable:
 
         This is an internal constructor used for slicing.
         """
+        validate_domain(domain)
+        validate_scalar_bounds(name, lb, ub)
         # Create instance without calling __init__
         instance = object.__new__(cls)
         instance.name = name
