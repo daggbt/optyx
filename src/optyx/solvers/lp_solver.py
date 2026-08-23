@@ -111,7 +111,10 @@ def solve_lp(
         from optyx.solvers.milp_solver import solve_milp
 
         # Extract LP coefficients (use cache if available)
-        if problem._lp_cache is not None:
+        if (
+            problem._lp_cache is not None
+            and problem._lp_cache.parameters_are_current()
+        ):
             lp_data = problem._lp_cache
         else:
             extractor = LinearProgramExtractor()
@@ -142,7 +145,7 @@ def solve_lp(
         method = "highs-ds"
 
     # Extract LP coefficients (use cache if available)
-    if problem._lp_cache is not None:
+    if problem._lp_cache is not None and problem._lp_cache.parameters_are_current():
         lp_data = problem._lp_cache
     else:
         extractor = LinearProgramExtractor()

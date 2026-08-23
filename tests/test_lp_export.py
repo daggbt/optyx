@@ -10,6 +10,7 @@ import pytest
 from optyx import (
     BinaryVariable,
     IntegerVariable,
+    Parameter,
     Problem,
     Variable,
     VectorVariable,
@@ -21,6 +22,7 @@ from optyx import (
 )
 from optyx.analysis import extract_quadratic_coefficients
 from optyx.core.errors import InvalidOperationError, NoObjectiveError
+from optyx.core.optimizer import flatten_expression
 
 
 # =============================================================================
@@ -210,6 +212,16 @@ class TestQuadraticObjective:
         prob.minimize(x * y)
         lp = prob.to_lp()
         assert "x * y" in lp
+
+    def test_parameterized_flattened_cross_term(self):
+        x = Variable("x", lb=0)
+        y = Variable("y", lb=0)
+        scale = Parameter("scale", 3)
+        prob = Problem().minimize(flatten_expression(scale * x * y))
+
+        lp = prob.to_lp()
+
+        assert "6 x * y" in lp
 
     def test_mixed_linear_quadratic(self):
         x = Variable("x", lb=0)
