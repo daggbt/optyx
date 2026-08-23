@@ -529,6 +529,15 @@ class TestErrors:
         with pytest.raises(InvalidOperationError, match="not linear"):
             prob.to_lp()
 
+    def test_quadratic_constraint_raises(self):
+        x = Variable("x", lb=0)
+        y = Variable("y", lb=0)
+        prob = Problem()
+        prob.minimize(x)
+        prob.subject_to(x * y <= 1)
+        with pytest.raises(InvalidOperationError, match="not linear"):
+            prob.to_lp()
+
     def test_exp_objective_raises(self):
         x = Variable("x", lb=0)
         prob = Problem()

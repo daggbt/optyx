@@ -65,7 +65,17 @@ def test_is_linear_with_products():
     expr = x * y
 
     assert not is_linear(expr)
-    assert compute_degree(expr) is None
+    assert is_quadratic(expr)
+    assert compute_degree(expr) == 2
+
+
+def test_polynomial_product_degrees_add():
+    x = Variable("x")
+    y = Variable("y")
+    z = Variable("z")
+
+    assert compute_degree(x * y * z) == 3
+    assert not is_quadratic(x * y * z)
 
 
 def test_division_by_constant_is_linear():

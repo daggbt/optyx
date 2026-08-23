@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from optyx.analysis import (
+    compute_degree,
     is_linear,
     extract_linear_coefficient,
     extract_constant_term,
@@ -40,101 +41,8 @@ if TYPE_CHECKING:
 
 
 def _compute_poly_degree(expr: Expression) -> int | None:
-    """Compute the true polynomial degree of an expression.
-
-    Unlike analysis.compute_degree() which treats var*var as non-polynomial
-    (optimized for LP detection), this correctly returns degree 2 for
-    quadratic expressions like x*y or x**2.
-
-    Returns:
-        Integer degree if polynomial, None if non-polynomial.
-    """
-    from optyx.core.matrices import QuadraticForm
-    from optyx.core.vectors import (
-        DotProduct,
-        LinearCombination,
-        VectorSum,
-        VectorPowerSum,
-        VectorUnarySum,
-        ElementwisePower,
-        ElementwiseUnary,
-    )
-    import numbers
-
-    if isinstance(expr, Constant):
-        return 0
-    if isinstance(expr, Variable):
-        return 1
-
-    # Vector expression types
-    if isinstance(expr, (LinearCombination, VectorSum)):
-        return 1
-    if isinstance(expr, (DotProduct, QuadraticForm)):
-        return 2
-    if isinstance(expr, VectorPowerSum):
-        p = expr.power
-        if isinstance(p, (int, float)) and float(p).is_integer() and p >= 0:
-            return int(p)
-        return None
-    if isinstance(expr, (VectorUnarySum, ElementwiseUnary)):
-        return None
-    if isinstance(expr, ElementwisePower):
-        p = expr.power
-        if isinstance(p, (int, float)) and float(p).is_integer() and p >= 0:
-            return int(p)
-        return None
-
-    if isinstance(expr, BinaryOp):
-        op = expr.op
-        if op == "**":
-            if not isinstance(expr.right, Constant):
-                return None
-            exp_val = expr.right.value
-            if not isinstance(exp_val, numbers.Number):
-                return None
-            exp_float = float(exp_val)
-            if not exp_float.is_integer() or exp_float < 0:
-                return None
-            left_deg = _compute_poly_degree(expr.left)
-            if left_deg is None:
-                return None
-            return left_deg * int(exp_float)
-        if op == "/":
-            if not isinstance(expr.right, Constant):
-                return None
-            return _compute_poly_degree(expr.left)
-        if op in ("+", "-"):
-            ld = _compute_poly_degree(expr.left)
-            if ld is None:
-                return None
-            rd = _compute_poly_degree(expr.right)
-            if rd is None:
-                return None
-            return max(ld, rd)
-        if op == "*":
-            ld = _compute_poly_degree(expr.left)
-            if ld is None:
-                return None
-            rd = _compute_poly_degree(expr.right)
-            if rd is None:
-                return None
-            return ld + rd
-
-    if isinstance(expr, UnaryOp):
-        if expr.op == "neg":
-            return _compute_poly_degree(expr.operand)
-        return None
-
-    if isinstance(expr, NarySum):
-        max_d = 0
-        for t in expr.terms:
-            d = _compute_poly_degree(t)
-            if d is None:
-                return None
-            max_d = max(max_d, d)
-        return max_d
-
-    return None
+    """Return polynomial degree using the canonical analysis implementation."""
+    return compute_degree(expr)
 
 
 def _is_at_most_quadratic(expr: Expression) -> bool:

@@ -224,11 +224,7 @@ def _compute_degree_iterative(expr: Expression) -> Optional[int]:
                 if op in ("+", "-"):
                     result_stack.append(max(left_deg, right_result))
                 elif op == "*":
-                    # x*y where both have degree > 0 is non-polynomial for our LP detection
-                    if left_deg > 0 and right_result > 0:
-                        result_stack.append(None)
-                    else:
-                        result_stack.append(left_deg + right_result)
+                    result_stack.append(left_deg + right_result)
                 else:
                     result_stack.append(None)
             continue
@@ -348,16 +344,13 @@ def _compute_degree_impl(expr: Expression) -> Optional[int]:
                 return None
             return max(left_deg, right_deg)
 
-        # Multiplication - only allow scalar * polynomial
+        # Multiplication - polynomial degrees add
         if op == "*":
             left_deg = _compute_degree_impl(expr.left)
             if left_deg is None:
                 return None
             right_deg = _compute_degree_impl(expr.right)
             if right_deg is None:
-                return None
-            # x*y (both degree >= 1) is non-polynomial for LP detection
-            if left_deg > 0 and right_deg > 0:
                 return None
             return left_deg + right_deg
 
@@ -444,9 +437,6 @@ def _check_degree_bounded_impl(expr: Expression, max_deg: int) -> Optional[int]:
                 expr.right, remaining if left_deg > 0 else max_deg
             )
             if right_deg is None:
-                return None
-            # x*y is non-polynomial for LP detection
-            if left_deg > 0 and right_deg > 0:
                 return None
             result = left_deg + right_deg
             return result if result <= max_deg else None
