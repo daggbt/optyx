@@ -883,6 +883,7 @@ class LPData:
     bounds: list[tuple[float | None, float | None]]
     variables: list[str]
     parameter_versions: tuple[tuple[Parameter, int], ...] = ()
+    objective_coefficient_signature: tuple[tuple[int, float], ...] = ()
 
     def parameters_are_current(self) -> bool:
         """Return whether cached numeric data matches all live parameters."""
@@ -1502,6 +1503,7 @@ class LinearProgramExtractor:
                 bounds=bounds,
                 variables=names,
                 parameter_versions=parameter_versions,
+                objective_coefficient_signature=problem._objective_coefficient_signature(),
             )
 
         c, sense, variables = self.extract_objective(problem)
@@ -1518,6 +1520,7 @@ class LinearProgramExtractor:
             bounds=bounds,
             variables=[v.name for v in variables],
             parameter_versions=parameter_versions,
+            objective_coefficient_signature=problem._objective_coefficient_signature(),
         )
 
 

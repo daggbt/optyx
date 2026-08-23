@@ -654,6 +654,29 @@ class Problem:
             return
         _ = self.variables
 
+    def _objective_coefficient_signature(self) -> tuple[tuple[int, float], ...]:
+        """Return ordered non-zero ``Variable.obj`` coefficients.
+
+        The sparse representation keeps the common all-zero case allocation
+        free while still detecting mutable objective metadata between solves.
+        """
+        source_vector = self._single_vector_source()
+        if source_vector is not None:
+            cache = source_vector._variable_cache
+            if cache is None:
+                return ()
+            return tuple(
+                (index, float(variable.obj))
+                for index, variable in enumerate(cache)
+                if variable is not None and variable.obj != 0.0
+            )
+
+        return tuple(
+            (index, float(variable.obj))
+            for index, variable in enumerate(self.variables)
+            if variable.obj != 0.0
+        )
+
     @property
     def variables(self) -> list[Variable]:
         """All decision variables in the problem.

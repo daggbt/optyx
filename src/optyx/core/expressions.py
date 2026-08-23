@@ -270,6 +270,8 @@ class Variable(Expression):
         lb: Lower bound (None for unbounded).
         ub: Upper bound (None for unbounded).
         domain: Variable type - 'continuous', 'integer', or 'binary'.
+        obj: Mutable linear objective coefficient. Changes are applied on the
+            next solve, including when solver data has already been cached.
 
     Example:
         >>> x = Variable("x", lb=0, ub=10)

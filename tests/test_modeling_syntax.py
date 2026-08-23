@@ -348,3 +348,94 @@ class TestVariableObjShorthand:
         assert x.lb == 1
         assert x.ub == 5
         assert x.obj == 1.0
+
+    def test_obj_mutation_rebuilds_lp_coefficients(self):
+        """A cached LP must use the current objective coefficients."""
+        x = Variable("x", lb=0, ub=1, obj=1.0)
+        y = Variable("y", lb=0, ub=1, obj=2.0)
+        prob = Problem().minimize(Constant(0)).subject_to((x + y).eq(1))
+
+        first = prob.solve()
+        cached_lp = prob._lp_cache
+        x.obj = 3.0
+        second = prob.solve()
+
+        assert first[x] == pytest.approx(1.0)
+        assert second[y] == pytest.approx(1.0)
+        assert prob._lp_cache is not cached_lp
+
+    def test_vector_element_obj_mutation_rebuilds_lazy_lp_coefficients(self):
+        x = VectorVariable("x", 2, lb=0, ub=1)
+        x[0].obj = 1.0
+        x[1].obj = 2.0
+        prob = Problem().minimize(0 * x.sum()).subject_to(x.sum().eq(1))
+
+        first = prob.solve()
+        x[0].obj = 3.0
+        second = prob.solve()
+        current_cache = prob._lp_cache
+        third = prob.solve()
+
+        assert first[x[0]] == pytest.approx(1.0)
+        assert second[x[1]] == pytest.approx(1.0)
+        assert third[x[1]] == pytest.approx(1.0)
+        assert prob._lp_cache is current_cache
+
+    def test_obj_mutation_rebuilds_explicit_nlp_cache(self):
+        """Explicit NLP solves must not reuse stale objective callables."""
+        x = Variable("x", lb=-5, ub=5, obj=0.0)
+        prob = Problem().minimize(x**2)
+
+        first = prob.solve(method="SLSQP", warm_start=False)
+        cached_objective = prob._solver_cache["obj_fn"]
+        x.obj = 2.0
+        second = prob.solve(method="SLSQP", warm_start=False)
+
+        assert first[x] == pytest.approx(0.0, abs=1e-5)
+        assert second[x] == pytest.approx(-1.0, abs=1e-5)
+        assert prob._solver_cache["obj_fn"] is not cached_objective
+
+    @pytest.mark.parametrize(
+        ("sense", "initial_obj", "updated_obj", "initial_x", "updated_x"),
+        [
+            ("minimize", -2.0, 2.0, 1.0, -1.0),
+            ("maximize", 2.0, -2.0, 1.0, -1.0),
+        ],
+    )
+    def test_obj_mutation_preserves_objective_signs(
+        self, sense, initial_obj, updated_obj, initial_x, updated_x
+    ):
+        x = Variable("x", lb=-5, ub=5, obj=initial_obj)
+        explicit = x**2 if sense == "minimize" else -(x**2)
+        prob = getattr(Problem(), sense)(explicit)
+
+        first = prob.solve(method="SLSQP", warm_start=False)
+        x.obj = updated_obj
+        second = prob.solve(method="SLSQP", warm_start=False)
+
+        assert first[x] == pytest.approx(initial_x, abs=1e-5)
+        assert second[x] == pytest.approx(updated_x, abs=1e-5)
+
+    def test_vector_element_obj_mutation_rebuilds_lazy_nlp_cache(self):
+        """Vector-backed scalar coefficients participate in invalidation."""
+        x = VectorVariable("x", 2, lb=-5, ub=5)
+        prob = Problem().minimize((x**2).sum())
+
+        first = prob.solve(method="L-BFGS-B", warm_start=False)
+        cached_objective = prob._solver_cache["obj_fn"]
+        x[0].obj = -2.0
+        second = prob.solve(method="L-BFGS-B", warm_start=False)
+
+        assert first[x[0]] == pytest.approx(0.0, abs=1e-5)
+        assert second[x[0]] == pytest.approx(1.0, abs=1e-5)
+        assert prob._solver_cache["obj_fn"] is not cached_objective
+
+    def test_unchanged_obj_coefficients_reuse_nlp_cache(self):
+        x = Variable("x", lb=-5, ub=5, obj=2.0)
+        prob = Problem().minimize(x**2)
+
+        prob.solve(method="SLSQP", warm_start=False)
+        cache = prob._solver_cache
+        prob.solve(method="SLSQP", warm_start=False)
+
+        assert prob._solver_cache is cache
