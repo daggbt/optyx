@@ -1,0 +1,9 @@
+# BinaryVariable { #optyx.BinaryVariable }
+
+```python
+BinaryVariable(name, **kwargs)
+```
+
+Create a binary (0/1) variable.
+
+Shorthand for ``Variable(name, domain='binary', lb=0, ub=1)``.

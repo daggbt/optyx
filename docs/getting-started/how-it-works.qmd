@@ -123,12 +123,11 @@ The traversal:
 
 ### The Overhead
 
-Tree traversal is slower than direct computation:
-
-- **Direct Python**: `3**2 + 4**2` → ~50 nanoseconds
-- **Optyx tree walk**: ~500 nanoseconds to ~2 microseconds
-
-That's 10-40x slower for a single evaluation. But during optimization, the solver calls this function hundreds or thousands of times with different values—the function call overhead dominates, and the tree walk becomes negligible.
+Symbolic evaluation adds dispatch and tree-traversal work compared with an
+equivalent hand-written numerical function. The cost depends on expression
+structure and whether Optyx can use a vectorized compiled path. End-to-end
+solver measurements are reported on the versioned [Benchmarks](../benchmarks.qmd)
+page.
 
 ---
 
@@ -216,11 +215,11 @@ print(f"∂f/∂y at (1,1): {grad_y.evaluate({'x': 1, 'y': 1})}")
 
 Autodiff requires a second tree walk (for gradients) on top of the evaluation walk. For simple functions, this is slower than hand-written gradients. For complex functions, it's comparable—and you didn't have to derive anything.
 
-| Approach | Time per (f, ∇f) call | Developer Time |
-|----------|----------------------|----------------|
-| Hand-written | 1x (baseline) | Hours for complex f |
-| Finite differences | 2-3x (n+1 evaluations) | None |
-| Optyx autodiff | 1.5-2x | None |
+| Approach | Derivative work | Developer Time |
+|----------|-----------------|----------------|
+| Hand-written | Depends on the implementation | Higher for complex functions |
+| Finite differences | Requires additional function evaluations | Low |
+| Optyx autodiff | Exact symbolic rules compiled for the model | Low |
 
 Optyx is faster than finite differences and requires zero manual effort.
 
@@ -277,12 +276,16 @@ Optyx analyzes the problem structure:
 
 ```python
 # Pseudo-code for solver selection
-if all_constraints_are_linear and objective_is_linear:
-    solver = "highs"  # Industrial LP solver
-elif no_constraints:
-    solver = "L-BFGS-B"  # Fast unconstrained
+if model_is_linear:
+    solver = "milp" if has_discrete_variables else "linprog"
+elif no_general_constraints:
+    solver = "L-BFGS-B"
+elif constrained_model_is_large_and_sparse:
+    solver = "trust-constr"
+elif objective_or_constraint_degree_is_above_two_or_non_polynomial:
+    solver = "trust-constr"
 else:
-    solver = "SLSQP"  # General constrained NLP
+    solver = "SLSQP"  # Linear/quadratic constrained NLP, with fallback
 ```
 
 You can override this with `problem.solve(method="trust-constr")`.
@@ -472,10 +475,10 @@ print(f"(Internally uses matrix operations for O(n) instead of O(n²) evaluation
 
 | Operation | Overhead vs Raw SciPy | Why |
 |-----------|----------------------|-----|
-| First solve | 1.5-2x slower | Tree building + compilation |
-| Each f(x) call | 10-40x slower | Tree walk vs direct computation |
-| Each ∇f(x) call | 1.5-2x slower | Autodiff vs hand-written |
-| Re-solve | Near 0x | Cached, same as raw SciPy |
+| First solve | Model-dependent | Tree building + compilation |
+| Each f(x) call | Model-dependent | Compiled symbolic evaluation vs direct computation |
+| Each ∇f(x) call | Model-dependent | Generated derivative vs hand-written derivative |
+| Re-solve | Usually near raw SciPy | Cached structure avoids repeated compilation; solver work still remains |
 
 ### When This Overhead Matters
 

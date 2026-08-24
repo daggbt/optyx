@@ -6,6 +6,13 @@
     display: none;
 }
 
+/* Keep the transparent wordmark legible in the navbar. */
+.navbar-logo {
+    width: auto;
+    height: 42px;
+    max-height: 42px;
+}
+
 /* Custom footer page-nav buttons */
 .page-nav-buttons {
   display: flex;

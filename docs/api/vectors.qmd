@@ -29,7 +29,7 @@ y = VectorVariable("y", 10, lb=0)
 # Bounded vector
 z = VectorVariable("z", 10, lb=-1, ub=1)
 
-# Binary vector (relaxed to [0, 1] in standard solvers)
+# Binary vector (enforced by the MILP solver for linear models)
 b = VectorVariable("b", 10, domain="binary")
 ```
 
@@ -99,13 +99,11 @@ val = c @ x   # 1*x[0] + 2*x[1] + 3*x[2]
 Compute L1 and L2 norms:
 
 ```python
-from optyx import L1Norm, L2Norm
-
 # L1 Norm: sum(|x_i|)
-n1 = L1Norm(x)
+n1 = x.norm(ord=1)
 
 # L2 Norm: sqrt(sum(x_i^2))
-n2 = L2Norm(x)
+n2 = x.norm()
 ```
 
 ### Summation
@@ -113,9 +111,7 @@ n2 = L2Norm(x)
 Sum all elements in a vector:
 
 ```python
-from optyx import sum
-
-total = sum(x)
+total = x.sum()
 ```
 
 ## Constraints

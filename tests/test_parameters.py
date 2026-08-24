@@ -7,6 +7,7 @@ from optyx.core.errors import InvalidSizeError, ShapeMismatchError
 from optyx.core.parameters import Parameter, VectorParameter
 from optyx.core.expressions import Variable, Expression
 from optyx.core.vectors import VectorVariable
+from optyx.analysis import _check_degree_bounded, compute_degree, is_linear
 
 
 # =============================================================================
@@ -517,3 +518,63 @@ class TestParameterIntegration:
 
         # Different solutions confirm parameter was picked up
         assert sol1.values["x"] != sol2.values["x"]
+
+    def test_parameterized_lp_refreshes_cached_coefficients(self):
+        """LP data is rebuilt when a referenced parameter changes."""
+        from optyx import Problem
+
+        x = Variable("x", lb=0)
+        price = Parameter("price", value=2)
+        demand = Parameter("demand", value=3)
+        prob = Problem().minimize(price * x).subject_to(x >= demand)
+
+        sol1 = prob.solve()
+        first_cache = prob._lp_cache
+        assert sol1.values["x"] == pytest.approx(3.0)
+        assert sol1.objective_value == pytest.approx(6.0)
+
+        price.set(4)
+        demand.set(5)
+        sol2 = prob.solve()
+        second_cache = prob._lp_cache
+
+        assert second_cache is not first_cache
+        assert sol2.values["x"] == pytest.approx(5.0)
+        assert sol2.objective_value == pytest.approx(20.0)
+
+        prob.solve()
+        assert prob._lp_cache is second_cache
+
+
+class TestParameterDegreeAnalysis:
+    """Parameters are constants with respect to decision variables."""
+
+    def test_parameter_is_degree_zero(self):
+        price = Parameter("price", value=100)
+
+        assert compute_degree(price) == 0
+        assert is_linear(price)
+
+    def test_parameterized_product_is_linear(self):
+        x = Variable("x")
+        price = Parameter("price", value=100)
+
+        assert compute_degree(price * x) == 1
+        assert is_linear(price * x)
+        assert _check_degree_bounded(price * x, 1)
+
+    def test_parameter_update_does_not_change_degree(self):
+        x = Variable("x")
+        price = Parameter("price", value=2)
+        expr = price * x
+
+        assert expr.degree == 1
+        price.set(5)
+        assert expr.degree == 1
+
+    def test_division_by_parameter_is_linear(self):
+        x = Variable("x")
+        scale = Parameter("scale", value=2)
+
+        assert compute_degree(x / scale) == 1
+        assert is_linear(x / scale)

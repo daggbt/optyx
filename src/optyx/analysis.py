@@ -21,8 +21,17 @@ import numbers
 import numpy as np
 from numpy.typing import NDArray
 
-from optyx.core.expressions import Expression, Constant, Variable, BinaryOp, UnaryOp
+from optyx.core.expressions import (
+    Expression,
+    Constant,
+    Variable,
+    BinaryOp,
+    UnaryOp,
+    NarySum,
+    NaryProduct,
+)
 from optyx.core.errors import NonLinearError, NoObjectiveError
+from optyx.core.parameters import Parameter
 
 # Recursion threshold - use iterative algorithm for trees deeper than this
 _RECURSION_THRESHOLD = 400
@@ -74,7 +83,7 @@ def _estimate_tree_depth(expr: Expression, max_depth: int = 500) -> int:
         current, depth = stack.pop()
         max_found = max(max_found, depth)
 
-        if isinstance(current, (Constant, Variable)):
+        if isinstance(current, (Constant, Parameter, Variable)):
             continue
         elif isinstance(current, BinaryOp):
             # Check both branches
@@ -82,6 +91,10 @@ def _estimate_tree_depth(expr: Expression, max_depth: int = 500) -> int:
             stack.append((current.right, depth + 1))
         elif isinstance(current, UnaryOp):
             stack.append((current.operand, depth + 1))
+        elif isinstance(current, NarySum):
+            stack.extend((term, depth + 1) for term in current.terms)
+        elif isinstance(current, NaryProduct):
+            stack.extend((factor, depth + 1) for factor in current.factors)
         elif isinstance(current, (LinearCombination, VectorSum)):
             continue  # These don't recurse deeply
         elif isinstance(current, DotProduct):
@@ -121,8 +134,34 @@ def _compute_degree_iterative(expr: Expression) -> Optional[int]:
         if isinstance(node, Constant):
             result_stack.append(0)
             continue
+        if isinstance(node, Parameter):
+            result_stack.append(0)
+            continue
         if isinstance(node, Variable):
             result_stack.append(1)
+            continue
+
+        # Flattened associative operations. Process all children in one stack
+        # frame so wide expressions remain shallow and allocation-light.
+        if isinstance(node, (NarySum, NaryProduct)):
+            children = node.terms if isinstance(node, NarySum) else node.factors
+            if phase == 0:
+                stack.append((node, 1, None, None))
+                for child in reversed(children):
+                    stack.append((child, 0, None, None))
+            else:
+                count = len(children)
+                child_degrees = result_stack[-count:] if count else []
+                if count:
+                    del result_stack[-count:]
+                if any(degree is None for degree in child_degrees):
+                    result_stack.append(None)
+                else:
+                    degrees = [degree for degree in child_degrees if degree is not None]
+                    if isinstance(node, NarySum):
+                        result_stack.append(max(degrees, default=0))
+                    else:
+                        result_stack.append(sum(degrees))
             continue
 
         # Vector expressions - these have known degrees
@@ -198,13 +237,6 @@ def _compute_degree_iterative(expr: Expression) -> Optional[int]:
                         result_stack.append(left_result * int(exp_float))
                     continue
 
-                if op == "/":
-                    if not isinstance(node.right, Constant):
-                        result_stack.append(None)
-                    else:
-                        result_stack.append(left_result)
-                    continue
-
                 # Early termination on None for other ops
                 if left_result is None:
                     result_stack.append(None)
@@ -224,11 +256,9 @@ def _compute_degree_iterative(expr: Expression) -> Optional[int]:
                 if op in ("+", "-"):
                     result_stack.append(max(left_deg, right_result))
                 elif op == "*":
-                    # x*y where both have degree > 0 is non-polynomial for our LP detection
-                    if left_deg > 0 and right_result > 0:
-                        result_stack.append(None)
-                    else:
-                        result_stack.append(left_deg + right_result)
+                    result_stack.append(left_deg + right_result)
+                elif op == "/":
+                    result_stack.append(left_deg if right_result == 0 else None)
                 else:
                     result_stack.append(None)
             continue
@@ -262,8 +292,28 @@ def _compute_degree_impl(expr: Expression) -> Optional[int]:
     # Fast path: leaf nodes (most common)
     if isinstance(expr, Constant):
         return 0
+    if isinstance(expr, Parameter):
+        return 0
     if isinstance(expr, Variable):
         return 1
+
+    if isinstance(expr, NarySum):
+        max_degree = 0
+        for term in expr.terms:
+            degree = _compute_degree_impl(term)
+            if degree is None:
+                return None
+            max_degree = max(max_degree, degree)
+        return max_degree
+
+    if isinstance(expr, NaryProduct):
+        total_degree = 0
+        for factor in expr.factors:
+            degree = _compute_degree_impl(factor)
+            if degree is None:
+                return None
+            total_degree += degree
+        return total_degree
 
     # Vector expressions
     if isinstance(expr, LinearCombination):
@@ -334,7 +384,8 @@ def _compute_degree_impl(expr: Expression) -> Optional[int]:
 
         # Division - check denominator type first
         if op == "/":
-            if not isinstance(expr.right, Constant):
+            right_deg = _compute_degree_impl(expr.right)
+            if right_deg != 0:
                 return None
             return _compute_degree_impl(expr.left)
 
@@ -348,16 +399,13 @@ def _compute_degree_impl(expr: Expression) -> Optional[int]:
                 return None
             return max(left_deg, right_deg)
 
-        # Multiplication - only allow scalar * polynomial
+        # Multiplication - polynomial degrees add
         if op == "*":
             left_deg = _compute_degree_impl(expr.left)
             if left_deg is None:
                 return None
             right_deg = _compute_degree_impl(expr.right)
             if right_deg is None:
-                return None
-            # x*y (both degree >= 1) is non-polynomial for LP detection
-            if left_deg > 0 and right_deg > 0:
                 return None
             return left_deg + right_deg
 
@@ -389,8 +437,28 @@ def _check_degree_bounded_impl(expr: Expression, max_deg: int) -> Optional[int]:
     # Leaf nodes
     if isinstance(expr, Constant):
         return 0
+    if isinstance(expr, Parameter):
+        return 0
     if isinstance(expr, Variable):
         return 1 if max_deg >= 1 else None
+
+    if isinstance(expr, NarySum):
+        result = 0
+        for term in expr.terms:
+            degree = _check_degree_bounded_impl(term, max_deg)
+            if degree is None:
+                return None
+            result = max(result, degree)
+        return result
+
+    if isinstance(expr, NaryProduct):
+        result = 0
+        for factor in expr.factors:
+            degree = _check_degree_bounded_impl(factor, max_deg - result)
+            if degree is None:
+                return None
+            result += degree
+        return result
 
     # Binary operations
     if isinstance(expr, BinaryOp):
@@ -421,7 +489,8 @@ def _check_degree_bounded_impl(expr: Expression, max_deg: int) -> Optional[int]:
             return result if result <= max_deg else None
 
         if op == "/":
-            if not isinstance(expr.right, Constant):
+            right_deg = _check_degree_bounded_impl(expr.right, 0)
+            if right_deg != 0:
                 return None
             return _check_degree_bounded_impl(expr.left, max_deg)
 
@@ -444,9 +513,6 @@ def _check_degree_bounded_impl(expr: Expression, max_deg: int) -> Optional[int]:
                 expr.right, remaining if left_deg > 0 else max_deg
             )
             if right_deg is None:
-                return None
-            # x*y is non-polynomial for LP detection
-            if left_deg > 0 and right_deg > 0:
                 return None
             result = left_deg + right_deg
             return result if result <= max_deg else None
@@ -490,6 +556,62 @@ def clear_degree_cache() -> None:
     and memory usage becomes a concern.
     """
     _compute_degree_cached.cache_clear()
+
+
+def _get_scalar_constant_value(expr: Expression) -> float | None:
+    """Return a live scalar value for a structurally constant expression."""
+    if isinstance(expr, Constant):
+        raw_value = expr.value
+    elif isinstance(expr, Parameter):
+        raw_value = expr.value
+    elif isinstance(expr, UnaryOp) and expr.op == "neg":
+        operand_value = _get_scalar_constant_value(expr.operand)
+        return -operand_value if operand_value is not None else None
+    elif isinstance(expr, BinaryOp):
+        left_value = _get_scalar_constant_value(expr.left)
+        if left_value is None:
+            return None
+        right_value = _get_scalar_constant_value(expr.right)
+        if right_value is None:
+            return None
+        if expr.op == "+":
+            return left_value + right_value
+        if expr.op == "-":
+            return left_value - right_value
+        if expr.op == "*":
+            return left_value * right_value
+        if expr.op == "/":
+            return left_value / right_value
+        if expr.op == "**":
+            return left_value**right_value
+        return None
+    elif isinstance(expr, NarySum):
+        result = 0.0
+        for term in expr.terms:
+            value = _get_scalar_constant_value(term)
+            if value is None:
+                return None
+            result += value
+        return result
+    elif isinstance(expr, NaryProduct):
+        result = 1.0
+        for factor in expr.factors:
+            value = _get_scalar_constant_value(factor)
+            if value is None:
+                return None
+            result *= value
+        return result
+    else:
+        return None
+
+    value = np.asarray(raw_value)
+    if value.ndim != 0:
+        raise NonLinearError(
+            expression=repr(expr)[:100],
+            context="scalar coefficient extraction",
+            suggestion="Use a scalar Parameter or scalar constant as an LP coefficient.",
+        )
+    return float(value)
 
 
 # =============================================================================
@@ -536,8 +658,8 @@ def _extract_coefficient_impl(expr: Expression, var: Variable) -> float:
     """Recursive coefficient extraction."""
     from optyx.core.vectors import LinearCombination, VectorSum
 
-    # Constant - contributes 0 to variable coefficient
-    if isinstance(expr, Constant):
+    # Constant leaves contribute no variable coefficient.
+    if isinstance(expr, (Constant, Parameter)):
         return 0.0
 
     # Variable - contributes 1 if same variable, 0 otherwise
@@ -583,24 +705,21 @@ def _extract_coefficient_impl(expr: Expression, var: Variable) -> float:
 
         if expr.op == "*":
             # One side must be constant for linear expressions
-            if isinstance(expr.left, Constant):
-                return float(expr.left.value) * _extract_coefficient_impl(
-                    expr.right, var
-                )
-            if isinstance(expr.right, Constant):
-                return _extract_coefficient_impl(expr.left, var) * float(
-                    expr.right.value
-                )
+            left_value = _get_scalar_constant_value(expr.left)
+            if left_value is not None:
+                return left_value * _extract_coefficient_impl(expr.right, var)
+            right_value = _get_scalar_constant_value(expr.right)
+            if right_value is not None:
+                return _extract_coefficient_impl(expr.left, var) * right_value
             # For linear expressions, at least one side must be constant
             # This fallback handles edge cases where constants are nested
             return 0.0
 
         if expr.op == "/":
             # Division by constant
-            if isinstance(expr.right, Constant):
-                return _extract_coefficient_impl(expr.left, var) / float(
-                    expr.right.value
-                )
+            right_value = _get_scalar_constant_value(expr.right)
+            if right_value is not None:
+                return _extract_coefficient_impl(expr.left, var) / right_value
             return 0.0
 
         if expr.op == "**":
@@ -618,6 +737,21 @@ def _extract_coefficient_impl(expr: Expression, var: Variable) -> float:
         if expr.op == "neg":
             return -_extract_coefficient_impl(expr.operand, var)
         return 0.0
+
+    if isinstance(expr, NarySum):
+        return sum(_extract_coefficient_impl(term, var) for term in expr.terms)
+
+    if isinstance(expr, NaryProduct):
+        multiplier = 1.0
+        variable_factor: Expression | None = None
+        for factor in expr.factors:
+            value = _get_scalar_constant_value(factor)
+            if value is not None:
+                multiplier *= value
+            else:
+                variable_factor = factor
+        if variable_factor is not None:
+            return multiplier * _extract_coefficient_impl(variable_factor, var)
 
     return 0.0
 
@@ -654,8 +788,10 @@ def _extract_constant_impl(expr: Expression) -> float:
     """Recursive constant term extraction."""
     from optyx.core.vectors import LinearCombination, VectorSum
 
-    if isinstance(expr, Constant):
-        return float(expr.value)
+    if isinstance(expr, (Constant, Parameter)):
+        constant_value = _get_scalar_constant_value(expr)
+        assert constant_value is not None
+        return constant_value
 
     if isinstance(expr, Variable):
         return 0.0
@@ -677,28 +813,44 @@ def _extract_constant_impl(expr: Expression) -> float:
 
         if expr.op == "*":
             # c * expr or expr * c
-            if isinstance(expr.left, Constant):
-                return float(expr.left.value) * _extract_constant_impl(expr.right)
-            if isinstance(expr.right, Constant):
-                return _extract_constant_impl(expr.left) * float(expr.right.value)
+            left_value = _get_scalar_constant_value(expr.left)
+            if left_value is not None:
+                return left_value * _extract_constant_impl(expr.right)
+            right_value = _get_scalar_constant_value(expr.right)
+            if right_value is not None:
+                return _extract_constant_impl(expr.left) * right_value
             return 0.0
 
         if expr.op == "/":
-            if isinstance(expr.right, Constant):
-                return _extract_constant_impl(expr.left) / float(expr.right.value)
+            right_value = _get_scalar_constant_value(expr.right)
+            if right_value is not None:
+                return _extract_constant_impl(expr.left) / right_value
             return 0.0
 
         if expr.op == "**":
-            if isinstance(expr.right, Constant):
-                exp = int(expr.right.value)
+            exponent_value = _get_scalar_constant_value(expr.right)
+            if exponent_value is not None:
+                exp = int(exponent_value)
                 if exp == 0:
                     return 1.0  # x**0 = 1
+                base_value = _get_scalar_constant_value(expr.left)
+                if base_value is not None:
+                    return base_value**exponent_value
             return 0.0
 
     if isinstance(expr, UnaryOp):
         if expr.op == "neg":
             return -_extract_constant_impl(expr.operand)
         return 0.0
+
+    if isinstance(expr, NarySum):
+        return sum(_extract_constant_impl(term) for term in expr.terms)
+
+    if isinstance(expr, NaryProduct):
+        result = 1.0
+        for factor in expr.factors:
+            result *= _extract_constant_impl(factor)
+        return result
 
     return 0.0
 
@@ -728,6 +880,46 @@ class LPData:
     b_eq: NDArray[np.floating] | None
     bounds: list[tuple[float | None, float | None]]
     variables: list[str]
+    parameter_versions: tuple[tuple[Parameter, int], ...] = ()
+    objective_coefficient_signature: tuple[tuple[int, float], ...] = ()
+
+    def parameters_are_current(self) -> bool:
+        """Return whether cached numeric data matches all live parameters."""
+        return all(
+            parameter._version == version
+            for parameter, version in self.parameter_versions
+        )
+
+
+def _collect_parameter_versions(problem: Problem) -> tuple[tuple[Parameter, int], ...]:
+    """Collect referenced parameters once when numeric LP data is extracted."""
+    from optyx.core.vectors import LinearCombination, VectorSum
+
+    roots: list[Expression] = []
+    if problem.objective is not None:
+        roots.append(problem.objective)
+    roots.extend(constraint.expr for constraint in problem.constraints)
+
+    parameters: dict[int, Parameter] = {}
+    stack = roots
+    while stack:
+        node = stack.pop()
+        if isinstance(node, Parameter):
+            parameters[id(node)] = node
+        elif isinstance(node, BinaryOp):
+            stack.extend((node.left, node.right))
+        elif isinstance(node, UnaryOp):
+            stack.append(node.operand)
+        elif isinstance(node, NarySum):
+            stack.extend(node.terms)
+        elif isinstance(node, NaryProduct):
+            stack.extend(node.factors)
+        elif isinstance(node, (LinearCombination, VectorSum)):
+            expressions = getattr(node.vector, "_expressions", None)
+            if expressions is not None:
+                stack.extend(expressions)
+
+    return tuple((parameter, parameter._version) for parameter in parameters.values())
 
 
 def extract_all_linear_coefficients(
@@ -819,7 +1011,10 @@ def _try_extract_fast_binop(
             if vec_n == n:
                 first_name = expr.left.vector._name_at(0)
                 first_idx = var_index.get(first_name, -1)
-                if first_idx == 0 and isinstance(expr.right, (Constant, int, float)):
+                if (
+                    first_idx == 0
+                    and _get_scalar_constant_value(expr.right) is not None
+                ):
                     return np.ones(n, dtype=np.float64)
 
         # Try left side as LinearCombination
@@ -830,12 +1025,16 @@ def _try_extract_fast_binop(
             if vec_n == n:
                 first_name = expr.left.vector._name_at(0)
                 first_idx = var_index.get(first_name, -1)
-                if first_idx == 0 and isinstance(expr.right, (Constant, int, float)):
+                if (
+                    first_idx == 0
+                    and _get_scalar_constant_value(expr.right) is not None
+                ):
                     return np.asarray(expr.left.coefficients, dtype=np.float64).copy()
 
     # Handle: constant * VectorSum, VectorSum * constant
     if expr.op == "*":
-        if isinstance(expr.left, Constant):
+        left_value = _get_scalar_constant_value(expr.left)
+        if left_value is not None:
             if isinstance(expr.right, VectorSum) and isinstance(
                 expr.right.vector, VectorVariable
             ):
@@ -844,9 +1043,10 @@ def _try_extract_fast_binop(
                     first_name = expr.right.vector._name_at(0)
                     first_idx = var_index.get(first_name, -1)
                     if first_idx == 0:
-                        return np.full(n, float(expr.left.value), dtype=np.float64)
+                        return np.full(n, left_value, dtype=np.float64)
 
-        if isinstance(expr.right, Constant):
+        right_value = _get_scalar_constant_value(expr.right)
+        if right_value is not None:
             if isinstance(expr.left, VectorSum) and isinstance(
                 expr.left.vector, VectorVariable
             ):
@@ -855,7 +1055,7 @@ def _try_extract_fast_binop(
                     first_name = expr.left.vector._name_at(0)
                     first_idx = var_index.get(first_name, -1)
                     if first_idx == 0:
-                        return np.full(n, float(expr.right.value), dtype=np.float64)
+                        return np.full(n, right_value, dtype=np.float64)
 
     return None
 
@@ -876,8 +1076,8 @@ def _extract_all_coefficients_impl(
     """
     from optyx.core.vectors import LinearCombination, VectorSum, VectorVariable
 
-    # Constant - no variable coefficients
-    if isinstance(expr, Constant):
+    # Constant leaves have no variable coefficients.
+    if isinstance(expr, (Constant, Parameter)):
         return
 
     # Variable - add coefficient at this variable's index
@@ -889,6 +1089,12 @@ def _extract_all_coefficients_impl(
 
     # VectorSum: sum(x) - each variable has coefficient 1 * multiplier
     if isinstance(expr, VectorSum):
+        if isinstance(expr.vector, VectorVariable):
+            vec_n = expr.vector.size
+            first_idx = var_index.get(expr.vector._name_at(0), -1)
+            if vec_n == result.size and first_idx == 0:
+                result += multiplier
+                return
         for name in expr.vector._iter_variable_names():
             idx = var_index.get(name)
             if idx is not None:
@@ -898,6 +1104,11 @@ def _extract_all_coefficients_impl(
     # LinearCombination: c @ x - coefficient is c[i] * multiplier
     if isinstance(expr, LinearCombination):
         if isinstance(expr.vector, VectorVariable):
+            vec_n = expr.vector.size
+            first_idx = var_index.get(expr.vector._name_at(0), -1)
+            if vec_n == result.size and first_idx == 0:
+                result += multiplier * np.asarray(expr.coefficients, dtype=np.float64)
+                return
             for i, name in enumerate(expr.vector._iter_variable_names()):
                 idx = var_index.get(name)
                 if idx is not None:
@@ -923,14 +1134,16 @@ def _extract_all_coefficients_impl(
 
         if expr.op == "*":
             # One side must be constant for linear expressions
-            if isinstance(expr.left, Constant):
+            left_value = _get_scalar_constant_value(expr.left)
+            if left_value is not None:
                 _extract_all_coefficients_impl(
-                    expr.right, var_index, result, multiplier * float(expr.left.value)
+                    expr.right, var_index, result, multiplier * left_value
                 )
                 return
-            if isinstance(expr.right, Constant):
+            right_value = _get_scalar_constant_value(expr.right)
+            if right_value is not None:
                 _extract_all_coefficients_impl(
-                    expr.left, var_index, result, multiplier * float(expr.right.value)
+                    expr.left, var_index, result, multiplier * right_value
                 )
                 return
             # Both sides non-constant - no linear contribution
@@ -938,9 +1151,10 @@ def _extract_all_coefficients_impl(
 
         if expr.op == "/":
             # Division by constant
-            if isinstance(expr.right, Constant):
+            right_value = _get_scalar_constant_value(expr.right)
+            if right_value is not None:
                 _extract_all_coefficients_impl(
-                    expr.left, var_index, result, multiplier / float(expr.right.value)
+                    expr.left, var_index, result, multiplier / right_value
                 )
             return
 
@@ -959,6 +1173,25 @@ def _extract_all_coefficients_impl(
         if expr.op == "neg":
             _extract_all_coefficients_impl(expr.operand, var_index, result, -multiplier)
         return
+
+    if isinstance(expr, NarySum):
+        for term in expr.terms:
+            _extract_all_coefficients_impl(term, var_index, result, multiplier)
+        return
+
+    if isinstance(expr, NaryProduct):
+        product_multiplier = multiplier
+        variable_factor: Expression | None = None
+        for factor in expr.factors:
+            value = _get_scalar_constant_value(factor)
+            if value is not None:
+                product_multiplier *= value
+            else:
+                variable_factor = factor
+        if variable_factor is not None:
+            _extract_all_coefficients_impl(
+                variable_factor, var_index, result, product_multiplier
+            )
 
 
 def _vstack(a: Any, b: Any) -> Any:
@@ -1208,6 +1441,7 @@ class LinearProgramExtractor:
         Raises:
             ValueError: If problem is not a valid LP.
         """
+        parameter_versions = _collect_parameter_versions(problem)
         source_vector = problem._single_vector_source()
         if source_vector is not None:
             n = source_vector.size
@@ -1270,6 +1504,8 @@ class LinearProgramExtractor:
                 b_eq=b_eq,
                 bounds=bounds,
                 variables=names,
+                parameter_versions=parameter_versions,
+                objective_coefficient_signature=problem._objective_coefficient_signature(),
             )
 
         c, sense, variables = self.extract_objective(problem)
@@ -1285,6 +1521,8 @@ class LinearProgramExtractor:
             b_eq=b_eq,
             bounds=bounds,
             variables=[v.name for v in variables],
+            parameter_versions=parameter_versions,
+            objective_coefficient_signature=problem._objective_coefficient_signature(),
         )
 
 

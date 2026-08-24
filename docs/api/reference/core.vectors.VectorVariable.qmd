@@ -11,13 +11,13 @@ providing natural indexing, slicing, and iteration.
 
 ## Parameters {.doc-section .doc-section-parameters}
 
-| Name   | Type                                          | Description                                                                 | Default        |
-|--------|-----------------------------------------------|-----------------------------------------------------------------------------|----------------|
-| name   | [str](`str`)                                  | Base name for the vector. Elements are named "{name}[0]", "{name}[1]", etc. | _required_     |
-| size   | [int](`int`)                                  | Number of elements in the vector.                                           | _required_     |
-| lb     | [float](`float`) \| None                      | Lower bound applied to all elements (None for unbounded).                   | `None`         |
-| ub     | [float](`float`) \| None                      | Upper bound applied to all elements (None for unbounded).                   | `None`         |
-| domain | [DomainType](`optyx.core.vectors.DomainType`) | Variable type for all elements - 'continuous', 'integer', or 'binary'.      | `'continuous'` |
+| Name   | Type                                                                                                                        | Description                                                                 | Default        |
+|--------|-----------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------|----------------|
+| name   | [str](`str`)                                                                                                                | Base name for the vector. Elements are named "{name}[0]", "{name}[1]", etc. | _required_     |
+| size   | [int](`int`)                                                                                                                | Number of elements in the vector.                                           | _required_     |
+| lb     | [float](`float`) \| [Sequence](`collections.abc.Sequence`)\[[float](`float`)\] \| [NDArray](`numpy.typing.NDArray`) \| None | Lower bound applied to all elements (None for unbounded).                   | `None`         |
+| ub     | [float](`float`) \| [Sequence](`collections.abc.Sequence`)\[[float](`float`)\] \| [NDArray](`numpy.typing.NDArray`) \| None | Upper bound applied to all elements (None for unbounded).                   | `None`         |
+| domain | [DomainType](`optyx.core.vectors.DomainType`)                                                                               | Variable type for all elements - 'continuous', 'integer', or 'binary'.      | `'continuous'` |
 
 ## Example {.doc-section .doc-section-example}
 
@@ -27,10 +27,17 @@ providing natural indexing, slicing, and iteration.
 >>> len(x)  # 5
 >>> for v in x: print(v.name)  # x[0], x[1], ..., x[4]
 
+## Attributes
+
+| Name | Description |
+| --- | --- |
+| [T](#optyx.core.vectors.VectorVariable.T) | Transpose is not supported for vectors. |
+
 ## Methods
 
 | Name | Description |
 | --- | --- |
+| [between](#optyx.core.vectors.VectorVariable.between) | Create element-wise range constraints: lb <= self <= ub. |
 | [dot](#optyx.core.vectors.VectorVariable.dot) | Compute dot product with another vector. |
 | [eq](#optyx.core.vectors.VectorVariable.eq) | Element-wise == constraint. |
 | [from_numpy](#optyx.core.vectors.VectorVariable.from_numpy) | Create a VectorVariable with size inferred from a NumPy array. |
@@ -38,6 +45,20 @@ providing natural indexing, slicing, and iteration.
 | [norm](#optyx.core.vectors.VectorVariable.norm) | Compute the norm of this vector. |
 | [sum](#optyx.core.vectors.VectorVariable.sum) | Compute sum of all elements in the vector. |
 | [to_numpy](#optyx.core.vectors.VectorVariable.to_numpy) | Extract solution values as a NumPy array. |
+
+### between { #optyx.core.vectors.VectorVariable.between }
+
+```python
+core.vectors.VectorVariable.between(lb, ub)
+```
+
+Create element-wise range constraints: lb <= self <= ub.
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                           | Description                               |
+|--------|----------------------------------------------------------------|-------------------------------------------|
+|        | [list](`list`)\[[Constraint](`optyx.constraints.Constraint`)\] | List of constraints covering both bounds. |
 
 ### dot { #optyx.core.vectors.VectorVariable.dot }
 
@@ -47,6 +68,11 @@ core.vectors.VectorVariable.dot(other)
 
 Compute dot product with another vector.
 
+Special case: if ``other`` is a ``MatrixVectorProduct`` of ``A @ self``,
+this returns a ``QuadraticForm`` for optimized gradient computation.
+That is, ``x.dot(A @ x)`` returns ``QuadraticForm(x, A)`` which has an
+O(1) gradient rule instead of the general O(n) DotProduct gradient.
+
 #### Parameters {.doc-section .doc-section-parameters}
 
 | Name   | Type                                                                                                               | Description                         | Default    |
@@ -55,9 +81,9 @@ Compute dot product with another vector.
 
 #### Returns {.doc-section .doc-section-returns}
 
-| Name   | Type                                          | Description                     |
-|--------|-----------------------------------------------|---------------------------------|
-|        | [DotProduct](`optyx.core.vectors.DotProduct`) | DotProduct expression (scalar). |
+| Name   | Type                                                                                               | Description                                                            |
+|--------|----------------------------------------------------------------------------------------------------|------------------------------------------------------------------------|
+|        | [DotProduct](`optyx.core.vectors.DotProduct`) \| [Expression](`optyx.core.expressions.Expression`) | DotProduct expression (scalar), or QuadraticForm if other is A @ self. |
 
 #### Example {.doc-section .doc-section-example}
 
@@ -66,6 +92,11 @@ Compute dot product with another vector.
 >>> d = x.dot(y)
 >>> d.evaluate({"x[0]": 1, "x[1]": 2, "x[2]": 3, "y[0]": 4, "y[1]": 5, "y[2]": 6})
 32.0
+
+>>> # Quadratic form optimization: x.dot(Q @ x) -> QuadraticForm
+>>> import numpy as np
+>>> Q = np.eye(3)
+>>> qf = x.dot(Q @ x)  # Returns QuadraticForm, not DotProduct
 
 ### eq { #optyx.core.vectors.VectorVariable.eq }
 

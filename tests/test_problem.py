@@ -1,10 +1,16 @@
 """Tests for the Problem class."""
 
+import numpy as np
 import pytest
 
-from optyx import Variable
+from optyx import MatrixVariable, Variable, VectorVariable
 from optyx.problem import Problem
-from optyx.core.errors import InvalidOperationError, ConstraintError, NoObjectiveError
+from optyx.core.errors import (
+    ConstraintError,
+    InvalidOperationError,
+    NoObjectiveError,
+    VariableConflictError,
+)
 
 
 class TestProblemCreation:
@@ -72,6 +78,86 @@ class TestProblemVariables:
         assert prob.variables == [x]
 
 
+class TestVariableNameConflicts:
+    """Same-name declarations must agree before they can act as aliases."""
+
+    def test_conflicting_bounds_across_objective_and_constraint(self):
+        objective_x = Variable("x", lb=0, ub=1)
+        constraint_x = Variable("x", lb=5, ub=10)
+        prob = Problem().minimize(objective_x).subject_to(constraint_x >= 6)
+
+        with pytest.raises(VariableConflictError, match="variable 'x'.*lb.*ub"):
+            _ = prob.variables
+
+    @pytest.mark.parametrize(
+        ("first", "second", "field"),
+        [
+            (
+                Variable("x", domain="continuous"),
+                Variable("x", domain="integer"),
+                "domain",
+            ),
+            (Variable("x", obj=1), Variable("x", obj=2), "obj"),
+        ],
+    )
+    def test_conflicting_domain_or_objective_metadata(self, first, second, field):
+        prob = Problem().minimize(first + second)
+
+        with pytest.raises(VariableConflictError, match=field):
+            _ = prob.variables
+
+    def test_matching_declarations_remain_compatible_aliases(self):
+        objective_x = Variable("x", lb=0, ub=10, obj=2)
+        constraint_x = Variable("x", lb=0, ub=10, obj=2)
+        prob = Problem().minimize(objective_x).subject_to(constraint_x >= 1)
+
+        assert prob.variables == [objective_x]
+
+    def test_cached_aliases_are_revalidated_after_metadata_mutation(self):
+        first = Variable("x", lb=0, ub=10)
+        alias = Variable("x", lb=0, ub=10)
+        prob = Problem().minimize(first + alias)
+        assert prob.variables == [first]
+
+        alias.lb = 2
+
+        with pytest.raises(VariableConflictError, match="lb"):
+            _ = prob.variables
+
+    def test_solve_rejects_conflict_before_solver_dispatch(self):
+        first = Variable("x", lb=0, ub=1)
+        second = Variable("x", lb=2, ub=3)
+        prob = Problem().minimize(first + second)
+
+        with pytest.raises(VariableConflictError):
+            prob.solve()
+
+    def test_vector_expression_conflicts_are_detected(self):
+        first = VectorVariable("x", 2, lb=0, ub=1)
+        second = VectorVariable("x", 2, lb=2, ub=3)
+        prob = Problem().minimize(first.sum() + second.sum())
+
+        with pytest.raises(VariableConflictError, match=r"x\[0\]"):
+            _ = prob.variables
+
+    def test_matrix_expression_conflicts_are_detected(self):
+        first = MatrixVariable("X", 1, 1, lb=0, ub=1)
+        second = MatrixVariable("X", 1, 1, lb=2, ub=3)
+        prob = Problem().minimize(first.sum() + second.sum())
+
+        with pytest.raises(VariableConflictError, match=r"X\[0,0\]"):
+            _ = prob.variables
+
+    def test_matrix_constraint_conflicts_are_detected(self):
+        objective_x = Variable("x[0]", lb=0, ub=1)
+        constraint_x = VectorVariable("x", 1, lb=2, ub=3)
+        prob = Problem().minimize(objective_x)
+        prob.subject_to(np.ones((1, 1)) @ constraint_x >= np.ones(1))
+
+        with pytest.raises(VariableConflictError, match=r"x\[0\]"):
+            _ = prob.variables
+
+
 class TestProblemBounds:
     """Tests for variable bounds extraction."""
 
@@ -134,6 +220,34 @@ class TestProblemRepr:
         prob = Problem().minimize(x**2)
         repr_str = repr(prob)
         assert "minimize" in repr_str
+
+
+class TestProblemSummary:
+    """Tests for complete scalar and matrix constraint counts."""
+
+    def test_matrix_inequality_rows_are_included(self):
+        x = VectorVariable("x", 2)
+        prob = Problem("matrix-summary").minimize(x.sum())
+        prob.subject_to(np.eye(2) @ x <= np.ones(2))
+
+        assert "Constraints: 2 (0 equality, 2 inequality)" in prob.summary()
+
+    def test_matrix_equality_rows_are_included(self):
+        x = VectorVariable("x", 3)
+        prob = Problem().minimize(x.sum())
+        prob.subject_to((np.eye(3) @ x).eq(np.ones(3)))
+
+        assert "Constraints: 3 (3 equality, 0 inequality)" in prob.summary()
+
+    def test_mixed_scalar_and_matrix_subtotals_match_total(self):
+        x = VectorVariable("x", 3)
+        prob = Problem().minimize(x.sum())
+        prob.subject_to(x[0] >= 0)
+        prob.subject_to((np.eye(3) @ x).eq(np.ones(3)))
+        prob.subject_to(np.ones((2, 3)) @ x <= np.ones(2))
+
+        assert prob.n_constraints == 6
+        assert "Constraints: 6 (3 equality, 3 inequality)" in prob.summary()
 
 
 class TestProblemInputValidation:

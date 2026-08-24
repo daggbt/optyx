@@ -1,0 +1,23 @@
+# solution.SolverProgress { #optyx.solution.SolverProgress }
+
+```python
+solution.SolverProgress(
+    iteration,
+    objective_value,
+    constraint_violation,
+    elapsed_time,
+    x,
+)
+```
+
+Snapshot of solver state passed to user callbacks during optimization.
+
+## Attributes {.doc-section .doc-section-attributes}
+
+| Name                 | Type                                                                            | Description                                           |
+|----------------------|---------------------------------------------------------------------------------|-------------------------------------------------------|
+| iteration            | [int](`int`)                                                                    | Current iteration number.                             |
+| objective_value      | [float](`float`)                                                                | Current objective function value (in original sense). |
+| constraint_violation | [float](`float`)                                                                | Maximum constraint violation (0.0 if feasible).       |
+| elapsed_time         | [float](`float`)                                                                | Wall-clock time since solve started (seconds).        |
+| x                    | [NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[floating](`numpy.floating`)\] | Current variable values as a numpy array.             |

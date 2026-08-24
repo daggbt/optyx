@@ -7,10 +7,13 @@ than integers.
 
 from __future__ import annotations
 
-from typing import Iterator, Literal, Mapping, Sequence
+from typing import TYPE_CHECKING, Iterator, Literal, Mapping, Sequence, cast
 
 
 from optyx.core.expressions import Constant, Expression, Variable
+
+if TYPE_CHECKING:
+    from optyx.solution import Solution
 
 
 class VariableDict:
@@ -173,7 +176,7 @@ class VariableDict:
         """Return all Variable objects in key order."""
         return [self._variables[k] for k in self._keys]
 
-    def to_dict(self, solution) -> dict[str, float]:
+    def to_dict(self, solution: Solution) -> dict[str, float]:
         """Extract variable values from a solution as a ``{key: value}`` dict.
 
         This is a convenience wrapper around ``solution[variable_dict]``.
@@ -184,7 +187,7 @@ class VariableDict:
         Returns:
             Dict mapping each key to its optimal value.
         """
-        return solution[self]
+        return cast(dict[str, float], solution[self])
 
     def _resolve_keys(self, keys: Sequence[str] | None) -> list[str]:
         """Resolve and validate a key subset."""

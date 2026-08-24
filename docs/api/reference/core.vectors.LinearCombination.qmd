@@ -32,6 +32,7 @@ This enables efficient numpy integration: `coefficients @ vector`.
 | --- | --- |
 | [evaluate](#optyx.core.vectors.LinearCombination.evaluate) | Evaluate the linear combination given variable values. |
 | [get_variables](#optyx.core.vectors.LinearCombination.get_variables) | Return all variables this expression depends on. |
+| [jacobian_row](#optyx.core.vectors.LinearCombination.jacobian_row) | Return Jacobian row in O(n) - coefficients are the gradients. |
 
 ### evaluate { #optyx.core.vectors.LinearCombination.evaluate }
 
@@ -48,3 +49,20 @@ core.vectors.LinearCombination.get_variables()
 ```
 
 Return all variables this expression depends on.
+
+### jacobian_row { #optyx.core.vectors.LinearCombination.jacobian_row }
+
+```python
+core.vectors.LinearCombination.jacobian_row(variables)
+```
+
+Return Jacobian row in O(n) - coefficients are the gradients.
+
+For LinearCombination(c, x), gradient is c[i] for x[i], 0 otherwise.
+This is O(n) but avoids n separate gradient() calls.
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                                        | Description                                                           |
+|--------|-----------------------------------------------------------------------------|-----------------------------------------------------------------------|
+|        | [list](`list`)\[[Expression](`optyx.core.expressions.Expression`)\] \| None | List of Constant expressions, or None if optimization not applicable. |

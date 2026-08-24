@@ -7,15 +7,18 @@ and using the HiGHS solver for efficient LP solving.
 from __future__ import annotations
 
 import time
-import warnings
 from typing import TYPE_CHECKING, Any
 
-import scipy
+import numpy as np
 
 from optyx.core.errors import (
     NoObjectiveError,
     NonLinearError,
     SolverError,
+)
+from optyx.solvers.feasibility import (
+    DEFAULT_FEASIBILITY_ATOL,
+    compute_linear_problem_violation,
 )
 
 if TYPE_CHECKING:
@@ -23,15 +26,14 @@ if TYPE_CHECKING:
     from optyx.solution import Solution
 
 
-# Minimum SciPy version for HiGHS solver
-MIN_SCIPY_VERSION = "1.6.0"
-
-
-def _check_scipy_version() -> bool:
-    """Check if SciPy version supports HiGHS solver."""
-    from packaging import version
-
-    return version.parse(scipy.__version__) >= version.parse(MIN_SCIPY_VERSION)
+def _lp_cache_is_current(problem: Problem) -> bool:
+    """Return whether cached LP numerics match all mutable model inputs."""
+    return bool(
+        problem._lp_cache is not None
+        and problem._lp_cache.parameters_are_current()
+        and problem._lp_cache.objective_coefficient_signature
+        == problem._objective_coefficient_signature()
+    )
 
 
 def solve_lp(
@@ -52,17 +54,15 @@ def solve_lp(
             - None or "highs" (default): Automatic HiGHS method selection
             - "highs-ds": HiGHS dual simplex
             - "highs-ipm": HiGHS interior point method
-        strict: If True, raise ValueError when the problem contains features
-            that the solver cannot handle exactly (e.g., integer/binary
-            variables). If False (default), emit a warning and relax.
+        strict: Retained for API compatibility. Linear integer and binary
+            variables are handled by the MILP path regardless of this value.
         **kwargs: Additional arguments passed to scipy.optimize.linprog.
 
     Returns:
         Solution object with optimization results.
 
     Raises:
-        ValueError: If the problem is not a valid linear program, or if
-            strict=True and the problem contains unsupported features.
+        NonLinearError: If the problem is not a valid linear program.
     """
     from scipy.optimize import linprog
 
@@ -106,7 +106,8 @@ def solve_lp(
         from optyx.solvers.milp_solver import solve_milp
 
         # Extract LP coefficients (use cache if available)
-        if problem._lp_cache is not None:
+        if _lp_cache_is_current(problem):
+            assert problem._lp_cache is not None
             lp_data = problem._lp_cache
         else:
             extractor = LinearProgramExtractor()
@@ -122,22 +123,12 @@ def solve_lp(
         assert variables is not None
         return solve_milp(lp_data, variables, **kwargs)
 
-    # Check SciPy version and select method
     if method is None:
         method = "highs"
 
-    if not _check_scipy_version():
-        warnings.warn(
-            f"HiGHS solver requires SciPy >= {MIN_SCIPY_VERSION}. "
-            f"Current version: {scipy.__version__}. Falling back to 'highs-ds'.",
-            UserWarning,
-            stacklevel=2,
-        )
-        # For older scipy, highs-ds is usually available
-        method = "highs-ds"
-
     # Extract LP coefficients (use cache if available)
-    if problem._lp_cache is not None:
+    if _lp_cache_is_current(problem):
+        assert problem._lp_cache is not None
         lp_data = problem._lp_cache
     else:
         extractor = LinearProgramExtractor()
@@ -225,6 +216,25 @@ def solve_lp(
     elif status == SolverStatus.INFEASIBLE:
         message = f"{message} No feasible solution exists."
 
+    lb = np.array(
+        [bound[0] if bound[0] is not None else -np.inf for bound in fresh_bounds]
+    )
+    ub = np.array(
+        [bound[1] if bound[1] is not None else np.inf for bound in fresh_bounds]
+    )
+    constraint_violation = compute_linear_problem_violation(
+        result.x,
+        A_ub=lp_data.A_ub,
+        b_ub=lp_data.b_ub,
+        A_eq=lp_data.A_eq,
+        b_eq=lp_data.b_eq,
+        lb=lb,
+        ub=ub,
+    )
+    feasibility_tolerance = (
+        DEFAULT_FEASIBILITY_ATOL if constraint_violation is not None else None
+    )
+
     return Solution(
         status=status,
         objective_value=objective_value,
@@ -232,4 +242,6 @@ def solve_lp(
         iterations=result.nit if hasattr(result, "nit") else None,
         message=message,
         solve_time=solve_time,
+        constraint_violation=constraint_violation,
+        feasibility_tolerance=feasibility_tolerance,
     )

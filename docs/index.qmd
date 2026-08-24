@@ -217,7 +217,9 @@ for scenario in scenarios:
     solution = problem.solve(x0=scenario)
 ```
 
-Up to **800x faster** on repeated solves.
+Re-solves avoid rebuilding unchanged symbolic and solver structures. The actual
+speedup depends on problem size, solver iterations, and what changed between
+solves.
 :::
 
 :::
@@ -249,7 +251,11 @@ x**2 + y**2         →        Expression Tree        →       SciPy's minimize
 
 ::: {.callout-warning}
 ## Honest About Overhead
-The symbolic layer adds compilation cost. First solve is ~1.5-2x slower than hand-written SciPy. The payoff comes from: (1) never writing gradients, (2) re-solves reusing compiled functions, (3) readable code you can maintain.
+The symbolic layer adds model-building and compilation work. The bundled
+benchmarks show that the ratio to raw SciPy varies by model type and size. The
+payoff comes from exact generated derivatives, cached re-solves, and readable
+models you can maintain. Consult the versioned benchmark page rather than
+assuming one fixed overhead ratio.
 :::
 
 [Full technical deep-dive →](getting-started/how-it-works.qmd)
@@ -594,9 +600,9 @@ Optyx is designed for developer productivity first, but it's not slow:
 
 | Scenario | Time vs Raw SciPy | Notes |
 |----------|-------------------|-------|
-| Linear programs | ~1.0x | Near-parity via HiGHS |
-| Nonlinear (first solve) | ~1.5-2.0x | Autodiff compilation cost |
-| Nonlinear (re-solve) | **0.001-0.4x** | Cached structure wins |
+| Linear programs | 1.1-1.8x cold | Latest vectorized results from n=50 to n=5,000; warm overhead is 1.0-1.3x |
+| Quadratic NLP (first solve) | 2.1-2.6x | Latest measured unconstrained NLP from n=50 to n=5,000 |
+| Quadratic NLP (re-solve) | 1.2-1.5x | Cached structure reduces overhead in the latest run |
 
 For problems where compilation is amortized over many solves, Optyx can be *orders of magnitude faster* than naive loops.
 
@@ -701,6 +707,16 @@ Optyx is actively developed. On the roadmap:
 - **Debugging tools** — Infeasibility diagnostics and constraint analysis
 - **Stochastic programming** — Scenario-based optimization support
 
+
+---
+
+::: {.callout-warning}
+## Documentation disclaimer
+
+This documentation is largely generated with the assistance of AI and may
+contain errors. If you spot an error or a discrepancy between the documentation
+and Optyx's behaviour, please [create an issue](https://github.com/optyx-dev/optyx/issues/new).
+:::
 
 ---
 

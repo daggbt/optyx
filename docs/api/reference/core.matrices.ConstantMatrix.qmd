@@ -1,0 +1,10 @@
+# core.matrices.ConstantMatrix { #optyx.core.matrices.ConstantMatrix }
+
+```python
+core.matrices.ConstantMatrix(data, storage='auto')
+```
+
+Wrapper for constant dense or sparse matrices used in symbolic products.
+
+This allows ``A @ x`` syntax for matrices that don't naturally defer to
+Optyx's ``VectorVariable.__rmatmul__``, notably ``scipy.sparse`` matrices.

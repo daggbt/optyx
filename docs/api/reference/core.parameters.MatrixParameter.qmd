@@ -1,0 +1,140 @@
+# core.parameters.MatrixParameter { #optyx.core.parameters.MatrixParameter }
+
+```python
+core.parameters.MatrixParameter(name, values, symmetric=False)
+```
+
+A matrix of parameters for array-valued constants.
+
+MatrixParameter stores a 2D array of constant values that can be
+updated between solves without rebuilding the problem structure.
+This is useful for:
+- Covariance matrices in portfolio optimization
+- Constraint coefficient matrices that change over time
+- Distance/cost matrices in routing problems
+
+Unlike VectorParameter (which creates individual Parameter objects),
+MatrixParameter stores values directly for efficiency with large matrices.
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name      | Type                                  | Description                                                                                                   | Default    |
+|-----------|---------------------------------------|---------------------------------------------------------------------------------------------------------------|------------|
+| name      | [str](`str`)                          | Name identifier for this parameter matrix.                                                                    | _required_ |
+| values    | [ArrayLike](`numpy.typing.ArrayLike`) | Initial 2D array of values.                                                                                   | _required_ |
+| symmetric | [bool](`bool`)                        | If True, enforce and exploit symmetry. Only the upper triangle is stored, and updates must maintain symmetry. | `False`    |
+
+## Example {.doc-section .doc-section-example}
+
+>>> import numpy as np
+>>> from optyx import VectorVariable, MatrixParameter
+>>>
+>>> # Portfolio with updatable covariance
+>>> cov = np.array([[0.04, 0.01], [0.01, 0.09]])
+>>> Sigma = MatrixParameter("Sigma", cov, symmetric=True)
+>>> weights = VectorVariable("w", 2, lb=0, ub=1)
+>>>
+>>> # Access elements
+>>> Sigma[0, 1]  # 0.01
+>>> Sigma.values  # Full 2D array
+>>>
+>>> # Update for re-solve
+>>> new_cov = np.array([[0.05, 0.02], [0.02, 0.10]])
+>>> Sigma.set(new_cov)
+
+## Attributes
+
+| Name | Description |
+| --- | --- |
+| [cols](#optyx.core.parameters.MatrixParameter.cols) | Get the number of columns. |
+| [rows](#optyx.core.parameters.MatrixParameter.rows) | Get the number of rows. |
+| [shape](#optyx.core.parameters.MatrixParameter.shape) | Get the shape of the matrix. |
+| [symmetric](#optyx.core.parameters.MatrixParameter.symmetric) | Check if this matrix is constrained to be symmetric. |
+| [values](#optyx.core.parameters.MatrixParameter.values) | Get the current matrix values. |
+
+## Methods
+
+| Name | Description |
+| --- | --- |
+| [col](#optyx.core.parameters.MatrixParameter.col) | Get a column as a 1D array. |
+| [row](#optyx.core.parameters.MatrixParameter.row) | Get a row as a 1D array. |
+| [set](#optyx.core.parameters.MatrixParameter.set) | Update the matrix values. |
+| [to_numpy](#optyx.core.parameters.MatrixParameter.to_numpy) | Get the matrix values as a numpy array. |
+
+### col { #optyx.core.parameters.MatrixParameter.col }
+
+```python
+core.parameters.MatrixParameter.col(j)
+```
+
+Get a column as a 1D array.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type         | Description   | Default    |
+|--------|--------------|---------------|------------|
+| j      | [int](`int`) | Column index. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                                            | Description                |
+|--------|---------------------------------------------------------------------------------|----------------------------|
+|        | [NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[floating](`numpy.floating`)\] | 1D array of column values. |
+
+### row { #optyx.core.parameters.MatrixParameter.row }
+
+```python
+core.parameters.MatrixParameter.row(i)
+```
+
+Get a row as a 1D array.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type         | Description   | Default    |
+|--------|--------------|---------------|------------|
+| i      | [int](`int`) | Row index.    | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                                            | Description             |
+|--------|---------------------------------------------------------------------------------|-------------------------|
+|        | [NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[floating](`numpy.floating`)\] | 1D array of row values. |
+
+### set { #optyx.core.parameters.MatrixParameter.set }
+
+```python
+core.parameters.MatrixParameter.set(values)
+```
+
+Update the matrix values.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                  | Description                               | Default    |
+|--------|---------------------------------------|-------------------------------------------|------------|
+| values | [ArrayLike](`numpy.typing.ArrayLike`) | New 2D array (must match original shape). | _required_ |
+
+#### Raises {.doc-section .doc-section-raises}
+
+| Name   | Type                       | Description                                              |
+|--------|----------------------------|----------------------------------------------------------|
+|        | [ValueError](`ValueError`) | If shape doesn't match or symmetric constraint violated. |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> Sigma.set(new_covariance_matrix)
+
+### to_numpy { #optyx.core.parameters.MatrixParameter.to_numpy }
+
+```python
+core.parameters.MatrixParameter.to_numpy()
+```
+
+Get the matrix values as a numpy array.
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                                            | Description                    |
+|--------|---------------------------------------------------------------------------------|--------------------------------|
+|        | [NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[floating](`numpy.floating`)\] | Copy of the internal 2D array. |

@@ -25,6 +25,12 @@ from optyx.core.errors import (
     InvalidOperationError,
     WrongDimensionalityError,
 )
+from optyx.core.validation import (
+    validate_binary_bounds,
+    validate_domain,
+    validate_scalar_bounds,
+    validate_vector_bounds,
+)
 
 if TYPE_CHECKING:
     from optyx.constraints import Constraint
@@ -1265,12 +1271,18 @@ class VectorVariable:
 
         self.name = name
         self.size = size
+        self._validate_bound_length(lb, "lb")
+        self._validate_bound_length(ub, "ub")
+        validate_domain(domain)
+        validate_vector_bounds(name, size, lb, ub)
+        if domain == "binary":
+            validate_binary_bounds(lb, ub)
+            lb = 0.0
+            ub = 1.0
+
         self.lb = lb
         self.ub = ub
         self.domain = domain
-
-        self._validate_bound_length(lb, "lb")
-        self._validate_bound_length(ub, "ub")
         self._variable_cache = None
         self._has_bound_overrides = False
 
@@ -1389,8 +1401,9 @@ class VectorVariable:
     def _get_variable(self, index: int) -> Variable:
         cache = self._variable_cache
         if cache is None:
-            cache = [None] * self.size
-            self._variable_cache = cache
+            new_cache: list[Variable | None] = [None] * self.size
+            self._variable_cache = new_cache
+            cache = new_cache
 
         variable = cache[index]
         if variable is None:
@@ -1402,9 +1415,11 @@ class VectorVariable:
     def _variables(self) -> list[Variable]:
         cache = self._variable_cache
         if cache is None:
-            variables = [self._create_variable(index) for index in range(self.size)]
+            variables: list[Variable | None] = [
+                self._create_variable(index) for index in range(self.size)
+            ]
             self._variable_cache = variables
-            return variables
+            return cast(list[Variable], variables)
 
         for index, variable in enumerate(cache):
             if variable is None:
@@ -1414,11 +1429,11 @@ class VectorVariable:
 
     @_variables.setter
     def _variables(self, value: list[Variable]) -> None:
-        cache = list(value)
+        cache: list[Variable | None] = list(value)
         self._variable_cache = cache
         self._has_bound_overrides = False
 
-        for index, variable in enumerate(cache):
+        for index, variable in enumerate(value):
             variable._metadata_callback = self._mark_bound_override
             if not self._matches_default_bounds(variable, index):
                 self._has_bound_overrides = True
@@ -1459,8 +1474,8 @@ class VectorVariable:
 
         elif isinstance(key, slice):
             # Get the sliced variables
-            indices = range(*key.indices(self.size))
-            sliced_vars = [self._get_variable(i) for i in indices]
+            slice_indices = range(*key.indices(self.size))
+            sliced_vars = [self._get_variable(i) for i in slice_indices]
             if len(sliced_vars) == 0:
                 raise IndexError("Slice results in empty VectorVariable")
 
@@ -1508,13 +1523,7 @@ class VectorVariable:
             )
 
         else:
-            # Original error fallback
             raise TypeError(f"Invalid index type: {type(key)}")
-            raise InvalidOperationError(
-                operation="vector indexing",
-                operand_types=(type(key).__name__,),
-                suggestion="Use integers for single elements or slices for subvectors.",
-            )
 
     @classmethod
     def _from_variables(
@@ -1529,6 +1538,8 @@ class VectorVariable:
 
         This is an internal constructor used for slicing.
         """
+        validate_domain(domain)
+        validate_scalar_bounds(name, lb, ub)
         # Create instance without calling __init__
         instance = object.__new__(cls)
         instance.name = name

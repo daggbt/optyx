@@ -29,6 +29,11 @@ from optyx.core.errors import (
     SquareMatrixError,
     WrongDimensionalityError,
 )
+from optyx.core.validation import (
+    validate_binary_bounds,
+    validate_domain,
+    validate_scalar_bounds,
+)
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray, ArrayLike
@@ -665,11 +670,20 @@ class MatrixVariable:
                 shape=(rows, cols),
             )
 
+        proposed_lb = float(lb) if lb is not None else None
+        proposed_ub = float(ub) if ub is not None else None
+        validate_domain(domain)
+        validate_scalar_bounds(name, proposed_lb, proposed_ub)
+        if domain == "binary":
+            validate_binary_bounds(lb, ub)
+            proposed_lb = 0.0
+            proposed_ub = 1.0
+
         self.name = name
         self.rows = rows
         self.cols = cols
-        self.lb = lb
-        self.ub = ub
+        self.lb = proposed_lb
+        self.ub = proposed_ub
         self.domain = domain
         self.symmetric = symmetric
         self._is_transpose = False
@@ -684,7 +698,12 @@ class MatrixVariable:
                     row.append(self._variables[j][i])
                 else:
                     row.append(
-                        Variable(f"{name}[{i},{j}]", lb=lb, ub=ub, domain=domain)
+                        Variable(
+                            f"{name}[{i},{j}]",
+                            lb=proposed_lb,
+                            ub=proposed_ub,
+                            domain=domain,
+                        )
                     )
             self._variables.append(row)
 
@@ -854,6 +873,8 @@ class MatrixVariable:
 
         This is an internal constructor used for slicing.
         """
+        validate_domain(domain)
+        validate_scalar_bounds(name, lb, ub)
         instance = object.__new__(cls)
         instance.name = name
         instance.rows = len(variables)

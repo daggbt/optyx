@@ -11,18 +11,132 @@ Supports native gradient rules for vector expressions (VectorSum,
 LinearCombination, DotProduct) with O(1) coefficient lookup for
 scalability to n=10,000+ variables.
 
+## Classes
+
+| Name | Description |
+| --- | --- |
+| [SparsityPattern](#optyx.core.autodiff.SparsityPattern) | Describes which gradient elements are structurally non-zero. |
+| [VectorExpressionPattern](#optyx.core.autodiff.VectorExpressionPattern) | Classification of patterns in gradient expressions for optimization. |
+| [VectorGradientPattern](#optyx.core.autodiff.VectorGradientPattern) | Represents a gradient of the form ∇f(x) = Ax + b. |
+
+### SparsityPattern { #optyx.core.autodiff.SparsityPattern }
+
+```python
+core.autodiff.SparsityPattern(nnz_indices, size, is_constant, constant_values)
+```
+
+Describes which gradient elements are structurally non-zero.
+
+Enables O(nnz) gradient/Jacobian computation by identifying which
+variables an expression depends on, without computing values.
+
+#### Attributes {.doc-section .doc-section-attributes}
+
+| Name            | Type                                                                                    | Description                                                                                          |
+|-----------------|-----------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------|
+| nnz_indices     | [NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[intp](`numpy.intp`)\]                 | Sorted array of indices (into the variables list) that have non-zero partial derivatives.            |
+| size            | [int](`int`)                                                                            | Total number of variables (length of full gradient vector).                                          |
+| is_constant     | [bool](`bool`)                                                                          | True if all non-zero gradients are constants (e.g. linear expr).                                     |
+| constant_values | [NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[floating](`numpy.floating`)\] \| None | If is_constant, the non-zero gradient values at nnz_indices. None if gradients are not all constant. |
+
+### VectorExpressionPattern { #optyx.core.autodiff.VectorExpressionPattern }
+
+```python
+core.autodiff.VectorExpressionPattern()
+```
+
+Classification of patterns in gradient expressions for optimization.
+
+These patterns allow the compiler to generate specialized, high-performance
+kernels for common vector operations instead of using generic element-wise logic.
+
+### VectorGradientPattern { #optyx.core.autodiff.VectorGradientPattern }
+
+```python
+core.autodiff.VectorGradientPattern(
+    linear_term,
+    constant_term,
+    vector,
+    linear_type=None,
+    linear_scale=0.0,
+    linear_diag=None,
+)
+```
+
+Represents a gradient of the form ∇f(x) = Ax + b.
+
+Used for vectorized compilation of gradients for:
+- Linear combinations (A=None, b=c)
+- Quadratic forms (A=Q+Q', b=0)
+- Dot products (A=2I, b=0)
+
 ## Functions
 
 | Name | Description |
 | --- | --- |
+| [analyze_gradient_sparsity](#optyx.core.autodiff.analyze_gradient_sparsity) | Analyze which gradient elements are structurally non-zero. |
+| [analyze_jacobian_sparsity](#optyx.core.autodiff.analyze_jacobian_sparsity) | Analyze the sparsity structure of the full Jacobian matrix. |
 | [apply_gradient_rule](#optyx.core.autodiff.apply_gradient_rule) | Apply the registered gradient rule for an expression type. |
 | [compile_hessian](#optyx.core.autodiff.compile_hessian) | Compile the Hessian for fast evaluation. |
 | [compile_jacobian](#optyx.core.autodiff.compile_jacobian) | Compile the Jacobian for fast evaluation. |
+| [compile_sparse_jacobian](#optyx.core.autodiff.compile_sparse_jacobian) | Compile the Jacobian for fast evaluation, returning sparse output. |
 | [compute_hessian](#optyx.core.autodiff.compute_hessian) | Compute the Hessian matrix of an expression. |
 | [compute_jacobian](#optyx.core.autodiff.compute_jacobian) | Compute the Jacobian matrix of expressions with respect to variables. |
+| [detect_affine_gradient_pattern](#optyx.core.autodiff.detect_affine_gradient_pattern) | Detect if an expression has a vectorizable gradient pattern: ∇f(x) = Ax + b. |
+| [detect_vector_gradient_pattern](#optyx.core.autodiff.detect_vector_gradient_pattern) | Detect the structural pattern of an expression. |
 | [gradient](#optyx.core.autodiff.gradient) | Compute the symbolic gradient of an expression with respect to a variable. |
 | [has_gradient_rule](#optyx.core.autodiff.has_gradient_rule) | Check if an expression type has a registered gradient rule. |
+| [increased_recursion_limit](#optyx.core.autodiff.increased_recursion_limit) | Temporarily increase Python's recursion limit. |
 | [register_gradient](#optyx.core.autodiff.register_gradient) | Decorator to register a gradient rule for an expression type. |
+
+### analyze_gradient_sparsity { #optyx.core.autodiff.analyze_gradient_sparsity }
+
+```python
+core.autodiff.analyze_gradient_sparsity(expr, variables)
+```
+
+Analyze which gradient elements are structurally non-zero.
+
+Determines which variables the expression depends on by walking the
+expression tree, then optionally checks if those gradients are constant
+(for linear expressions).
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name      | Type                                                            | Description                                              | Default    |
+|-----------|-----------------------------------------------------------------|----------------------------------------------------------|------------|
+| expr      | [Expression](`optyx.core.expressions.Expression`)               | The expression to analyze.                               | _required_ |
+| variables | [list](`list`)\[[Variable](`optyx.core.expressions.Variable`)\] | List of variables defining the gradient vector ordering. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                     | Description                                                      |
+|--------|----------------------------------------------------------|------------------------------------------------------------------|
+|        | [SparsityPattern](`optyx.core.autodiff.SparsityPattern`) | SparsityPattern describing which gradient elements are non-zero. |
+
+### analyze_jacobian_sparsity { #optyx.core.autodiff.analyze_jacobian_sparsity }
+
+```python
+core.autodiff.analyze_jacobian_sparsity(exprs, variables)
+```
+
+Analyze the sparsity structure of the full Jacobian matrix.
+
+Returns per-row sparsity patterns describing which columns of each
+Jacobian row are structurally non-zero.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name      | Type                                                                | Description                                    | Default    |
+|-----------|---------------------------------------------------------------------|------------------------------------------------|------------|
+| exprs     | [list](`list`)\[[Expression](`optyx.core.expressions.Expression`)\] | List of m expressions (rows of the Jacobian).  | _required_ |
+| variables | [list](`list`)\[[Variable](`optyx.core.expressions.Variable`)\]     | List of n variables (columns of the Jacobian). | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                                       | Description                                     |
+|--------|----------------------------------------------------------------------------|-------------------------------------------------|
+|        | [list](`list`)\[[SparsityPattern](`optyx.core.autodiff.SparsityPattern`)\] | List of m SparsityPattern objects, one per row. |
 
 ### apply_gradient_rule { #optyx.core.autodiff.apply_gradient_rule }
 
@@ -68,9 +182,14 @@ Compile the Hessian for fast evaluation.
 
 #### Returns {.doc-section .doc-section-returns}
 
-| Name   | Type   | Description                                                             |
-|--------|--------|-------------------------------------------------------------------------|
-|        |        | A callable that takes a 1D array and returns the Hessian as a 2D array. |
+| Name   | Type                                                                                                                                                                                                  | Description                                                             |
+|--------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------|
+|        | [Callable](`typing.Callable`)\[\[[NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[floating](`numpy.floating`)\]\], [NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[floating](`numpy.floating`)\]\] | A callable that takes a 1D array and returns the Hessian as a 2D array. |
+
+#### Performance {.doc-section .doc-section-performance}
+
+For VectorPowerSum and VectorUnarySum, the Hessian is diagonal,
+so we use O(n) vectorized computation instead of O(n²).
 
 ### compile_jacobian { #optyx.core.autodiff.compile_jacobian }
 
@@ -89,14 +208,43 @@ Compile the Jacobian for fast evaluation.
 
 #### Returns {.doc-section .doc-section-returns}
 
-| Name   | Type   | Description                                                              |
-|--------|--------|--------------------------------------------------------------------------|
-|        |        | A callable that takes a 1D array and returns the Jacobian as a 2D array. |
+| Name   | Type                                                                                                                                                                                                  | Description                                                              |
+|--------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------|
+|        | [Callable](`typing.Callable`)\[\[[NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[floating](`numpy.floating`)\]\], [NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[floating](`numpy.floating`)\]\] | A callable that takes a 1D array and returns the Jacobian as a 2D array. |
 
 #### Performance {.doc-section .doc-section-performance}
 
-For linear expressions where all Jacobian elements are constants,
-returns a pre-computed array directly (9.7x speedup vs element-by-element).
+- Checks for vector patterns (O(1)) per row.
+- Checks for constant rows (O(1)).
+- Batches execution per row (m calls instead of m*n).
+
+### compile_sparse_jacobian { #optyx.core.autodiff.compile_sparse_jacobian }
+
+```python
+core.autodiff.compile_sparse_jacobian(exprs, variables, density_threshold=0.5)
+```
+
+Compile the Jacobian for fast evaluation, returning sparse output.
+
+For sparse constraint systems (nnz << m*n), returns scipy.sparse.csr_matrix
+with O(nnz) memory instead of O(m*n).  Falls back to dense for high-density
+Jacobians.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name              | Type                                                                | Description                                                                                      | Default    |
+|-------------------|---------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|------------|
+| exprs             | [list](`list`)\[[Expression](`optyx.core.expressions.Expression`)\] | List of expressions (rows of the Jacobian).                                                      | _required_ |
+| variables         | [list](`list`)\[[Variable](`optyx.core.expressions.Variable`)\]     | List of variables (columns of the Jacobian).                                                     | _required_ |
+| density_threshold | [float](`float`)                                                    | If overall Jacobian density exceeds this, fall back to the dense compile_jacobian (default 0.5). | `0.5`      |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                                                                                                      | Description                                                       |
+|--------|-------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
+|        | [Callable](`typing.Callable`)\[\[[NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[floating](`numpy.floating`)\]\], [Any](`typing.Any`)\] | A callable that takes a 1D array and returns the Jacobian.        |
+|        | [Callable](`typing.Callable`)\[\[[NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[floating](`numpy.floating`)\]\], [Any](`typing.Any`)\] | Output is scipy.sparse.csr_matrix for sparse problems, or a dense |
+|        | [Callable](`typing.Callable`)\[\[[NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[floating](`numpy.floating`)\]\], [Any](`typing.Any`)\] | 2D ndarray for high-density problems.                             |
 
 ### compute_hessian { #optyx.core.autodiff.compute_hessian }
 
@@ -132,6 +280,10 @@ core.autodiff.compute_jacobian(exprs, variables)
 
 Compute the Jacobian matrix of expressions with respect to variables.
 
+Uses O(1) vectorized jacobian_row() methods when available for vector
+expressions (VectorSum, DotProduct, LinearCombination, QuadraticForm).
+Falls back to individual gradient() calls otherwise.
+
 #### Parameters {.doc-section .doc-section-parameters}
 
 | Name      | Type                                                                | Description                                         | Default    |
@@ -152,6 +304,41 @@ Compute the Jacobian matrix of expressions with respect to variables.
 >>> J = compute_jacobian(exprs, [x, y])
 >>> # J[0][0] = 2*x, J[0][1] = 1
 >>> # J[1][0] = y, J[1][1] = x
+
+### detect_affine_gradient_pattern { #optyx.core.autodiff.detect_affine_gradient_pattern }
+
+```python
+core.autodiff.detect_affine_gradient_pattern(expr)
+```
+
+Detect if an expression has a vectorizable gradient pattern: ∇f(x) = Ax + b.
+
+This enables O(1) compilation of gradients for common patterns like quadratic
+forms, dot products, and linear combinations, entirely bypassing the
+potentially large expression tree.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                              | Description                | Default    |
+|--------|---------------------------------------------------|----------------------------|------------|
+| expr   | [Expression](`optyx.core.expressions.Expression`) | The expression to analyze. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                                         | Description                                        |
+|--------|------------------------------------------------------------------------------|----------------------------------------------------|
+|        | [VectorGradientPattern](`optyx.core.autodiff.VectorGradientPattern`) \| None | VectorGradientPattern if detected, None otherwise. |
+
+### detect_vector_gradient_pattern { #optyx.core.autodiff.detect_vector_gradient_pattern }
+
+```python
+core.autodiff.detect_vector_gradient_pattern(expr, wrt=None)
+```
+
+Detect the structural pattern of an expression.
+
+Identifies standard forms like sums, dot products, and norms that can be
+optimized by the compiler.
 
 ### gradient { #optyx.core.autodiff.gradient }
 
@@ -204,6 +391,39 @@ Check if an expression type has a registered gradient rule.
 | Name   | Type           | Description                                                     |
 |--------|----------------|-----------------------------------------------------------------|
 |        | [bool](`bool`) | True if a gradient rule is registered for this expression type. |
+
+### increased_recursion_limit { #optyx.core.autodiff.increased_recursion_limit }
+
+```python
+core.autodiff.increased_recursion_limit(limit=5000)
+```
+
+Temporarily increase Python's recursion limit.
+
+This context manager can be used as a workaround for deep expression trees
+when the automatic iterative/recursive switching isn't sufficient.
+
+.. warning::
+    Use with caution - very high limits can cause stack overflow crashes.
+    The iterative gradient implementation is preferred for deep trees.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type         | Description                                    | Default   |
+|--------|--------------|------------------------------------------------|-----------|
+| limit  | [int](`int`) | The temporary recursion limit (default: 5000). | `5000`    |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                  | Description                                                           |
+|--------|---------------------------------------|-----------------------------------------------------------------------|
+|        | [Iterator](`typing.Iterator`)\[None\] | A context manager that restores the previous recursion limit when its |
+|        | [Iterator](`typing.Iterator`)\[None\] | ``with`` block exits.                                                 |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> with increased_recursion_limit(5000):
+...     grad = gradient(deep_expr, x)
 
 ### register_gradient { #optyx.core.autodiff.register_gradient }
 

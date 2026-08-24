@@ -1,7 +1,24 @@
 """Tests for NarySum, NaryProduct and flatten_expression."""
 
-from optyx.core.expressions import Variable, BinaryOp, NarySum, NaryProduct
+import numpy as np
+
+from optyx.analysis import (
+    _check_degree_bounded,
+    compute_degree,
+    extract_all_linear_coefficients,
+    is_linear,
+)
+from optyx.core.expressions import (
+    Variable,
+    Constant,
+    BinaryOp,
+    NarySum,
+    NaryProduct,
+)
+from optyx.core.functions import sin
 from optyx.core.optimizer import flatten_expression, optimize_expression
+from optyx.core.parameters import Parameter
+from optyx.core.vectors import VectorVariable
 
 
 def test_nary_sum_evaluation():
@@ -250,6 +267,85 @@ def test_flatten_does_not_mix_ops():
     # Top-level is *, children are sums — should not merge + and *
     assert isinstance(flat, BinaryOp)
     assert flat.op == "*"
+
+
+# ===================================================================
+# Degree analysis and LP extraction
+# ===================================================================
+
+
+def test_degree_is_preserved_by_flattening():
+    x = Variable("x")
+    y = Variable("y")
+    z = Variable("z")
+    expressions = (x + y + z, x * y * z)
+
+    for expr in expressions:
+        assert compute_degree(flatten_expression(expr)) == compute_degree(expr)
+
+
+def test_nary_degree_aggregation():
+    x = Variable("x")
+    y = Variable("y")
+
+    assert compute_degree(NarySum((Constant(1), x, y**2))) == 2
+    assert compute_degree(NaryProduct((Constant(2), x, y))) == 2
+    assert compute_degree(NarySum((Constant(1), Constant(2)))) == 0
+    assert compute_degree(NaryProduct((Constant(2), Constant(3)))) == 0
+    assert _check_degree_bounded(NaryProduct((Constant(2), x, y)), 2)
+    assert not _check_degree_bounded(NaryProduct((Constant(2), x, y)), 1)
+
+
+def test_nary_degree_rejects_nonpolynomial_child():
+    x = Variable("x")
+
+    assert compute_degree(NarySum((Constant(1), sin(x)))) is None
+    assert compute_degree(NaryProduct((Constant(2), sin(x)))) is None
+
+
+def test_nary_degree_handles_deep_child_iteratively():
+    x = Variable("x")
+    deep_expr = x
+    for _ in range(450):
+        deep_expr = deep_expr - x
+
+    assert compute_degree(NarySum((deep_expr, Constant(1)))) == 1
+
+
+def test_flattened_linear_sum_extracts_all_coefficients():
+    variables = [Variable(f"x{i}") for i in range(100)]
+    expr = flatten_expression(sum(variables[1:], start=variables[0]))
+    var_index = {variable.name: i for i, variable in enumerate(variables)}
+
+    coefficients = extract_all_linear_coefficients(expr, var_index, len(variables))
+
+    assert is_linear(expr)
+    np.testing.assert_array_equal(coefficients, np.ones(len(variables)))
+
+
+def test_nary_product_extracts_parameterized_coefficient():
+    x = Variable("x")
+    scale = Parameter("scale", 3)
+    expr = NaryProduct((Constant(2), scale, x))
+
+    coefficients = extract_all_linear_coefficients(expr, {"x": 0}, 1)
+
+    assert compute_degree(expr) == 1
+    np.testing.assert_array_equal(coefficients, [6.0])
+
+
+def test_nary_vector_sum_uses_single_vector_source():
+    from optyx import Problem
+
+    x = VectorVariable("x", 100, lb=0)
+    expr = NarySum((x.sum(), Constant(2)))
+    problem = Problem().minimize(expr)
+
+    assert problem._single_vector_source() is x
+    coefficients = extract_all_linear_coefficients(
+        expr, {x._name_at(i): i for i in range(x.size)}, x.size
+    )
+    np.testing.assert_array_equal(coefficients, np.ones(x.size))
 
 
 # ===================================================================

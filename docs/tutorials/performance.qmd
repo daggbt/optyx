@@ -9,7 +9,7 @@ date: last-modified
 Optyx is designed to handle large optimization problems efficiently. With v1.3.0, Optyx has made massive strides in automatic acceleration for typical high-dimensional optimization problems.
 
 By the end of this tutorial, you'll understand:
-- How vectorized gradients achieve near-parity CQP cold starts (≤2x overhead vs SciPy)
+- How vectorized gradients keep CQP construction and solves close to raw SciPy in the bundled benchmarks
 - The new scale of Sparse LP (100,000+ variables)
 - Native structure flattening for deep trees
 - Power-user utilities for edge cases
@@ -24,11 +24,11 @@ Optyx looks for common expressions and triggers **Vectorized Gradients**: O(1) m
 
 ### Equivalence Table & Benchmarks
 
-| Loop Pattern | Vectorized Equivalent | Cold Overhead vs SciPy (n=1000) |
-|--------------|----------------------|---------------------------------|
-| `sum(c[i]*x[i] for i ...)` | `c @ x` | **~1.1x** (LP at parity) |
-| `sum(x[i]**2 for i ...)` | `x.dot(x)` | **~1.8x** (CQP near-parity) |
-| double loop with `Q` | `x.dot(Q @ x)` | **~2x** (quadratic form) |
+| Loop Pattern | Vectorized Equivalent | Benefit |
+|--------------|----------------------|---------|
+| `sum(c[i]*x[i] for i ...)` | `c @ x` | Compact LP representation and vectorized coefficient handling |
+| `sum(x[i]**2 for i ...)` | `x.dot(x)` | Analytic vector gradient path |
+| double loop with `Q` | `x.dot(Q @ x)` | Structured quadratic-form evaluation and gradient |
 
 When Optyx encounters objects like `DotProduct` or `QuadraticForm`, the Jacobian compilation bypasses Python iteration entirely and applies pre-compiled numerical patterns like `nabla: 2x` or `nabla: Q+Q.T`.
 

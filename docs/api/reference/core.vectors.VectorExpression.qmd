@@ -27,10 +27,26 @@ such as `x + y` or `2 * x`.
 
 | Name | Description |
 | --- | --- |
+| [between](#optyx.core.vectors.VectorExpression.between) | Create element-wise range constraints: lb <= self <= ub. |
 | [dot](#optyx.core.vectors.VectorExpression.dot) | Compute dot product with another vector. |
 | [eq](#optyx.core.vectors.VectorExpression.eq) | Element-wise == constraint. |
 | [evaluate](#optyx.core.vectors.VectorExpression.evaluate) | Evaluate all expressions and return as list. |
 | [get_variables](#optyx.core.vectors.VectorExpression.get_variables) | Return all variables these expressions depend on. |
+| [sum](#optyx.core.vectors.VectorExpression.sum) | Sum of all elements. |
+
+### between { #optyx.core.vectors.VectorExpression.between }
+
+```python
+core.vectors.VectorExpression.between(lb, ub)
+```
+
+Create element-wise range constraints: lb <= self <= ub.
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                           | Description                               |
+|--------|----------------------------------------------------------------|-------------------------------------------|
+|        | [list](`list`)\[[Constraint](`optyx.constraints.Constraint`)\] | List of constraints covering both bounds. |
 
 ### dot { #optyx.core.vectors.VectorExpression.dot }
 
@@ -89,3 +105,23 @@ core.vectors.VectorExpression.get_variables()
 ```
 
 Return all variables these expressions depend on.
+
+### sum { #optyx.core.vectors.VectorExpression.sum }
+
+```python
+core.vectors.VectorExpression.sum()
+```
+
+Sum of all elements.
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                            | Description                              |
+|--------|-----------------------------------------------------------------|------------------------------------------|
+|        | [VectorExpressionSum](`optyx.core.vectors.VectorExpressionSum`) | VectorExpressionSum expression (scalar). |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> x = VectorVariable("x", 3)
+>>> y = VectorVariable("y", 3)
+>>> s = (x - y).sum()  # VectorExpressionSum, not nested BinaryOps

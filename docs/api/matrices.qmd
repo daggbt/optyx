@@ -92,7 +92,7 @@ P = MatrixVariable("P", 2, 2, lb=0, ub=1)
 
 # Constraints
 # 1. Rows must sum to 1 (stochastic matrix)
-prob.subject_to([sum(P[i, :]) == 1 for i in range(2)])
+prob.subject_to([sum(P[i, :]).eq(1) for i in range(2)])
 
 # 2. Must map x to y: x @ P == y
 # Note: x is 1x2, P is 2x2 -> result is 1x2

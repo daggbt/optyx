@@ -21,6 +21,7 @@ from optyx.core.errors import (
     ConstraintError,
     NoObjectiveError,
     UnsupportedOperationError,
+    VariableConflictError,
 )
 from optyx.core.expressions import _compute_name_sort_key
 
@@ -42,12 +43,6 @@ class _MatrixConstraint:
     sense: Literal["<=", ">=", "=="]
     variables: list[Variable]  # The VectorVariable's individual variables
 
-
-# Threshold for "small" problems where gradient-free methods are faster
-SMALL_PROBLEM_THRESHOLD = 3
-
-# Threshold for "large" problems where memory-efficient methods are preferred
-LARGE_PROBLEM_THRESHOLD = 1000
 
 # Thresholds for preferring trust-constr on large sparse NLPs
 SPARSE_NLP_ROW_THRESHOLD = 32
@@ -94,7 +89,13 @@ def _try_get_single_vector_source(expr: "Expression") -> "VectorVariable | None"
         VectorExpressionSum,
         DotProduct,
     )
-    from optyx.core.expressions import BinaryOp, UnaryOp, Constant
+    from optyx.core.expressions import (
+        BinaryOp,
+        UnaryOp,
+        Constant,
+        NarySum,
+        NaryProduct,
+    )
     from optyx.core.parameters import Parameter
 
     # Iterative traversal using explicit stack
@@ -191,6 +192,16 @@ def _try_get_single_vector_source(expr: "Expression") -> "VectorVariable | None"
             stack.append(current.operand)
             continue
 
+        # Flattened associative nodes retain the same vector source as their
+        # children and should not force the slower general variable path.
+        if isinstance(current, NarySum):
+            stack.extend(current.terms)
+            continue
+
+        if isinstance(current, NaryProduct):
+            stack.extend(current.factors)
+            continue
+
         # Any other type (e.g., scalar Variable) - not a vector source
         return None
 
@@ -212,7 +223,9 @@ class Problem:
     Note:
         The Problem class is not thread-safe. Compiled callables are cached
         per instance and reused across multiple solve() calls for performance.
-        Any mutation (adding constraints, changing objective) invalidates the cache.
+        Structural mutations invalidate the relevant caches. Mutable bounds,
+        parameters, and linear objective coefficients are re-read or versioned
+        so their current values are used on the next solve.
     """
 
     def __init__(self, name: str | None = None):
@@ -227,6 +240,7 @@ class Problem:
         self._constraints: list[Constraint] = []
         self._matrix_constraints: list[_MatrixConstraint] = []
         self._variables: list[Variable] | None = None  # Cached
+        self._variable_aliases: tuple[tuple[Variable, ...], ...] | None = None
         # Solver cache for compiled callables (reused across solve() calls)
         self._solver_cache: dict | None = None
         # LP data cache (reused across solve() calls for LP problems)
@@ -235,10 +249,12 @@ class Problem:
         self._is_linear_cache: bool | None = None
         # Warm start: last solution array (used as x0 on re-solve)
         self._last_solution: NDArray[np.floating] | None = None
+        self._last_solution_layout_signature: tuple[Any, ...] | None = None
 
     def _invalidate_caches(self) -> None:
         """Invalidate all cached data when problem is modified."""
         self._variables = None
+        self._variable_aliases = None
         self._solver_cache = None
         self._lp_cache = None
         self._is_linear_cache = None
@@ -250,6 +266,7 @@ class Problem:
         so they don't need to be recompiled when only constraints change.
         """
         self._variables = None
+        self._variable_aliases = None
         self._lp_cache = None
         self._is_linear_cache = None
         # Remove only constraint keys from solver cache, keeping obj_fn/grad_fn/hess_fn
@@ -408,9 +425,10 @@ class Problem:
             KeyError: If no constraint with the given name is found.
 
         Example:
-            >>> prob.subject_to((x + y <= 10).name == "cap")
+            >>> from optyx import Constraint
+            >>> capacity = x + y <= 10
+            >>> prob.subject_to(Constraint(capacity.expr, capacity.sense, name="cap"))
             >>> prob.remove_constraint("cap")
-            >>> prob.remove_constraint(0)  # Remove first constraint
         """
         if isinstance(index_or_name, int):
             idx = index_or_name
@@ -458,6 +476,7 @@ class Problem:
         """
         self._invalidate_caches()
         self._last_solution = None
+        self._last_solution_layout_signature = None
 
     def _validate_expression(
         self, expr: Expression | float | int, context: str
@@ -568,6 +587,91 @@ class Problem:
 
         return source_vector
 
+    @staticmethod
+    def _variable_metadata_conflicts(
+        first: Variable,
+        second: Variable,
+    ) -> dict[str, tuple[Any, Any]]:
+        """Return metadata fields that prevent two declarations being aliases."""
+        conflicts: dict[str, tuple[Any, Any]] = {}
+        for field in ("lb", "ub", "domain", "obj"):
+            first_value = getattr(first, field)
+            second_value = getattr(second, field)
+            if first_value != second_value:
+                conflicts[field] = (first_value, second_value)
+        return conflicts
+
+    @classmethod
+    def _validate_alias_groups(
+        cls,
+        groups: Iterable[tuple[Variable, ...]],
+    ) -> None:
+        """Ensure same-name variable objects still have compatible metadata."""
+        for group in groups:
+            first = group[0]
+            for alias in group[1:]:
+                conflicts = cls._variable_metadata_conflicts(first, alias)
+                if conflicts:
+                    raise VariableConflictError(first.name, conflicts)
+
+    @staticmethod
+    def _validate_vector_source_aliases(source_vector: VectorVariable) -> None:
+        """Validate a lazy single-vector layout without materializing variables."""
+        if source_vector._variable_cache is None:
+            return
+
+        metadata_by_name: dict[
+            str,
+            tuple[tuple[float | None, float | None], str, float],
+        ] = {}
+        for name, bounds, domain, obj in source_vector._iter_lp_metadata():
+            metadata = (bounds, domain, obj)
+            existing = metadata_by_name.get(name)
+            if existing is None:
+                metadata_by_name[name] = metadata
+                continue
+            if existing != metadata:
+                fields = ("lb", "ub", "domain", "obj")
+                first_values = (*existing[0], existing[1], existing[2])
+                second_values = (*bounds, domain, obj)
+                conflicts = {
+                    field: (first, second)
+                    for field, first, second in zip(fields, first_values, second_values)
+                    if first != second
+                }
+                raise VariableConflictError(name, conflicts)
+
+    def _validate_variable_declarations(self) -> None:
+        """Validate name aliases before any solver data is constructed."""
+        source_vector = self._single_vector_source()
+        if source_vector is not None:
+            self._validate_vector_source_aliases(source_vector)
+            return
+        _ = self.variables
+
+    def _objective_coefficient_signature(self) -> tuple[tuple[int, float], ...]:
+        """Return ordered non-zero ``Variable.obj`` coefficients.
+
+        The sparse representation keeps the common all-zero case allocation
+        free while still detecting mutable objective metadata between solves.
+        """
+        source_vector = self._single_vector_source()
+        if source_vector is not None:
+            cache = source_vector._variable_cache
+            if cache is None:
+                return ()
+            return tuple(
+                (index, float(variable.obj))
+                for index, variable in enumerate(cache)
+                if variable is not None and variable.obj != 0.0
+            )
+
+        return tuple(
+            (index, float(variable.obj))
+            for index, variable in enumerate(self.variables)
+            if variable.obj != 0.0
+        )
+
     @property
     def variables(self) -> list[Variable]:
         """All decision variables in the problem.
@@ -583,29 +687,51 @@ class Problem:
               guaranteed to be deterministic across runs.
         """
         if self._variables is not None:
+            if self._variable_aliases:
+                self._validate_alias_groups(self._variable_aliases)
             return self._variables
 
-        from optyx.core.expressions import get_all_variables
+        from optyx.core.expressions import get_all_variables_by_identity
 
         source_vector = self._single_vector_source()
         if source_vector is not None:
             # All variables from one VectorVariable - already in order!
             self._variables = list(source_vector._variables)
+            self._validate_vector_source_aliases(source_vector)
+            self._variable_aliases = ()
             return self._variables
 
-        # General case: collect from all expressions and sort
-        all_vars: set[Variable] = set()
+        # General case: retain identities until declarations have been checked.
+        discovered: list[Variable] = []
 
         if self._objective is not None:
-            all_vars.update(get_all_variables(self._objective))
+            discovered.extend(get_all_variables_by_identity(self._objective))
 
         for constraint in self._constraints:
-            all_vars.update(constraint.get_variables())
+            discovered.extend(get_all_variables_by_identity(constraint.expr))
 
         for mc in self._matrix_constraints:
-            all_vars.update(mc.variables)
+            discovered.extend(mc.variables)
 
-        self._variables = sorted(all_vars, key=_natural_sort_key)
+        groups_by_name: dict[str, list[Variable]] = {}
+        seen_ids: set[int] = set()
+        for variable in discovered:
+            variable_id = id(variable)
+            if variable_id in seen_ids:
+                continue
+            seen_ids.add(variable_id)
+            groups_by_name.setdefault(variable.name, []).append(variable)
+
+        alias_groups = tuple(
+            tuple(group) for group in groups_by_name.values() if len(group) > 1
+        )
+        self._validate_alias_groups(alias_groups)
+
+        self._variable_aliases = alias_groups
+        self._variables = sorted(
+            (group[0] for group in groups_by_name.values()),
+            key=_natural_sort_key,
+        )
         return self._variables
 
     @property
@@ -629,6 +755,7 @@ class Problem:
         """
         source_vector = self._single_vector_source()
         if source_vector is not None:
+            self._validate_vector_source_aliases(source_vector)
             return [bounds for _, bounds, _, _ in source_vector._iter_lp_metadata()]
 
         return [(v.lb, v.ub) for v in self.variables]
@@ -661,27 +788,6 @@ class Problem:
         # Matrix constraints are always linear by definition
         self._is_linear_cache = True
         return True
-
-    def _only_simple_bounds(self) -> bool:
-        """Check if all constraints are simple variable bounds.
-
-        Simple bounds are constraints on a single variable like x >= 0 or x <= 10.
-        """
-        if self._matrix_constraints:
-            return False
-
-        if not self._constraints:
-            return True
-
-        from optyx.analysis import is_simple_bound
-
-        return all(is_simple_bound(c, self.variables) for c in self._constraints)
-
-    def _has_equality_constraints(self) -> bool:
-        """Check if problem has any equality constraints."""
-        return any(c.sense == "==" for c in self._constraints) or any(
-            mc.sense == "==" for mc in self._matrix_constraints
-        )
 
     def _has_general_constraints(self) -> bool:
         """Check if the problem has any non-bound constraints."""
@@ -771,13 +877,6 @@ class Problem:
         if self._prefer_trust_constr_for_sparse_constraints():
             return "trust-constr"
 
-        # Only variable bounds (no general constraints)
-        # FIXME: L-BFGS-B does not support constraints passed via the 'constraints' argument.
-        # Until we implement merging of simple bound constraints into the variable bounds,
-        # we must avoid L-BFGS-B if there are any constraints in the list.
-        # if self._only_simple_bounds():
-        #     return "L-BFGS-B"
-
         # Check if objective is non-linear (degree > 2 or contains transcendental functions)
         obj = self.objective
         if obj is not None:
@@ -806,17 +905,20 @@ class Problem:
         warm_start: bool = True,
         callback: Callable[[SolverProgress], bool | None] | None = None,
         time_limit: float | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> Solution:
         """Solve the optimization problem.
 
         Args:
             method: Solver method. Options:
                 - "auto" (default): Automatically select the best method:
-                    - Linear problems → linprog (HiGHS)
-                    - Unconstrained → L-BFGS-B
-                    - Bounds only → L-BFGS-B
-                    - General constraints → SLSQP
+                    - Linear continuous models → linprog (HiGHS)
+                    - Linear discrete models → milp (HiGHS)
+                    - Unconstrained or bounds-only NLPs → L-BFGS-B
+                    - Large sparse constrained NLPs → trust-constr
+                    - Higher-degree or transcendental constrained NLPs → trust-constr
+                    - Linear/quadratic constrained NLPs → SLSQP, with a
+                      feasibility/stationarity-based trust-constr retry
                 - "linprog": Force LP solver (scipy.optimize.linprog)
                 - "highs": HiGHS LP solver (auto method selection)
                 - "highs-ds": HiGHS dual simplex
@@ -826,10 +928,9 @@ class Problem:
                 - "L-BFGS-B": Limited-memory BFGS with bounds
                 - "BFGS": Broyden-Fletcher-Goldfarb-Shanno
                 - "Nelder-Mead": Derivative-free simplex method
-            strict: If True, raise ValueError when the problem contains features
-                that the solver cannot handle exactly (e.g., integer/binary
-                variables with SciPy). If False (default), emit a warning and
-                use the best available approximation.
+            strict: Retained for API compatibility. Linear discrete models are
+                solved as MILPs, and nonlinear discrete models are rejected
+                regardless of this value.
             warm_start: If True (default), use the previous solution as the
                 initial point for re-solving. Only applies to NLP methods.
                 Call reset() to clear warm start state.
@@ -855,6 +956,8 @@ class Problem:
             raise NoObjectiveError(
                 suggestion="Call minimize() or maximize() on the problem first.",
             )
+
+        self._validate_variable_declarations()
 
         # Handle automatic method selection
         if method == "auto":
@@ -958,6 +1061,7 @@ class Problem:
         """Store solution values for warm starting subsequent solves."""
         if solution._raw_x is not None:
             self._last_solution = np.asarray(solution._raw_x, dtype=np.float64).copy()
+            self._last_solution_layout_signature = solution._raw_layout_signature
             return
 
         if solution.values:
@@ -971,6 +1075,10 @@ class Problem:
 
             x = np.array([solution.values.get(name, 0.0) for name in names])
             self._last_solution = x
+            # LP/MILP solutions do not currently expose the exact ordered Variable
+            # identities used by the SciPy compiler. Keep their warm-start data,
+            # but do not reuse it on the NLP path based on length alone.
+            self._last_solution_layout_signature = None
 
     def __repr__(self) -> str:
         obj_str = "not set" if self._objective is None else f"{self._sense}"
@@ -1038,16 +1146,22 @@ class Problem:
             >>> x = VectorVariable("x", 100, lb=0)
             >>> prob = Problem("portfolio")
             >>> prob.minimize(x.dot(x))
-            >>> prob.subject_to(x.sum() == 1)
+            >>> prob.subject_to(x.sum().eq(1))
             >>> print(prob.summary())
             Optyx Problem: portfolio
               Variables: 100
-              Constraints: 1 (0 equality, 1 inequality)
+              Constraints: 1 (1 equality, 0 inequality)
               Objective: minimize
         """
         # Count constraints by type
         n_eq = sum(1 for c in self._constraints if c.sense == "==")
         n_ineq = len(self._constraints) - n_eq
+        for matrix_constraint in self._matrix_constraints:
+            row_count = matrix_constraint.A.shape[0]
+            if matrix_constraint.sense == "==":
+                n_eq += row_count
+            else:
+                n_ineq += row_count
 
         # Build summary lines
         name_str = self.name or "Unnamed"

@@ -60,8 +60,17 @@ print(solution.values)
 | `.message` | `str` | Solver message |
 | `.mip_gap` | `float \| None` | Relative optimality gap (MILP only) |
 | `.best_bound` | `float \| None` | Best dual bound (MILP only) |
+| `.constraint_violation` | `float \| None` | Maximum measured bound or constraint violation |
+| `.feasibility_tolerance` | `float \| None` | Tolerance used by post-solve feasibility validation |
 | `.is_optimal` | `bool` | `True` if status is `OPTIMAL` |
-| `.is_feasible` | `bool` | `True` if status is `OPTIMAL`, `MAX_ITERATIONS`, or `TERMINATED` |
+| `.feasibility_checked` | `bool` | `True` when explicit feasibility evidence is available |
+| `.is_feasible` | `bool` | `True` only when validation was performed and violation is within tolerance |
+
+`is_feasible` is deliberately independent of termination status. A
+`MAX_ITERATIONS` or `TERMINATED` result is feasible only when its returned
+candidate has passed the same post-solve feasibility check. Older serialized
+solutions without feasibility metadata load successfully but do not claim
+feasibility.
 
 ### Examples
 

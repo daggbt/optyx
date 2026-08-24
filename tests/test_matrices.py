@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from optyx.core.errors import (
+    BoundsError,
     DimensionMismatchError,
     InvalidOperationError,
     InvalidSizeError,
@@ -91,6 +92,14 @@ class TestMatrixVariableBounds:
         assert A[0, 0].lb == 0
         assert A[0, 0].ub == 1
 
+    def test_invalid_bound_order_raises(self):
+        with pytest.raises(BoundsError, match="Lower bound cannot exceed"):
+            MatrixVariable("A", 2, 2, lb=2, ub=1)
+
+    def test_nan_bound_raises(self):
+        with pytest.raises(BoundsError, match="cannot be NaN"):
+            MatrixVariable("A", 2, 2, lb=np.nan)
+
 
 class TestMatrixVariableDomain:
     """Tests for domain types."""
@@ -110,6 +119,10 @@ class TestMatrixVariableDomain:
         """Default domain is continuous."""
         A = MatrixVariable("A", 2, 2)
         assert A.domain == "continuous"
+
+    def test_invalid_domain_raises_before_element_creation(self):
+        with pytest.raises(ValueError, match="Unknown domain"):
+            MatrixVariable("A", 100, 100, domain="bogus")  # type: ignore[arg-type]
 
 
 class TestMatrixVariableIndexing:

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 import json
 import os
 
@@ -140,6 +140,10 @@ class Solution:
         iterations: Number of solver iterations.
         message: Solver message or error description.
         solve_time: Time taken to solve (seconds).
+        constraint_violation: Maximum post-solve feasibility violation. ``None``
+            means feasibility was not checked.
+        feasibility_tolerance: Base absolute tolerance used for the feasibility
+            check. ``None`` means feasibility was not checked.
 
     Example:
         >>> solution = problem.solve()
@@ -157,7 +161,12 @@ class Solution:
     solve_time: float | None = None
     mip_gap: float | None = None
     best_bound: float | None = None
+    constraint_violation: float | None = None
+    feasibility_tolerance: float | None = None
     _raw_x: NDArray[np.floating] | None = field(default=None, repr=False, compare=False)
+    _raw_layout_signature: tuple[Any, ...] | None = field(
+        default=None, repr=False, compare=False
+    )
 
     @property
     def is_optimal(self) -> bool:
@@ -166,11 +175,20 @@ class Solution:
 
     @property
     def is_feasible(self) -> bool:
-        """Check if a feasible solution was found."""
-        return self.status in (
-            SolverStatus.OPTIMAL,
-            SolverStatus.MAX_ITERATIONS,
-            SolverStatus.TERMINATED,
+        """Return whether post-solve validation confirmed feasibility."""
+        return (
+            self.feasibility_checked
+            and self.constraint_violation is not None
+            and self.feasibility_tolerance is not None
+            and 0.0 <= self.constraint_violation <= self.feasibility_tolerance
+        )
+
+    @property
+    def feasibility_checked(self) -> bool:
+        """Return whether explicit post-solve feasibility evidence is available."""
+        return (
+            self.constraint_violation is not None
+            and self.feasibility_tolerance is not None
         )
 
     def to_dict(self) -> dict:
@@ -185,6 +203,8 @@ class Solution:
             "solve_time": self.solve_time,
             "mip_gap": self.mip_gap,
             "best_bound": self.best_bound,
+            "constraint_violation": self.constraint_violation,
+            "feasibility_tolerance": self.feasibility_tolerance,
         }
 
     def to_json(self, path: str | None = None) -> str:
@@ -229,6 +249,8 @@ class Solution:
             solve_time=data.get("solve_time"),
             mip_gap=data.get("mip_gap"),
             best_bound=data.get("best_bound"),
+            constraint_violation=data.get("constraint_violation"),
+            feasibility_tolerance=data.get("feasibility_tolerance"),
         )
 
     def print_vars(self) -> None:
@@ -241,7 +263,7 @@ class Solution:
             print(f"  {name}: {value:.6g}")
 
     def __getitem__(
-        self, var: Variable | VectorVariable | MatrixVariable | str
+        self, var: Variable | VectorVariable | MatrixVariable | VariableDict | str
     ) -> float | NDArray[np.floating] | dict[str, float]:
         """Get the optimal value of a variable.
 
@@ -338,7 +360,7 @@ class Solution:
 
     def get(
         self,
-        var: Variable | VectorVariable | MatrixVariable | str,
+        var: Variable | VectorVariable | MatrixVariable | VariableDict | str,
         default: float | NDArray[np.floating] | dict[str, float] | None = None,
     ) -> float | NDArray[np.floating] | dict[str, float] | None:
         """Get the optimal value of a variable with a default.
@@ -346,9 +368,11 @@ class Solution:
         For scalar Variable: returns float.
         For VectorVariable: returns 1D numpy array.
         For MatrixVariable: returns 2D numpy array.
+        For VariableDict: returns a dictionary keyed by its logical keys.
 
         Args:
-            var: Variable, VectorVariable, MatrixVariable, or variable name.
+            var: Variable, VectorVariable, MatrixVariable, VariableDict, or
+                variable name.
             default: Value to return if variable not found.
 
         Returns:

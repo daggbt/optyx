@@ -9,6 +9,12 @@ solution.Solution(
     iterations=None,
     message='',
     solve_time=None,
+    mip_gap=None,
+    best_bound=None,
+    constraint_violation=None,
+    feasibility_tolerance=None,
+    _raw_x=None,
+    _raw_layout_signature=None,
 )
 ```
 
@@ -16,21 +22,54 @@ Result of solving an optimization problem.
 
 ## Attributes {.doc-section .doc-section-attributes}
 
-| Name            | Type                                                     | Description                                            |
-|-----------------|----------------------------------------------------------|--------------------------------------------------------|
-| status          | [SolverStatus](`optyx.solution.SolverStatus`)            | Solver termination status.                             |
-| objective_value | [float](`float`) \| None                                 | Optimal objective function value (None if not solved). |
-| values          | [dict](`dict`)\[[str](`str`), [float](`float`)\]         | Dictionary mapping variable names to optimal values.   |
-| multipliers     | [dict](`dict`)\[[str](`str`), [float](`float`)\] \| None | Lagrange multipliers for constraints (if available).   |
-| iterations      | [int](`int`) \| None                                     | Number of solver iterations.                           |
-| message         | [str](`str`)                                             | Solver message or error description.                   |
-| solve_time      | [float](`float`) \| None                                 | Time taken to solve (seconds).                         |
+| Name                  | Type                                                     | Description                                                                                         |
+|-----------------------|----------------------------------------------------------|-----------------------------------------------------------------------------------------------------|
+| status                | [SolverStatus](`optyx.solution.SolverStatus`)            | Solver termination status.                                                                          |
+| objective_value       | [float](`float`) \| None                                 | Optimal objective function value (None if not solved).                                              |
+| values                | [dict](`dict`)\[[str](`str`), [float](`float`)\]         | Dictionary mapping variable names to optimal values.                                                |
+| multipliers           | [dict](`dict`)\[[str](`str`), [float](`float`)\] \| None | Lagrange multipliers for constraints (if available).                                                |
+| iterations            | [int](`int`) \| None                                     | Number of solver iterations.                                                                        |
+| message               | [str](`str`)                                             | Solver message or error description.                                                                |
+| solve_time            | [float](`float`) \| None                                 | Time taken to solve (seconds).                                                                      |
+| constraint_violation  | [float](`float`) \| None                                 | Maximum post-solve feasibility violation. ``None`` means feasibility was not checked.               |
+| feasibility_tolerance | [float](`float`) \| None                                 | Base absolute tolerance used for the feasibility check. ``None`` means feasibility was not checked. |
+
+## Example {.doc-section .doc-section-example}
+
+>>> solution = problem.solve()
+>>> if solution.is_optimal:
+...     print(f"Optimal value: {solution.objective_value}")
+...     print(f"x = {solution['x']}")
 
 ## Methods
 
 | Name | Description |
 | --- | --- |
+| [from_json](#optyx.solution.Solution.from_json) | Create solution from JSON string or file path. |
 | [get](#optyx.solution.Solution.get) | Get the optimal value of a variable with a default. |
+| [print_vars](#optyx.solution.Solution.print_vars) | Pretty-print variable values. |
+| [to_dict](#optyx.solution.Solution.to_dict) | Convert solution to dictionary. |
+| [to_json](#optyx.solution.Solution.to_json) | Convert solution to JSON string or save to file. |
+
+### from_json { #optyx.solution.Solution.from_json }
+
+```python
+solution.Solution.from_json(json_str_or_path)
+```
+
+Create solution from JSON string or file path.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name             | Type         | Description                       | Default    |
+|------------------|--------------|-----------------------------------|------------|
+| json_str_or_path | [str](`str`) | JSON string or path to JSON file. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                  | Description      |
+|--------|---------------------------------------|------------------|
+|        | [Solution](`optyx.solution.Solution`) | Solution object. |
 
 ### get { #optyx.solution.Solution.get }
 
@@ -43,16 +82,53 @@ Get the optimal value of a variable with a default.
 For scalar Variable: returns float.
 For VectorVariable: returns 1D numpy array.
 For MatrixVariable: returns 2D numpy array.
+For VariableDict: returns a dictionary keyed by its logical keys.
 
 #### Parameters {.doc-section .doc-section-parameters}
 
-| Name    | Type                                                                                                                                                                             | Description                                                 | Default    |
-|---------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------|------------|
-| var     | [Variable](`optyx.core.expressions.Variable`) \| [VectorVariable](`optyx.core.vectors.VectorVariable`) \| [MatrixVariable](`optyx.core.matrices.MatrixVariable`) \| [str](`str`) | Variable, VectorVariable, MatrixVariable, or variable name. | _required_ |
-| default | [float](`float`) \| [NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[floating](`numpy.floating`)\] \| None                                                                      | Value to return if variable not found.                      | `None`     |
+| Name    | Type                                                                                                                                                                                                                                        | Description                                                               | Default    |
+|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------|------------|
+| var     | [Variable](`optyx.core.expressions.Variable`) \| [VectorVariable](`optyx.core.vectors.VectorVariable`) \| [MatrixVariable](`optyx.core.matrices.MatrixVariable`) \| [VariableDict](`optyx.core.variable_dict.VariableDict`) \| [str](`str`) | Variable, VectorVariable, MatrixVariable, VariableDict, or variable name. | _required_ |
+| default | [float](`float`) \| [NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[floating](`numpy.floating`)\] \| [dict](`dict`)\[[str](`str`), [float](`float`)\] \| None                                                                             | Value to return if variable not found.                                    | `None`     |
 
 #### Returns {.doc-section .doc-section-returns}
 
-| Name   | Type                                                                                                        | Description                      |
-|--------|-------------------------------------------------------------------------------------------------------------|----------------------------------|
-|        | [float](`float`) \| [NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[floating](`numpy.floating`)\] \| None | The optimal value(s) or default. |
+| Name   | Type                                                                                                                                                            | Description                      |
+|--------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------|
+|        | [float](`float`) \| [NDArray](`numpy.typing.NDArray`)\[[np](`numpy`).[floating](`numpy.floating`)\] \| [dict](`dict`)\[[str](`str`), [float](`float`)\] \| None | The optimal value(s) or default. |
+
+### print_vars { #optyx.solution.Solution.print_vars }
+
+```python
+solution.Solution.print_vars()
+```
+
+Pretty-print variable values.
+
+### to_dict { #optyx.solution.Solution.to_dict }
+
+```python
+solution.Solution.to_dict()
+```
+
+Convert solution to dictionary.
+
+### to_json { #optyx.solution.Solution.to_json }
+
+```python
+solution.Solution.to_json(path=None)
+```
+
+Convert solution to JSON string or save to file.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                 | Description                         | Default   |
+|--------|----------------------|-------------------------------------|-----------|
+| path   | [str](`str`) \| None | Optional file path to save JSON to. | `None`    |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type         | Description                                          |
+|--------|--------------|------------------------------------------------------|
+|        | [str](`str`) | JSON string if path is None, otherwise empty string. |

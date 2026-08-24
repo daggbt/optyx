@@ -302,7 +302,7 @@ print(f"d/dx(x²) at x=3: {df.evaluate({'x': 3.0})}")  # 2*3 = 6
 
 | Method | Pros | Cons |
 |--------|------|------|
-| **Symbolic (Optyx)** | Exact, inspectable, no runtime overhead | Expression growth for complex functions |
+| **Symbolic (Optyx)** | Exact and inspectable; no finite-difference approximation | Expression growth and symbolic evaluation overhead |
 | **Finite Differences** | Simple to implement | Inaccurate, O(n) evaluations |
 | **Automatic (JAX/PyTorch)** | Fast, handles any Python | Requires tracing, harder to debug |
 
