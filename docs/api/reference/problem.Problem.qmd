@@ -20,7 +20,9 @@ An optimization problem with objective and constraints.
 
 The Problem class is not thread-safe. Compiled callables are cached
 per instance and reused across multiple solve() calls for performance.
-Any mutation (adding constraints, changing objective) invalidates the cache.
+Structural mutations invalidate the relevant caches. Mutable bounds,
+parameters, and linear objective coefficients are re-read or versioned
+so their current values are used on the next solve.
 
 ## Attributes
 
@@ -40,8 +42,13 @@ Any mutation (adding constraints, changing objective) invalidates the cache.
 | [get_bounds](#optyx.problem.Problem.get_bounds) | Get variable bounds as a list of (lb, ub) tuples. |
 | [maximize](#optyx.problem.Problem.maximize) | Set the objective function to maximize. |
 | [minimize](#optyx.problem.Problem.minimize) | Set the objective function to minimize. |
+| [remove_constraint](#optyx.problem.Problem.remove_constraint) | Remove a constraint by index or name. |
+| [reset](#optyx.problem.Problem.reset) | Reset the problem solver state (clears caches and warm start). |
 | [solve](#optyx.problem.Problem.solve) | Solve the optimization problem. |
 | [subject_to](#optyx.problem.Problem.subject_to) | Add a constraint or list of constraints to the problem. |
+| [summary](#optyx.problem.Problem.summary) | Return a human-readable summary of the optimization problem. |
+| [to_lp](#optyx.problem.Problem.to_lp) | Return the LP format string representation of the problem. |
+| [write](#optyx.problem.Problem.write) | Export the problem to LP file format. |
 
 ### get_bounds { #optyx.problem.Problem.get_bounds }
 
@@ -67,9 +74,9 @@ Set the objective function to maximize.
 
 #### Parameters {.doc-section .doc-section-parameters}
 
-| Name   | Type                                              | Description                                                                                     | Default    |
-|--------|---------------------------------------------------|-------------------------------------------------------------------------------------------------|------------|
-| expr   | [Expression](`optyx.core.expressions.Expression`) | Expression to maximize. Must be an optyx Expression, Variable, or numeric constant (int/float). | _required_ |
+| Name   | Type                                                                                  | Description                                                                                     | Default    |
+|--------|---------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------|------------|
+| expr   | [Expression](`optyx.core.expressions.Expression`) \| [float](`float`) \| [int](`int`) | Expression to maximize. Must be an optyx Expression, Variable, or numeric constant (int/float). | _required_ |
 
 #### Returns {.doc-section .doc-section-returns}
 
@@ -97,9 +104,9 @@ Set the objective function to minimize.
 
 #### Parameters {.doc-section .doc-section-parameters}
 
-| Name   | Type                                              | Description                                                                                     | Default    |
-|--------|---------------------------------------------------|-------------------------------------------------------------------------------------------------|------------|
-| expr   | [Expression](`optyx.core.expressions.Expression`) | Expression to minimize. Must be an optyx Expression, Variable, or numeric constant (int/float). | _required_ |
+| Name   | Type                                                                                  | Description                                                                                     | Default    |
+|--------|---------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------|------------|
+| expr   | [Expression](`optyx.core.expressions.Expression`) \| [float](`float`) \| [int](`int`) | Expression to minimize. Must be an optyx Expression, Variable, or numeric constant (int/float). | _required_ |
 
 #### Returns {.doc-section .doc-section-returns}
 
@@ -118,21 +125,77 @@ Set the objective function to minimize.
 >>> prob.minimize(x**2 + y**2)
 >>> prob.minimize(x + 2*y - 5)
 
+### remove_constraint { #optyx.problem.Problem.remove_constraint }
+
+```python
+problem.Problem.remove_constraint(index_or_name)
+```
+
+Remove a constraint by index or name.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name          | Type                         | Description                                                                                        | Default    |
+|---------------|------------------------------|----------------------------------------------------------------------------------------------------|------------|
+| index_or_name | [int](`int`) \| [str](`str`) | If int, removes the constraint at that index. If str, removes the first constraint with that name. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                               | Description               |
+|--------|------------------------------------|---------------------------|
+|        | [Problem](`optyx.problem.Problem`) | Self for method chaining. |
+
+#### Raises {.doc-section .doc-section-raises}
+
+| Name   | Type                       | Description                                    |
+|--------|----------------------------|------------------------------------------------|
+|        | [IndexError](`IndexError`) | If integer index is out of range.              |
+|        | [KeyError](`KeyError`)     | If no constraint with the given name is found. |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> from optyx import Constraint
+>>> capacity = x + y <= 10
+>>> prob.subject_to(Constraint(capacity.expr, capacity.sense, name="cap"))
+>>> prob.remove_constraint("cap")
+
+### reset { #optyx.problem.Problem.reset }
+
+```python
+problem.Problem.reset()
+```
+
+Reset the problem solver state (clears caches and warm start).
+
+Forces a complete re-analysis and re-compilation of the problem
+on the next solve() call. Also clears any stored warm start state,
+forcing a cold start on the next solve.
+
 ### solve { #optyx.problem.Problem.solve }
 
 ```python
-problem.Problem.solve(method='auto', strict=False, **kwargs)
+problem.Problem.solve(
+    method='auto',
+    strict=False,
+    warm_start=True,
+    callback=None,
+    time_limit=None,
+    **kwargs,
+)
 ```
 
 Solve the optimization problem.
 
 #### Parameters {.doc-section .doc-section-parameters}
 
-| Name     | Type           | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Default   |
-|----------|----------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------|
-| method   | [str](`str`)   | Solver method. Options: - "auto" (default): Automatically select the best method:     - Linear problems → linprog (HiGHS)     - Unconstrained, n ≤ 3 → Nelder-Mead     - Unconstrained, n > 1000 → L-BFGS-B     - Unconstrained, else → BFGS     - Bounds only → L-BFGS-B     - Equality constraints → trust-constr     - Inequality only → SLSQP - "linprog": Force LP solver (scipy.optimize.linprog) - "SLSQP": Sequential Least Squares Programming - "trust-constr": Trust-region constrained optimization - "L-BFGS-B": Limited-memory BFGS with bounds - "BFGS": Broyden-Fletcher-Goldfarb-Shanno - "Nelder-Mead": Derivative-free simplex method | `'auto'`  |
-| strict   | [bool](`bool`) | If True, raise ValueError when the problem contains features that the solver cannot handle exactly (e.g., integer/binary variables with SciPy). If False (default), emit a warning and use the best available approximation.                                                                                                                                                                                                                                                                                                                                                                                                                             | `False`   |
-| **kwargs |                | Additional arguments passed to the solver.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | `{}`      |
+| Name       | Type                                                                                                                   | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Default   |
+|------------|------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------|
+| method     | [str](`str`)                                                                                                           | Solver method. Options: - "auto" (default): Automatically select the best method:     - Linear continuous models → linprog (HiGHS)     - Linear discrete models → milp (HiGHS)     - Unconstrained or bounds-only NLPs → L-BFGS-B     - Large sparse constrained NLPs → trust-constr     - Higher-degree or transcendental constrained NLPs → trust-constr     - Linear/quadratic constrained NLPs → SLSQP, with a       feasibility/stationarity-based trust-constr retry - "linprog": Force LP solver (scipy.optimize.linprog) - "highs": HiGHS LP solver (auto method selection) - "highs-ds": HiGHS dual simplex - "highs-ipm": HiGHS interior point method - "SLSQP": Sequential Least Squares Programming - "trust-constr": Trust-region constrained optimization - "L-BFGS-B": Limited-memory BFGS with bounds - "BFGS": Broyden-Fletcher-Goldfarb-Shanno - "Nelder-Mead": Derivative-free simplex method | `'auto'`  |
+| strict     | [bool](`bool`)                                                                                                         | Retained for API compatibility. Linear discrete models are solved as MILPs, and nonlinear discrete models are rejected regardless of this value.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | `False`   |
+| warm_start | [bool](`bool`)                                                                                                         | If True (default), use the previous solution as the initial point for re-solving. Only applies to NLP methods. Call reset() to clear warm start state.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | `True`    |
+| callback   | [Callable](`typing.Callable`)\[\[[SolverProgress](`optyx.solution.SolverProgress`)\], [bool](`bool`) \| None\] \| None | Optional function called at each solver iteration with a SolverProgress object. Return True to terminate early (solution will have SolverStatus.TERMINATED). Only applies to NLP methods (SciPy).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | `None`    |
+| time_limit | [float](`float`) \| None                                                                                               | Maximum wall-clock time in seconds. If exceeded, the solver terminates early with SolverStatus.TERMINATED. Only applies to NLP methods (SciPy).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | `None`    |
+| **kwargs   | [Any](`typing.Any`)                                                                                                    | Additional arguments passed to the solver.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | `{}`      |
 
 #### Returns {.doc-section .doc-section-returns}
 
@@ -142,9 +205,10 @@ Solve the optimization problem.
 
 #### Raises {.doc-section .doc-section-raises}
 
-| Name   | Type                       | Description                                                                                    |
-|--------|----------------------------|------------------------------------------------------------------------------------------------|
-|        | [ValueError](`ValueError`) | If no objective has been set, or if strict=True and the problem contains unsupported features. |
+| Name   | Type                                                                       | Description                                                                                                 |
+|--------|----------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------|
+|        | [NoObjectiveError](`optyx.core.errors.NoObjectiveError`)                   | If no objective has been set.                                                                               |
+|        | [UnsupportedOperationError](`optyx.core.errors.UnsupportedOperationError`) | If the problem is a nonlinear discrete model (MIQP/MINLP), which the current solver stack does not support. |
 
 ### subject_to { #optyx.problem.Problem.subject_to }
 
@@ -156,9 +220,9 @@ Add a constraint or list of constraints to the problem.
 
 #### Parameters {.doc-section .doc-section-parameters}
 
-| Name       | Type                                                                                                           | Description                                                                                                                       | Default    |
-|------------|----------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|------------|
-| constraint | [Constraint](`optyx.constraints.Constraint`) \| [list](`list`)\[[Constraint](`optyx.constraints.Constraint`)\] | Constraint or list of constraints to add. Lists are typically produced by vectorized constraints like `x >= 0` on VectorVariable. | _required_ |
+| Name       | Type                                                                                                                                                                                                                                                                      | Description                                                                           | Default    |
+|------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------|------------|
+| constraint | [Constraint](`optyx.constraints.Constraint`) \| [MatrixConstraintBlock](`optyx.constraints.MatrixConstraintBlock`) \| [Iterable](`typing.Iterable`)\[[Constraint](`optyx.constraints.Constraint`) \| [MatrixConstraintBlock](`optyx.constraints.MatrixConstraintBlock`)\] | Constraint or iterable of constraints to add. Accepts lists, tuples, generators, etc. | _required_ |
 
 #### Returns {.doc-section .doc-section-returns}
 
@@ -176,3 +240,91 @@ Add a constraint or list of constraints to the problem.
 
 >>> x = VectorVariable("x", 100)
 >>> prob.subject_to(x >= 0)  # Adds 100 constraints
+>>> prob.subject_to(x[i] >= 0 for i in range(10))  # Generator
+
+### summary { #optyx.problem.Problem.summary }
+
+```python
+problem.Problem.summary()
+```
+
+Return a human-readable summary of the optimization problem.
+
+Provides an overview including problem name, variable counts
+(with breakdown by type), constraint counts, and objective sense.
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type         | Description                                         |
+|--------|--------------|-----------------------------------------------------|
+|        | [str](`str`) | Multi-line string describing the problem structure. |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> x = VectorVariable("x", 100, lb=0)
+>>> prob = Problem("portfolio")
+>>> prob.minimize(x.dot(x))
+>>> prob.subject_to(x.sum().eq(1))
+>>> print(prob.summary())
+Optyx Problem: portfolio
+  Variables: 100
+  Constraints: 1 (1 equality, 0 inequality)
+  Objective: minimize
+
+### to_lp { #optyx.problem.Problem.to_lp }
+
+```python
+problem.Problem.to_lp()
+```
+
+Return the LP format string representation of the problem.
+
+Like write(), but returns the string instead of writing to a file.
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type         | Description           |
+|--------|--------------|-----------------------|
+|        | [str](`str`) | The LP format string. |
+
+#### Raises {.doc-section .doc-section-raises}
+
+| Name   | Type                                                               | Description                                    |
+|--------|--------------------------------------------------------------------|------------------------------------------------|
+|        | [InvalidOperationError](`optyx.core.errors.InvalidOperationError`) | If the problem contains nonlinear expressions. |
+
+### write { #optyx.problem.Problem.write }
+
+```python
+problem.Problem.write(filename)
+```
+
+Export the problem to LP file format.
+
+Writes the problem formulation to a human-readable .lp file,
+compatible with solvers like CPLEX, Gurobi, GLPK, and HiGHS.
+
+Supports linear and quadratic objectives, linear constraints,
+variable bounds, and integer/binary variable types.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name     | Type         | Description                  | Default    |
+|----------|--------------|------------------------------|------------|
+| filename | [str](`str`) | Path to the output .lp file. | _required_ |
+
+#### Raises {.doc-section .doc-section-raises}
+
+| Name   | Type                                                               | Description                                                                            |
+|--------|--------------------------------------------------------------------|----------------------------------------------------------------------------------------|
+|        | [InvalidOperationError](`optyx.core.errors.InvalidOperationError`) | If the problem contains nonlinear expressions that cannot be represented in LP format. |
+|        | [NoObjectiveError](`optyx.core.errors.NoObjectiveError`)           | If no objective has been set.                                                          |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> x = Variable("x", lb=0)
+>>> y = Variable("y", lb=0)
+>>> prob = Problem("example")
+>>> prob.minimize(2 * x + 3 * y)
+>>> prob.subject_to(x + y >= 1)
+>>> prob.write("example.lp")

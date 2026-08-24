@@ -20,11 +20,32 @@ All arithmetic operators are overloaded to build expression trees automatically.
 
 | Name | Description |
 | --- | --- |
+| [between](#optyx.core.expressions.Expression.between) | Create range constraints: lb <= self <= ub. |
 | [constraint_eq](#optyx.core.expressions.Expression.constraint_eq) | Create an == constraint: self == other. |
 | [eq](#optyx.core.expressions.Expression.eq) | Create an == constraint: self == other. |
 | [evaluate](#optyx.core.expressions.Expression.evaluate) | Evaluate the expression given variable values. |
 | [get_variables](#optyx.core.expressions.Expression.get_variables) | Return all variables this expression depends on. |
 | [is_linear](#optyx.core.expressions.Expression.is_linear) | Check if this expression is linear (degree <= 1). |
+| [jacobian_row](#optyx.core.expressions.Expression.jacobian_row) | Return gradient with respect to each variable in O(1) if possible. |
+
+### between { #optyx.core.expressions.Expression.between }
+
+```python
+core.expressions.Expression.between(lb, ub)
+```
+
+Create range constraints: lb <= self <= ub.
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                           | Description                                        |
+|--------|----------------------------------------------------------------|----------------------------------------------------|
+|        | [list](`list`)\[[Constraint](`optyx.constraints.Constraint`)\] | List of two constraints: [self >= lb, self <= ub]. |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> x = Variable("x")
+>>> constraints = x.between(0, 10)
 
 ### constraint_eq { #optyx.core.expressions.Expression.constraint_eq }
 
@@ -94,3 +115,24 @@ Check if this expression is linear (degree <= 1).
 |        | [bool](`bool`) | True if the expression is constant or linear in variables. |
 
 Uses cached degree computation for performance.
+
+### jacobian_row { #optyx.core.expressions.Expression.jacobian_row }
+
+```python
+core.expressions.Expression.jacobian_row(variables)
+```
+
+Return gradient with respect to each variable in O(1) if possible.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name      | Type                                                            | Description                                 | Default    |
+|-----------|-----------------------------------------------------------------|---------------------------------------------|------------|
+| variables | [list](`list`)\[[Variable](`optyx.core.expressions.Variable`)\] | List of variables to compute gradients for. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                                        | Description                                                   |
+|--------|-----------------------------------------------------------------------------|---------------------------------------------------------------|
+|        | [list](`list`)\[[Expression](`optyx.core.expressions.Expression`)\] \| None | List of gradient expressions if O(1) computation is possible, |
+|        | [list](`list`)\[[Expression](`optyx.core.expressions.Expression`)\] \| None | None otherwise (fall back to individual gradient calls).      |

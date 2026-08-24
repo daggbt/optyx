@@ -43,15 +43,18 @@ providing natural 2D indexing, row/column slicing, and transpose views.
 | --- | --- |
 | [T](#optyx.core.matrices.MatrixVariable.T) | Return a transpose view of the matrix. |
 | [shape](#optyx.core.matrices.MatrixVariable.shape) | Return the shape of the matrix as (rows, cols). |
+| [size](#optyx.core.matrices.MatrixVariable.size) | Return the total number of elements. |
 
 ## Methods
 
 | Name | Description |
 | --- | --- |
 | [cols_iter](#optyx.core.matrices.MatrixVariable.cols_iter) | Iterate over columns of the matrix. |
-| [diagonal](#optyx.core.matrices.MatrixVariable.diagonal) | Extract the main diagonal of a square matrix. |
+| [diagonal](#optyx.core.matrices.MatrixVariable.diagonal) | Return the diagonal of the matrix. |
+| [eq](#optyx.core.matrices.MatrixVariable.eq) | Element-wise == constraint. |
 | [get_variables](#optyx.core.matrices.MatrixVariable.get_variables) | Return all variables in this matrix (row-major order). |
 | [rows_iter](#optyx.core.matrices.MatrixVariable.rows_iter) | Iterate over rows of the matrix. |
+| [sum](#optyx.core.matrices.MatrixVariable.sum) | Sum all elements of this matrix. |
 | [to_numpy](#optyx.core.matrices.MatrixVariable.to_numpy) | Extract matrix values from solution as numpy array. |
 | [trace](#optyx.core.matrices.MatrixVariable.trace) | Compute the trace (sum of diagonal elements) of a square matrix. |
 
@@ -78,10 +81,16 @@ Iterate over columns of the matrix.
 ### diagonal { #optyx.core.matrices.MatrixVariable.diagonal }
 
 ```python
-core.matrices.MatrixVariable.diagonal()
+core.matrices.MatrixVariable.diagonal(offset=0)
 ```
 
-Extract the main diagonal of a square matrix.
+Return the diagonal of the matrix.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type         | Description                                                                                               | Default   |
+|--------|--------------|-----------------------------------------------------------------------------------------------------------|-----------|
+| offset | [int](`int`) | Diagonal offset from the main diagonal.     Positive means above main diagonal,     negative means below. | `0`       |
 
 #### Returns {.doc-section .doc-section-returns}
 
@@ -89,18 +98,20 @@ Extract the main diagonal of a square matrix.
 |--------|-------------------------------------------------------|--------------------------------------------------|
 |        | [VectorVariable](`optyx.core.vectors.VectorVariable`) | VectorVariable containing the diagonal elements. |
 
-#### Raises {.doc-section .doc-section-raises}
+### eq { #optyx.core.matrices.MatrixVariable.eq }
 
-| Name   | Type                       | Description                  |
-|--------|----------------------------|------------------------------|
-|        | [ValueError](`ValueError`) | If the matrix is not square. |
+```python
+core.matrices.MatrixVariable.eq(other)
+```
+
+Element-wise == constraint.
+
+Use .eq() instead of == to avoid Python's __eq__ returning bool.
 
 #### Example {.doc-section .doc-section-example}
 
->>> A = MatrixVariable("A", 3, 3)
->>> d = A.diagonal()
->>> len(d)  # 3
->>> d[0].name  # 'A[0,0]'
+>>> X = MatrixVariable("X", 2, 2)
+>>> constraints = X.eq(target_matrix)
 
 ### get_variables { #optyx.core.matrices.MatrixVariable.get_variables }
 
@@ -137,6 +148,26 @@ Iterate over rows of the matrix.
 >>> A = MatrixVariable("A", 3, 4)
 >>> for i, row in enumerate(A.rows_iter()):
 ...     print(f"Row {i}: {len(row)} elements")
+
+### sum { #optyx.core.matrices.MatrixVariable.sum }
+
+```python
+core.matrices.MatrixVariable.sum()
+```
+
+Sum all elements of this matrix.
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                         | Description                                                         |
+|--------|----------------------------------------------|---------------------------------------------------------------------|
+|        | [MatrixSum](`optyx.core.matrices.MatrixSum`) | MatrixSum expression (scalar) representing the sum of all elements. |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> X = MatrixVariable("X", 3, 3)
+>>> s = X.sum()
+>>> s.evaluate(solution)  # Returns sum of all 9 elements
 
 ### to_numpy { #optyx.core.matrices.MatrixVariable.to_numpy }
 

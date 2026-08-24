@@ -11,9 +11,9 @@ This benchmark measures TOTAL time including:
 
 Compared against SciPy (which has no build phase).
 
-Results will be saved to: /workspaces/optix/benchmarks/results
-Terminal output being saved to: /workspaces/optix/benchmarks/results/benchmark_output.txt
-Benchmark metadata saved to: /workspaces/optix/benchmarks/results/benchmark_metadata.json
+Results will be saved to: /Users/Bal/projects/optyx/benchmarks/results
+Terminal output being saved to: /Users/Bal/projects/optyx/benchmarks/results/benchmark_output.txt
+Benchmark metadata saved to: /Users/Bal/projects/optyx/benchmarks/results/benchmark_metadata.json
 
 ================================================================================
 LP SCALING BENCHMARK (End-to-End)
@@ -23,25 +23,25 @@ Measures: Build (vars + problem + constraints) + Solve
 Compared against: SciPy linprog (no build phase)
 
 --- Loop-based Variable (n ≤ 500, slow cold solve) ---
-  Loop n=   10: Build=     0.5ms, Cold=   188.4ms, Warm=    2.1ms | SciPy=    1.3ms | Cold overhead=140.6x, Warm overhead=  1.6x
-  Loop n=   25: Build=     1.2ms, Cold=    12.4ms, Warm=    1.9ms | SciPy=    1.5ms | Cold overhead=  8.9x, Warm overhead=  1.2x
-  Loop n=   50: Build=     3.3ms, Cold=    48.0ms, Warm=    2.3ms | SciPy=    1.9ms | Cold overhead= 27.5x, Warm overhead=  1.2x
-  Loop n=  100: Build=    13.1ms, Cold=   126.7ms, Warm=    4.8ms | SciPy=    4.2ms | Cold overhead= 33.2x, Warm overhead=  1.1x
-  Loop n=  200: Build=    58.1ms, Cold=   540.2ms, Warm=    8.8ms | SciPy=    9.9ms | Cold overhead= 60.2x, Warm overhead=  0.9x
-  Loop n=  500: Build=   590.1ms, Cold= 10711.4ms, Warm=  120.6ms | SciPy=  111.1ms | Cold overhead=101.8x, Warm overhead=  1.1x
+  Loop n=   10: Build=     1.0ms, Cold=    13.4ms, Warm=    4.1ms | SciPy=    3.0ms | Cold overhead=  4.9x, Warm overhead=  1.4x
+  Loop n=   25: Build=     0.4ms, Cold=     8.9ms, Warm=    1.3ms | SciPy=    1.8ms | Cold overhead=  5.1x, Warm overhead=  0.7x
+  Loop n=   50: Build=     1.7ms, Cold=    29.0ms, Warm=    1.5ms | SciPy=    1.4ms | Cold overhead= 21.4x, Warm overhead=  1.0x
+  Loop n=  100: Build=    10.3ms, Cold=    87.3ms, Warm=    2.3ms | SciPy=    2.2ms | Cold overhead= 43.8x, Warm overhead=  1.0x
+  Loop n=  200: Build=    38.9ms, Cold=   327.7ms, Warm=    5.7ms | SciPy=    5.5ms | Cold overhead= 66.9x, Warm overhead=  1.0x
+  Loop n=  500: Build=   254.9ms, Cold=  2795.3ms, Warm=   50.9ms | SciPy=   36.6ms | Cold overhead= 83.3x, Warm overhead=  1.4x
 
 --- VectorVariable (n ≤ 5,000) ---
-  Vec  n=   10: Build=     0.1ms, Cold=     3.0ms, Warm=    2.3ms | SciPy=    2.1ms | Cold overhead=  1.5x, Warm overhead=  1.1x
-  Vec  n=   25: Build=     0.2ms, Cold=     2.5ms, Warm=    4.8ms | SciPy=    3.2ms | Cold overhead=  0.8x, Warm overhead=  1.5x
-  Vec  n=   50: Build=     0.3ms, Cold=     8.1ms, Warm=    3.7ms | SciPy=    2.9ms | Cold overhead=  2.9x, Warm overhead=  1.3x
-  Vec  n=  100: Build=     0.6ms, Cold=    24.8ms, Warm=    8.0ms | SciPy=    5.8ms | Cold overhead=  4.4x, Warm overhead=  1.4x
-  Vec  n=  200: Build=     2.9ms, Cold=    23.6ms, Warm=   25.7ms | SciPy=   19.1ms | Cold overhead=  1.4x, Warm overhead=  1.3x
-  Vec  n=  500: Build=     7.8ms, Cold=   121.1ms, Warm=  118.1ms | SciPy=  320.7ms | Cold overhead=  0.4x, Warm overhead=  0.4x
-  Vec  n= 1000: Build=     8.1ms, Cold=   929.1ms, Warm=  311.5ms | SciPy=  255.3ms | Cold overhead=  3.7x, Warm overhead=  1.2x
-  Vec  n= 2000: Build=     6.5ms, Cold=  1600.5ms, Warm= 1262.9ms | SciPy= 1109.1ms | Cold overhead=  1.4x, Warm overhead=  1.1x
-  Vec  n= 5000: Build=    12.9ms, Cold= 22523.4ms, Warm=10496.0ms | SciPy= 9754.7ms | Cold overhead=  2.3x, Warm overhead=  1.1x
+  Vec  n=   10: Build=     0.1ms, Cold=     1.3ms, Warm=    1.0ms | SciPy=    1.0ms | Cold overhead=  1.5x, Warm overhead=  1.0x
+  Vec  n=   25: Build=     0.1ms, Cold=     1.3ms, Warm=    1.1ms | SciPy=    1.0ms | Cold overhead=  1.4x, Warm overhead=  1.1x
+  Vec  n=   50: Build=     0.1ms, Cold=     2.1ms, Warm=    1.6ms | SciPy=    1.2ms | Cold overhead=  1.8x, Warm overhead=  1.3x
+  Vec  n=  100: Build=     0.2ms, Cold=     4.0ms, Warm=    2.9ms | SciPy=    2.2ms | Cold overhead=  1.9x, Warm overhead=  1.3x
+  Vec  n=  200: Build=     0.3ms, Cold=     9.6ms, Warm=    7.9ms | SciPy=    6.5ms | Cold overhead=  1.5x, Warm overhead=  1.2x
+  Vec  n=  500: Build=     0.6ms, Cold=    49.2ms, Warm=   38.9ms | SciPy=   36.0ms | Cold overhead=  1.4x, Warm overhead=  1.1x
+  Vec  n= 1000: Build=     1.4ms, Cold=   173.5ms, Warm=  163.0ms | SciPy=  155.3ms | Cold overhead=  1.1x, Warm overhead=  1.0x
+  Vec  n= 2000: Build=     2.7ms, Cold=   739.9ms, Warm=  726.1ms | SciPy=  681.6ms | Cold overhead=  1.1x, Warm overhead=  1.1x
+  Vec  n= 5000: Build=     6.8ms, Cold=  6811.6ms, Warm= 6476.8ms | SciPy= 6222.6ms | Cold overhead=  1.1x, Warm overhead=  1.0x
 
-Saved: /workspaces/optix/benchmarks/results/lp_scaling_comparison.png
+Saved: /Users/Bal/projects/optyx/benchmarks/results/lp_scaling_comparison.png
 
 ================================================================================
 UNCONSTRAINED NLP SCALING BENCHMARK (End-to-End)
@@ -51,25 +51,25 @@ Objective: min Σx²ᵢ - Σxᵢ (optimal at x* = 0.5)
 Measures: Build + Solve (includes gradient compilation)
 
 --- Loop-based Variable (n ≤ 500, slow cold solve) ---
-  Loop n=   10: Build=     0.2ms, Cold=   158.5ms, Warm=    0.8ms | SciPy=    0.6ms | Cold overhead=285.9x, Warm overhead=  1.4x
-  Loop n=   25: Build=     0.3ms, Cold=    27.8ms, Warm=    0.5ms | SciPy=    0.4ms | Cold overhead= 69.0x, Warm overhead=  1.3x
-  Loop n=   50: Build=     0.7ms, Cold=   150.1ms, Warm=    1.1ms | SciPy=    0.5ms | Cold overhead=309.0x, Warm overhead=  2.3x
-  Loop n=  100: Build=     1.2ms, Cold=   238.7ms, Warm=    1.5ms | SciPy=    0.3ms | Cold overhead=762.2x, Warm overhead=  4.6x
-  Loop n=  200: Build=     1.4ms, Cold=   625.5ms, Warm=    0.9ms | SciPy=    0.2ms | Cold overhead=3424.5x, Warm overhead=  4.9x
-  Loop n=  500: Build=     2.1ms, Cold=  4489.3ms, Warm=    3.6ms | SciPy=    0.3ms | Cold overhead=13852.9x, Warm overhead= 11.2x
+  Loop n=   10: Build=     0.2ms, Cold=    11.0ms, Warm=    0.2ms | SciPy=    0.1ms | Cold overhead=157.8x, Warm overhead=  2.6x
+  Loop n=   25: Build=     0.1ms, Cold=     7.2ms, Warm=    0.2ms | SciPy=    0.1ms | Cold overhead=112.7x, Warm overhead=  2.6x
+  Loop n=   50: Build=     0.1ms, Cold=    21.3ms, Warm=    0.2ms | SciPy=    0.1ms | Cold overhead=337.0x, Warm overhead=  3.6x
+  Loop n=  100: Build=     0.7ms, Cold=    79.3ms, Warm=    0.3ms | SciPy=    0.1ms | Cold overhead=1176.7x, Warm overhead=  4.8x
+  Loop n=  200: Build=     0.4ms, Cold=   320.0ms, Warm=    0.5ms | SciPy=    0.1ms | Cold overhead=4564.6x, Warm overhead=  7.1x
+  Loop n=  500: Build=     1.0ms, Cold=  1854.3ms, Warm=    1.2ms | SciPy=    0.1ms | Cold overhead=20057.3x, Warm overhead= 13.4x
 
 --- VectorVariable with x.dot(x) - x.sum() (n ≤ 5,000) ---
-  Vec  n=   10: Build=     0.0ms, Cold=     0.7ms, Warm=    0.3ms | SciPy=    0.2ms | Cold overhead=  3.3x, Warm overhead=  1.3x
-  Vec  n=   25: Build=     0.0ms, Cold=     0.4ms, Warm=    0.3ms | SciPy=    0.2ms | Cold overhead=  2.0x, Warm overhead=  1.3x
-  Vec  n=   50: Build=     0.0ms, Cold=     0.5ms, Warm=    0.4ms | SciPy=    0.3ms | Cold overhead=  1.8x, Warm overhead=  1.3x
-  Vec  n=  100: Build=     0.0ms, Cold=     0.5ms, Warm=    0.3ms | SciPy=    0.3ms | Cold overhead=  1.9x, Warm overhead=  1.0x
-  Vec  n=  200: Build=     0.0ms, Cold=     0.6ms, Warm=    0.4ms | SciPy=    0.2ms | Cold overhead=  3.2x, Warm overhead=  2.1x
-  Vec  n=  500: Build=     0.0ms, Cold=     0.5ms, Warm=    0.3ms | SciPy=    0.4ms | Cold overhead=  1.2x, Warm overhead=  0.7x
-  Vec  n= 1000: Build=     0.0ms, Cold=     0.6ms, Warm=    0.3ms | SciPy=    0.3ms | Cold overhead=  2.2x, Warm overhead=  1.2x
-  Vec  n= 2000: Build=     0.0ms, Cold=     0.5ms, Warm=    0.5ms | SciPy=    0.6ms | Cold overhead=  1.0x, Warm overhead=  0.8x
-  Vec  n= 5000: Build=     0.0ms, Cold=     0.8ms, Warm=    0.6ms | SciPy=    0.5ms | Cold overhead=  1.6x, Warm overhead=  1.1x
+  Vec  n=   10: Build=     0.0ms, Cold=     0.2ms, Warm=    0.1ms | SciPy=    0.1ms | Cold overhead=  4.1x, Warm overhead=  1.5x
+  Vec  n=   25: Build=     0.0ms, Cold=     0.2ms, Warm=    0.1ms | SciPy=    0.1ms | Cold overhead=  2.8x, Warm overhead=  1.5x
+  Vec  n=   50: Build=     0.0ms, Cold=     0.1ms, Warm=    0.1ms | SciPy=    0.1ms | Cold overhead=  2.6x, Warm overhead=  1.5x
+  Vec  n=  100: Build=     0.0ms, Cold=     0.2ms, Warm=    0.1ms | SciPy=    0.1ms | Cold overhead=  2.8x, Warm overhead=  1.6x
+  Vec  n=  200: Build=     0.0ms, Cold=     0.2ms, Warm=    0.1ms | SciPy=    0.1ms | Cold overhead=  2.4x, Warm overhead=  1.5x
+  Vec  n=  500: Build=     0.0ms, Cold=     0.2ms, Warm=    0.1ms | SciPy=    0.1ms | Cold overhead=  2.1x, Warm overhead=  1.5x
+  Vec  n= 1000: Build=     0.0ms, Cold=     1.2ms, Warm=    0.2ms | SciPy=    0.1ms | Cold overhead= 10.4x, Warm overhead=  1.4x
+  Vec  n= 2000: Build=     0.0ms, Cold=     0.3ms, Warm=    0.2ms | SciPy=    0.2ms | Cold overhead=  2.1x, Warm overhead=  1.3x
+  Vec  n= 5000: Build=     0.0ms, Cold=     0.6ms, Warm=    0.4ms | SciPy=    0.3ms | Cold overhead=  2.1x, Warm overhead=  1.2x
 
-Saved: /workspaces/optix/benchmarks/results/nlp_scaling_comparison.png
+Saved: /Users/Bal/projects/optyx/benchmarks/results/nlp_scaling_comparison.png
 
 ================================================================================
 CONSTRAINED QP SCALING BENCHMARK (End-to-End)
@@ -79,25 +79,25 @@ Objective: min Σx²ᵢ s.t. Σxᵢ ≥ 1, xᵢ ≥ 0
 Measures: Build + Solve (includes gradient/Jacobian compilation)
 
 --- Loop-based Variable (n ≤ 500, slow cold solve) ---
-  Loop n=   10: Build=     0.1ms, Cold=    16.7ms, Warm=    0.5ms | SciPy=    0.3ms | Cold overhead= 63.1x, Warm overhead=  1.7x
-  Loop n=   25: Build=     0.2ms, Cold=     4.6ms, Warm=    1.2ms | SciPy=    0.5ms | Cold overhead=  9.5x, Warm overhead=  2.3x
-  Loop n=   50: Build=     0.3ms, Cold=    15.8ms, Warm=    1.0ms | SciPy=    0.6ms | Cold overhead= 28.3x, Warm overhead=  1.7x
-  Loop n=  100: Build=     1.2ms, Cold=    47.5ms, Warm=    1.6ms | SciPy=    0.9ms | Cold overhead= 54.8x, Warm overhead=  1.8x
-  Loop n=  200: Build=     2.0ms, Cold=   177.5ms, Warm=    4.9ms | SciPy=    2.0ms | Cold overhead= 90.6x, Warm overhead=  2.5x
-  Loop n=  500: Build=     3.9ms, Cold=   853.4ms, Warm=   37.6ms | SciPy=   13.2ms | Cold overhead= 64.8x, Warm overhead=  2.8x
+  Loop n=   10: Build=     0.1ms, Cold=     4.0ms, Warm=    0.3ms | SciPy=    0.1ms | Cold overhead= 41.2x, Warm overhead=  2.8x
+  Loop n=   25: Build=     0.1ms, Cold=     3.3ms, Warm=    0.4ms | SciPy=    0.2ms | Cold overhead= 21.7x, Warm overhead=  2.5x
+  Loop n=   50: Build=     0.2ms, Cold=     2.7ms, Warm=    0.4ms | SciPy=    0.2ms | Cold overhead= 14.4x, Warm overhead=  2.2x
+  Loop n=  100: Build=     0.3ms, Cold=     3.8ms, Warm=    0.8ms | SciPy=    0.3ms | Cold overhead= 11.6x, Warm overhead=  2.2x
+  Loop n=  200: Build=     0.6ms, Cold=     6.6ms, Warm=    1.8ms | SciPy=    1.1ms | Cold overhead=  6.7x, Warm overhead=  1.7x
+  Loop n=  500: Build=     2.0ms, Cold=    28.6ms, Warm=   14.7ms | SciPy=    5.8ms | Cold overhead=  5.3x, Warm overhead=  2.5x
 
 --- VectorVariable with x.dot(x), x.sum() (n ≤ 5000) ---
-  Vec  n=   10: Build=     0.1ms, Cold=     1.2ms, Warm=    0.6ms | SciPy=    0.4ms | Cold overhead=  3.6x, Warm overhead=  1.7x
-  Vec  n=   25: Build=     0.0ms, Cold=     6.4ms, Warm=    0.9ms | SciPy=    0.5ms | Cold overhead= 13.7x, Warm overhead=  2.0x
-  Vec  n=   50: Build=     0.0ms, Cold=     1.2ms, Warm=    0.7ms | SciPy=    0.7ms | Cold overhead=  1.8x, Warm overhead=  1.1x
-  Vec  n=  100: Build=     0.0ms, Cold=     2.3ms, Warm=    1.5ms | SciPy=    0.9ms | Cold overhead=  2.5x, Warm overhead=  1.6x
-  Vec  n=  200: Build=     0.0ms, Cold=     3.5ms, Warm=    2.5ms | SciPy=    2.0ms | Cold overhead=  1.8x, Warm overhead=  1.3x
-  Vec  n=  500: Build=     0.0ms, Cold=    19.2ms, Warm=   14.9ms | SciPy=   27.3ms | Cold overhead=  0.7x, Warm overhead=  0.5x
-  Vec  n= 1000: Build=     0.1ms, Cold=    96.0ms, Warm=   72.2ms | SciPy=   78.3ms | Cold overhead=  1.2x, Warm overhead=  0.9x
-  Vec  n= 2000: Build=     0.1ms, Cold=   631.5ms, Warm=  560.6ms | SciPy=  520.2ms | Cold overhead=  1.2x, Warm overhead=  1.1x
-  Vec  n= 5000: Build=     0.1ms, Cold=  7392.2ms, Warm= 6546.7ms | SciPy= 6382.6ms | Cold overhead=  1.2x, Warm overhead=  1.0x
+  Vec  n=   10: Build=     0.0ms, Cold=     0.5ms, Warm=    0.2ms | SciPy=    0.1ms | Cold overhead=  6.3x, Warm overhead=  2.6x
+  Vec  n=   25: Build=     0.0ms, Cold=     0.5ms, Warm=    0.3ms | SciPy=    0.1ms | Cold overhead=  3.5x, Warm overhead=  2.1x
+  Vec  n=   50: Build=     0.0ms, Cold=     0.6ms, Warm=    0.4ms | SciPy=    0.2ms | Cold overhead=  2.9x, Warm overhead=  1.8x
+  Vec  n=  100: Build=     0.0ms, Cold=     1.0ms, Warm=    0.5ms | SciPy=    0.3ms | Cold overhead=  3.1x, Warm overhead=  1.5x
+  Vec  n=  200: Build=     0.0ms, Cold=     2.2ms, Warm=    2.1ms | SciPy=    1.5ms | Cold overhead=  1.5x, Warm overhead=  1.4x
+  Vec  n=  500: Build=     0.1ms, Cold=    11.0ms, Warm=    9.3ms | SciPy=    7.5ms | Cold overhead=  1.5x, Warm overhead=  1.2x
+  Vec  n= 1000: Build=     0.0ms, Cold=    51.2ms, Warm=   36.1ms | SciPy=   31.0ms | Cold overhead=  1.7x, Warm overhead=  1.2x
+  Vec  n= 2000: Build=     0.0ms, Cold=   261.6ms, Warm=  232.6ms | SciPy=  226.4ms | Cold overhead=  1.2x, Warm overhead=  1.0x
+  Vec  n= 5000: Build=     0.0ms, Cold=  3893.0ms, Warm= 3675.9ms | SciPy= 3785.6ms | Cold overhead=  1.0x, Warm overhead=  1.0x
 
-Saved: /workspaces/optix/benchmarks/results/cqp_scaling_comparison.png
+Saved: /Users/Bal/projects/optyx/benchmarks/results/cqp_scaling_comparison.png
 
 ================================================================================
 MILP SCALING BENCHMARK (End-to-End)
@@ -108,46 +108,46 @@ Compared against: SciPy milp (no build phase)
 Problem: Single-constraint binary knapsack (sum(x) <= n//2)
 
 --- Loop-based Variable (n ≤ 500, slow cold solve) ---
-  Loop n=   10: Build=     0.2ms, Cold=    25.4ms, Warm=    1.0ms | SciPy=    0.8ms | Cold overhead= 30.6x, Warm overhead=  1.2x
-  Loop n=   25: Build=     0.2ms, Cold=     1.9ms, Warm=    1.2ms | SciPy=    0.9ms | Cold overhead=  2.2x, Warm overhead=  1.3x
-  Loop n=   50: Build=     0.3ms, Cold=     2.7ms, Warm=    1.5ms | SciPy=    1.1ms | Cold overhead=  2.8x, Warm overhead=  1.4x
-  Loop n=  100: Build=     0.6ms, Cold=     5.7ms, Warm=    2.6ms | SciPy=    2.2ms | Cold overhead=  2.9x, Warm overhead=  1.2x
-  Loop n=  200: Build=     1.6ms, Cold=    18.3ms, Warm=    4.6ms | SciPy=    4.7ms | Cold overhead=  4.2x, Warm overhead=  1.0x
-  Loop n=  500: Build=     4.4ms, Cold=    48.2ms, Warm=   10.0ms | SciPy=   10.1ms | Cold overhead=  5.2x, Warm overhead=  1.0x
+  Loop n=   10: Build=     0.1ms, Cold=     6.5ms, Warm=    0.9ms | SciPy=    0.7ms | Cold overhead= 10.0x, Warm overhead=  1.3x
+  Loop n=   25: Build=     0.1ms, Cold=     1.5ms, Warm=    0.8ms | SciPy=    0.7ms | Cold overhead=  2.1x, Warm overhead=  1.1x
+  Loop n=   50: Build=     0.3ms, Cold=     2.9ms, Warm=    1.0ms | SciPy=    0.9ms | Cold overhead=  3.8x, Warm overhead=  1.2x
+  Loop n=  100: Build=     0.2ms, Cold=     3.9ms, Warm=    1.3ms | SciPy=    1.1ms | Cold overhead=  3.9x, Warm overhead=  1.3x
+  Loop n=  200: Build=     0.5ms, Cold=     7.1ms, Warm=    2.0ms | SciPy=    1.8ms | Cold overhead=  4.3x, Warm overhead=  1.1x
+  Loop n=  500: Build=     1.8ms, Cold=    21.2ms, Warm=    5.9ms | SciPy=    5.4ms | Cold overhead=  4.2x, Warm overhead=  1.1x
 
 --- VectorVariable (n ≤ 5000) ---
-  Vec  n=   10: Build=     0.0ms, Cold=     1.1ms, Warm=    1.0ms | SciPy=    1.0ms | Cold overhead=  1.2x, Warm overhead=  1.0x
-  Vec  n=   25: Build=     0.1ms, Cold=     1.3ms, Warm=    1.3ms | SciPy=    1.1ms | Cold overhead=  1.3x, Warm overhead=  1.2x
-  Vec  n=   50: Build=     0.0ms, Cold=     2.2ms, Warm=    1.8ms | SciPy=    1.1ms | Cold overhead=  2.1x, Warm overhead=  1.6x
-  Vec  n=  100: Build=     0.0ms, Cold=     2.1ms, Warm=    2.0ms | SciPy=    2.2ms | Cold overhead=  1.0x, Warm overhead=  0.9x
-  Vec  n=  200: Build=     0.0ms, Cold=     7.3ms, Warm=    4.5ms | SciPy=    4.4ms | Cold overhead=  1.7x, Warm overhead=  1.0x
-  Vec  n=  500: Build=     0.0ms, Cold=    27.8ms, Warm=   25.7ms | SciPy=   14.0ms | Cold overhead=  2.0x, Warm overhead=  1.8x
-  Vec  n= 1000: Build=     0.1ms, Cold=    45.8ms, Warm=   31.3ms | SciPy=   28.3ms | Cold overhead=  1.6x, Warm overhead=  1.1x
-  Vec  n= 2000: Build=     0.1ms, Cold=   103.7ms, Warm=  100.0ms | SciPy=   92.5ms | Cold overhead=  1.1x, Warm overhead=  1.1x
-  Vec  n= 5000: Build=     0.1ms, Cold=   922.1ms, Warm=  648.0ms | SciPy=  580.4ms | Cold overhead=  1.6x, Warm overhead=  1.1x
+  Vec  n=   10: Build=     0.0ms, Cold=     0.9ms, Warm=    0.7ms | SciPy=    0.6ms | Cold overhead=  1.6x, Warm overhead=  1.2x
+  Vec  n=   25: Build=     0.0ms, Cold=     0.9ms, Warm=    0.8ms | SciPy=    0.8ms | Cold overhead=  1.2x, Warm overhead=  0.9x
+  Vec  n=   50: Build=     0.0ms, Cold=     1.1ms, Warm=    1.0ms | SciPy=    3.0ms | Cold overhead=  0.4x, Warm overhead=  0.3x
+  Vec  n=  100: Build=     0.0ms, Cold=     7.3ms, Warm=    6.0ms | SciPy=    2.1ms | Cold overhead=  3.5x, Warm overhead=  2.9x
+  Vec  n=  200: Build=     0.0ms, Cold=     3.1ms, Warm=    2.2ms | SciPy=    1.8ms | Cold overhead=  1.8x, Warm overhead=  1.3x
+  Vec  n=  500: Build=     0.0ms, Cold=     6.9ms, Warm=    6.0ms | SciPy=    5.5ms | Cold overhead=  1.3x, Warm overhead=  1.1x
+  Vec  n= 1000: Build=     0.0ms, Cold=    21.5ms, Warm=   20.1ms | SciPy=   17.9ms | Cold overhead=  1.2x, Warm overhead=  1.1x
+  Vec  n= 2000: Build=     0.0ms, Cold=    66.5ms, Warm=   63.1ms | SciPy=   61.6ms | Cold overhead=  1.1x, Warm overhead=  1.0x
+  Vec  n= 5000: Build=     0.0ms, Cold=   433.1ms, Warm=  394.7ms | SciPy=  388.3ms | Cold overhead=  1.1x, Warm overhead=  1.0x
 
-Saved: /workspaces/optix/benchmarks/results/milp_scaling_comparison.png
-Structured benchmark results saved to: /workspaces/optix/benchmarks/results/benchmark_results.json
+Saved: /Users/Bal/projects/optyx/benchmarks/results/milp_scaling_comparison.png
+Structured benchmark results saved to: /Users/Bal/projects/optyx/benchmarks/results/benchmark_results.json
 
 ================================================================================
 OVERHEAD SUMMARY BY PROBLEM TYPE
 ================================================================================
-LP n=50: Cold=2.9x, Warm=1.3x
-LP n=5000: Cold=2.3x, Warm=1.1x
-NLP n=50: Cold=1.8x, Warm=1.3x
-NLP n=5000: Cold=1.6x, Warm=1.1x
-CQP n=50: Cold=1.8x, Warm=1.1x
-CQP n=5000: Cold=1.2x, Warm=1.0x
-MILP n=50: Cold=2.1x, Warm=1.6x
-MILP n=5000: Cold=1.6x, Warm=1.1x
+LP n=50: Cold=1.8x, Warm=1.3x
+LP n=5000: Cold=1.1x, Warm=1.0x
+NLP n=50: Cold=2.6x, Warm=1.5x
+NLP n=5000: Cold=2.1x, Warm=1.2x
+CQP n=50: Cold=2.9x, Warm=1.8x
+CQP n=5000: Cold=1.0x, Warm=1.0x
+MILP n=50: Cold=0.4x, Warm=0.3x
+MILP n=5000: Cold=1.1x, Warm=1.0x
 
-Saved: /workspaces/optix/benchmarks/results/overhead_breakdown.png
+Saved: /Users/Bal/projects/optyx/benchmarks/results/overhead_breakdown.png
 
 ================================================================================
 BENCHMARK COMPLETE
 ================================================================================
 
-Plots saved to: /workspaces/optix/benchmarks/results
+Plots saved to: /Users/Bal/projects/optyx/benchmarks/results
   - bench_vs_scipy_overhead_breakdown.png
   - cqp_scaling_comparison.png
   - lp_cache_benefit.png

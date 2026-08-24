@@ -1,6 +1,8 @@
 ---
 title: "Benchmarks"
 description: "Performance analysis and comparison with SciPy"
+execute:
+  freeze: false
 ---
 
 ```{python}
@@ -82,8 +84,12 @@ def render_scaling_table(problem_key: str, variant_key: str) -> None:
 
 def render_metadata_callout() -> None:
 	timestamp = benchmark_metadata.get("timestamp_utc", "unknown")
+	system_name = benchmark_metadata.get("system_name", "unknown")
+	model_identifier = benchmark_metadata.get("model_identifier")
 	processor = benchmark_metadata.get("processor") or benchmark_metadata.get("machine", "unknown")
 	cpu_count = benchmark_metadata.get("cpu_count", "unknown")
+	core_configuration = benchmark_metadata.get("core_configuration")
+	memory_gb = benchmark_metadata.get("memory_gb", "unknown")
 	platform = benchmark_metadata.get("platform", "unknown")
 	python_version = benchmark_metadata.get("python_version", "unknown")
 	numpy_version = benchmark_metadata.get("numpy_version", "unknown")
@@ -92,11 +98,17 @@ def render_metadata_callout() -> None:
 
 	print("::: {.callout-note}")
 	print("## Reference Hardware")
+	system_label = f"{system_name} ({model_identifier})" if model_identifier else str(system_name)
+	cpu_label = f"{processor}, {cpu_count} cores"
+	if core_configuration:
+		cpu_label += f" ({core_configuration})"
 	print(
 		"\n".join(
 			[
 				f"Last synced benchmark assets: **{timestamp}**  ",
-				f"CPU: **{processor}** with **{cpu_count}** logical cores  ",
+				f"System: **{system_label}**  ",
+				f"CPU: **{cpu_label}**  ",
+				f"Memory: **{memory_gb} GB**  ",
 				f"Platform: **{platform}**  ",
 				f"Python: **{python_version}**, NumPy: **{numpy_version}**, SciPy: **{scipy_version}**, Optyx: **{optyx_version}**",
 			]
@@ -187,7 +199,10 @@ All benchmarks measure **total time** including:
 render_performance_summary()
 ```
 
-**Key Insight**: Cold solves include one-time compilation. Warm solves (repeated optimization with cached structure) achieve near-parity with raw SciPy for LP, CQP, and MILP. NLP overhead reflects autodiff costs on trivially simple benchmarks — for complex nonlinear problems, automatic differentiation provides significant modeling advantages.
+**Key Insight**: Cold solves include one-time compilation. At n=5,000,
+the latest warm measurements are 1.0x for LP, CQP, and MILP and 1.2x for
+the simple NLP case. Small timings are noisier and should not be treated as
+stable speedup claims.
 
 ---
 
@@ -209,7 +224,8 @@ render_scaling_table("lp", "loop")
 
 ::: {.callout-warning}
 ## Loop-Based Variables Don't Scale
-Loop-based variable construction creates O(n²) expression tree nodes, causing exponential compilation time. Use VectorVariable for n > 50.
+Loop-based variable construction can create O(n²) expression tree nodes and
+rapidly increasing compilation time. Use `VectorVariable` for grouped models.
 :::
 
 ### VectorVariable (n ≤ 5,000)
@@ -220,7 +236,8 @@ Loop-based variable construction creates O(n²) expression tree nodes, causing e
 render_scaling_table("lp", "vector")
 ```
 
-**VectorVariable achieves parity or better than raw SciPy** for warm solves at all scales. Cold solve overhead is minimal due to one-time compilation.
+In this run, vectorized LP warm overhead ranges from 1.0x to 1.3x and reaches
+1.0x at n=5,000. Cold overhead falls from 1.8x at n=50 to 1.1x at n=5,000.
 
 ---
 
@@ -244,7 +261,11 @@ render_scaling_table("nlp", "vector")
 
 ::: {.callout-note}
 ## Interpreting NLP Overhead
-This benchmark uses a trivially simple quadratic (`Σx² - Σx`) where SciPy’s L-BFGS-B converges in a single iteration (~0.2–0.4ms regardless of size). The overhead reflects Optyx’s automatic differentiation machinery, not solver performance. For complex nonlinear objectives where manual gradients are impractical, Optyx’s autodiff provides significant modeling advantages.
+This benchmark uses a trivially simple quadratic (`Σx² - Σx`) where SciPy’s
+L-BFGS-B baseline takes roughly 0.06–0.30ms in this run. At that scale, fixed
+modeling and dispatch costs dominate the ratio. More complex objectives can
+benefit from exact generated derivatives, but these results do not quantify
+that benefit.
 :::
 
 ---
@@ -267,7 +288,8 @@ Objective: `min Σx²ᵢ` subject to `Σxᵢ ≥ 1, xᵢ ≥ 0`
 render_scaling_table("cqp", "vector")
 ```
 
-With O(1) Jacobian computation, constrained problems achieve near-parity with SciPy at scale (≤1.2x warm overhead for n ≥ 500).
+With the structured Jacobian path, CQP warm overhead decreases from 1.2x at
+n=500 to 1.0x at n=5,000 in this run.
 
 ---
 
@@ -289,7 +311,8 @@ Problem: Single-constraint binary knapsack (`sum(x) <= n//2`)
 render_scaling_table("milp", "vector")
 ```
 
-MILP warm solves achieve near-parity with SciPy at all scales. The integer programming solver adds minimal overhead beyond the SciPy `milp` baseline.
+MILP timings are noisy at small sizes, including outliers at n=50 and n=100.
+From n=500 through n=5,000, warm overhead ranges from 1.0x to 1.1x in this run.
 
 ---
 
@@ -307,7 +330,9 @@ render_plot("overhead_breakdown", "Overhead Breakdown")
 render_overhead_summary()
 ```
 
-**Pattern**: LP, CQP, and MILP achieve near-parity with SciPy on warm solves at all scales. NLP overhead reflects autodiff costs on a trivially simple quadratic — for complex nonlinear problems, automatic differentiation eliminates the need for manual gradient derivation.
+**Pattern**: The large n=5,000 LP, CQP, and MILP cases are at 1.0x warm
+overhead after rounding. The NLP case is 1.2x. Ratios for sub-millisecond and
+small solver runs vary more and should be read alongside the absolute timings.
 
 ---
 
@@ -318,9 +343,9 @@ render_overhead_summary()
 ✅ **Parameter sweeps**: Solve similar problems with different parameters  
 ✅ **Real-time optimization**: Repeated solves with cached structure  
 ✅ **Prototyping**: Clean Python API, no manual gradients  
-✅ **Large LP**: VectorVariable achieves parity with SciPy up to n=5,000  
+✅ **Large LP**: VectorVariable reaches 1.0x warm overhead at n=5,000 in this run\
 ✅ **Non-convex NLP**: Automatic differentiation with exact gradients  
-✅ **Mixed-integer programming**: MILP at near-parity with SciPy milp
+✅ **Mixed-integer programming**: MILP reaches 1.0x warm overhead at n=5,000 in this run
 
 ### Consider Alternatives For
 
@@ -354,6 +379,12 @@ uv run python benchmarks/run_benchmarks.py
 console_summary = extract_output_section(
 	"OVERHEAD SUMMARY BY PROBLEM TYPE",
 	"BENCHMARK COMPLETE",
+)
+console_summary = "\n".join(
+	f"Saved: benchmarks/results/{Path(line.removeprefix('Saved: ').strip()).name}"
+	if line.startswith("Saved: ")
+	else line
+	for line in console_summary.splitlines()
 )
 print("```text")
 print(console_summary)

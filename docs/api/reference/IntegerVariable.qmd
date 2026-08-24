@@ -1,0 +1,9 @@
+# IntegerVariable { #optyx.IntegerVariable }
+
+```python
+IntegerVariable(name, lb=None, ub=None, **kwargs)
+```
+
+Create an integer variable.
+
+Shorthand for ``Variable(name, domain='integer', lb=lb, ub=ub)``.

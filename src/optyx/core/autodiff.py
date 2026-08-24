@@ -49,8 +49,9 @@ def increased_recursion_limit(limit: int = 5000) -> Iterator[None]:
     Args:
         limit: The temporary recursion limit (default: 5000).
 
-    Yields:
-        None. The limit is restored when the context exits.
+    Returns:
+        A context manager that restores the previous recursion limit when its
+        ``with`` block exits.
 
     Example:
         >>> with increased_recursion_limit(5000):
@@ -2015,7 +2016,7 @@ def _eval_sparse_row(
 def compile_jacobian(
     exprs: list[Expression],
     variables: list[Variable],
-):
+) -> Callable[[NDArray[np.floating]], NDArray[np.floating]]:
     """Compile the Jacobian for fast evaluation.
 
     Args:
@@ -2179,7 +2180,7 @@ def compile_sparse_jacobian(
     exprs: list[Expression],
     variables: list[Variable],
     density_threshold: float = 0.5,
-):
+) -> Callable[[NDArray[np.floating]], Any]:
     """Compile the Jacobian for fast evaluation, returning sparse output.
 
     For sparse constraint systems (nnz << m*n), returns scipy.sparse.csr_matrix
@@ -2367,7 +2368,7 @@ def compile_sparse_jacobian(
 def compile_hessian(
     expr: Expression,
     variables: list[Variable],
-):
+) -> Callable[[NDArray[np.floating]], NDArray[np.floating]]:
     """Compile the Hessian for fast evaluation.
 
     Args:

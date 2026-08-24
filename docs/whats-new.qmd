@@ -1,7 +1,47 @@
 ---
-title: "What's New in v1.3.0"
-description: "Scalable expressions, MILP support, vectorized gradients, and modeling convenience"
+title: "What's New"
+description: "Recent Optyx releases and changes"
 date: last-modified
+---
+
+## Optyx v1.3.2
+
+**Theme:** Correctness, reliability, and maintenance
+
+This patch release strengthens the existing v1.3 API without introducing a new
+solver abstraction.
+
+- Solver caches and warm starts are guarded by the current variable layout.
+- SLSQP candidates are checked for finite values, bounds, constraints, and
+  stationarity before they can be reported as optimal; invalid candidates can
+  be retried with `trust-constr`.
+- `Solution.is_feasible` now requires measured feasibility evidence, exposed as
+  `constraint_violation`, `feasibility_tolerance`, and `feasibility_checked`.
+- Polynomial degree analysis consistently handles parameters, products,
+  `NarySum`, and `NaryProduct`.
+- Scalar, vector, and matrix variable bounds and domains are validated early.
+- Conflicting variables that share a name are rejected with an actionable error.
+- Changes to `Variable.obj` are reflected in the next LP or MILP solve.
+- Solves no longer mutate the process-wide warning handler.
+- `Problem.summary()` includes matrix constraint rows in equality and
+  inequality totals.
+- Obsolete SciPy compatibility code and stale source helpers were removed, and
+  the source tree passes Pyright without warnings.
+
+---
+
+## Optyx v1.3.1
+
+This release reduced construction and solve overhead for large vector-backed
+models while preserving the public API.
+
+- Lazy `VectorVariable` metadata avoids unnecessary scalar materialization.
+- Single-vector NLP objectives compile through a contiguous vector layout.
+- Solution value dictionaries are materialized only when accessed.
+
+See the project [changelog](https://github.com/optyx-dev/optyx/blob/main/CHANGELOG.md)
+for the complete release record.
+
 ---
 
 ## Optyx v1.3.0

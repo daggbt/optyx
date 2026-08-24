@@ -20,6 +20,13 @@ For example, x + y <= 5 becomes (x + y - 5) <= 0.
 | sense  | [str](`str`)                                      | The constraint type: "<=", ">=", or "=="                             |
 | name   | [str](`str`) \| None                              | Optional name for the constraint                                     |
 
+## Example {.doc-section .doc-section-example}
+
+>>> x = Variable("x")
+>>> c = x + 2 <= 10  # Creates Constraint with expr = x + 2 - 10
+>>> c.is_satisfied({"x": 5.0})
+True
+
 ## Methods
 
 | Name | Description |

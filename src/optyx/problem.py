@@ -223,7 +223,9 @@ class Problem:
     Note:
         The Problem class is not thread-safe. Compiled callables are cached
         per instance and reused across multiple solve() calls for performance.
-        Any mutation (adding constraints, changing objective) invalidates the cache.
+        Structural mutations invalidate the relevant caches. Mutable bounds,
+        parameters, and linear objective coefficients are re-read or versioned
+        so their current values are used on the next solve.
     """
 
     def __init__(self, name: str | None = None):
@@ -905,17 +907,20 @@ class Problem:
         warm_start: bool = True,
         callback: Callable[[SolverProgress], bool | None] | None = None,
         time_limit: float | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> Solution:
         """Solve the optimization problem.
 
         Args:
             method: Solver method. Options:
                 - "auto" (default): Automatically select the best method:
-                    - Linear problems → linprog (HiGHS)
-                    - Unconstrained → L-BFGS-B
-                    - Bounds only → L-BFGS-B
-                    - General constraints → SLSQP
+                    - Linear continuous models → linprog (HiGHS)
+                    - Linear discrete models → milp (HiGHS)
+                    - Unconstrained or bounds-only NLPs → L-BFGS-B
+                    - Large sparse constrained NLPs → trust-constr
+                    - Higher-degree or transcendental constrained NLPs → trust-constr
+                    - Linear/quadratic constrained NLPs → SLSQP, with a
+                      feasibility/stationarity-based trust-constr retry
                 - "linprog": Force LP solver (scipy.optimize.linprog)
                 - "highs": HiGHS LP solver (auto method selection)
                 - "highs-ds": HiGHS dual simplex
@@ -925,10 +930,9 @@ class Problem:
                 - "L-BFGS-B": Limited-memory BFGS with bounds
                 - "BFGS": Broyden-Fletcher-Goldfarb-Shanno
                 - "Nelder-Mead": Derivative-free simplex method
-            strict: If True, raise ValueError when the problem contains features
-                that the solver cannot handle exactly (e.g., integer/binary
-                variables with SciPy). If False (default), emit a warning and
-                use the best available approximation.
+            strict: Retained for API compatibility. Linear discrete models are
+                solved as MILPs, and nonlinear discrete models are rejected
+                regardless of this value.
             warm_start: If True (default), use the previous solution as the
                 initial point for re-solving. Only applies to NLP methods.
                 Call reset() to clear warm start state.

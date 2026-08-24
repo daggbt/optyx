@@ -1,0 +1,43 @@
+# core.matrices.FrobeniusNorm { #optyx.core.matrices.FrobeniusNorm }
+
+```python
+core.matrices.FrobeniusNorm(matrix)
+```
+
+Frobenius norm of a matrix: ||A||_F = sqrt(sum of squared elements).
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                   | Description                        | Default    |
+|--------|--------------------------------------------------------|------------------------------------|------------|
+| matrix | [MatrixVariable](`optyx.core.matrices.MatrixVariable`) | MatrixVariable to compute norm of. | _required_ |
+
+## Example {.doc-section .doc-section-example}
+
+>>> A = MatrixVariable("A", 2, 2)
+>>> fn = FrobeniusNorm(A)
+>>> fn.evaluate({"A[0,0]": 1, "A[0,1]": 2, "A[1,0]": 3, "A[1,1]": 4})
+5.477...  # sqrt(1+4+9+16) = sqrt(30)
+
+## Methods
+
+| Name | Description |
+| --- | --- |
+| [evaluate](#optyx.core.matrices.FrobeniusNorm.evaluate) | Evaluate the Frobenius norm. |
+| [get_variables](#optyx.core.matrices.FrobeniusNorm.get_variables) | Return all variables this expression depends on. |
+
+### evaluate { #optyx.core.matrices.FrobeniusNorm.evaluate }
+
+```python
+core.matrices.FrobeniusNorm.evaluate(values)
+```
+
+Evaluate the Frobenius norm.
+
+### get_variables { #optyx.core.matrices.FrobeniusNorm.get_variables }
+
+```python
+core.matrices.FrobeniusNorm.get_variables()
+```
+
+Return all variables this expression depends on.

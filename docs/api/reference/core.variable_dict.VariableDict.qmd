@@ -1,0 +1,151 @@
+# core.variable_dict.VariableDict { #optyx.core.variable_dict.VariableDict }
+
+```python
+core.variable_dict.VariableDict(
+    name,
+    keys,
+    lb=None,
+    ub=None,
+    domain='continuous',
+)
+```
+
+A dictionary-keyed collection of optimization variables.
+
+Variables are indexed by string keys (e.g., product names, cities)
+rather than integer indices. Supports weighted sums, partial sums,
+and dict-like iteration.
+
+## Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                                                      | Description                                                                      | Default        |
+|--------|-------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------|----------------|
+| name   | [str](`str`)                                                                              | Base name for all variables. Individual variables are named ``"{name}[{key}]"``. | _required_     |
+| keys   | [Sequence](`typing.Sequence`)\[[str](`str`)\]                                             | Sequence of string keys.                                                         | _required_     |
+| lb     | [float](`float`) \| [Mapping](`typing.Mapping`)\[[str](`str`), [float](`float`)\] \| None | Lower bound — scalar (broadcast to all), or dict (per-key).                      | `None`         |
+| ub     | [float](`float`) \| [Mapping](`typing.Mapping`)\[[str](`str`), [float](`float`)\] \| None | Upper bound — scalar (broadcast to all), or dict (per-key).                      | `None`         |
+| domain | [Literal](`typing.Literal`)\[\'continuous\', \'integer\', \'binary\'\]                    | Variable domain — ``'continuous'``, ``'integer'``, or ``'binary'``.              | `'continuous'` |
+
+## Example {.doc-section .doc-section-example}
+
+>>> foods = ["hamburger", "chicken", "pizza", "salad"]
+>>> buy = VariableDict("buy", foods, lb=0)
+>>> buy["hamburger"]  # Variable("buy[hamburger]")
+>>> buy.sum()         # sum of all buy variables
+>>> buy.prod({"hamburger": 2.49, "chicken": 2.89, ...})  # weighted sum
+
+## Methods
+
+| Name | Description |
+| --- | --- |
+| [get_variables](#optyx.core.variable_dict.VariableDict.get_variables) | Return all Variable objects in key order. |
+| [items](#optyx.core.variable_dict.VariableDict.items) | Return (key, variable) pairs. |
+| [keys](#optyx.core.variable_dict.VariableDict.keys) | Return the keys of this VariableDict. |
+| [prod](#optyx.core.variable_dict.VariableDict.prod) | Weighted sum (inner product) of variables with coefficients. |
+| [sum](#optyx.core.variable_dict.VariableDict.sum) | Sum of variables, optionally over a subset of keys. |
+| [to_dict](#optyx.core.variable_dict.VariableDict.to_dict) | Extract variable values from a solution as a ``{key: value}`` dict. |
+| [values](#optyx.core.variable_dict.VariableDict.values) | Return the variables of this VariableDict. |
+
+### get_variables { #optyx.core.variable_dict.VariableDict.get_variables }
+
+```python
+core.variable_dict.VariableDict.get_variables()
+```
+
+Return all Variable objects in key order.
+
+### items { #optyx.core.variable_dict.VariableDict.items }
+
+```python
+core.variable_dict.VariableDict.items()
+```
+
+Return (key, variable) pairs.
+
+### keys { #optyx.core.variable_dict.VariableDict.keys }
+
+```python
+core.variable_dict.VariableDict.keys()
+```
+
+Return the keys of this VariableDict.
+
+### prod { #optyx.core.variable_dict.VariableDict.prod }
+
+```python
+core.variable_dict.VariableDict.prod(coefficients)
+```
+
+Weighted sum (inner product) of variables with coefficients.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name         | Type                                                                                                               | Description                                                                             | Default    |
+|--------------|--------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|------------|
+| coefficients | [Mapping](`typing.Mapping`)\[[str](`str`), [float](`float`)\] \| [Sequence](`typing.Sequence`)\[[float](`float`)\] | Either a dict mapping keys to coefficients, or a sequence of coefficients in key order. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                              | Description                               |
+|--------|---------------------------------------------------|-------------------------------------------|
+|        | [Expression](`optyx.core.expressions.Expression`) | Expression representing the weighted sum. |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> cost = {"hamburger": 2.49, "chicken": 2.89}
+>>> buy.prod(cost)  # 2.49*buy[hamburger] + 2.89*buy[chicken] + ...
+
+### sum { #optyx.core.variable_dict.VariableDict.sum }
+
+```python
+core.variable_dict.VariableDict.sum(keys=None)
+```
+
+Sum of variables, optionally over a subset of keys.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name   | Type                                                  | Description                                          | Default   |
+|--------|-------------------------------------------------------|------------------------------------------------------|-----------|
+| keys   | [Sequence](`typing.Sequence`)\[[str](`str`)\] \| None | If provided, sum only these keys. Otherwise sum all. | `None`    |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                              | Description                      |
+|--------|---------------------------------------------------|----------------------------------|
+|        | [Expression](`optyx.core.expressions.Expression`) | Expression representing the sum. |
+
+#### Example {.doc-section .doc-section-example}
+
+>>> buy.sum()                          # sum of all
+>>> buy.sum(["hamburger", "chicken"])   # partial sum
+
+### to_dict { #optyx.core.variable_dict.VariableDict.to_dict }
+
+```python
+core.variable_dict.VariableDict.to_dict(solution)
+```
+
+Extract variable values from a solution as a ``{key: value}`` dict.
+
+This is a convenience wrapper around ``solution[variable_dict]``.
+
+#### Parameters {.doc-section .doc-section-parameters}
+
+| Name     | Type                                  | Description                                 | Default    |
+|----------|---------------------------------------|---------------------------------------------|------------|
+| solution | [Solution](`optyx.solution.Solution`) | A :class:`~optyx.solution.Solution` object. | _required_ |
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                             | Description                                 |
+|--------|--------------------------------------------------|---------------------------------------------|
+|        | [dict](`dict`)\[[str](`str`), [float](`float`)\] | Dict mapping each key to its optimal value. |
+
+### values { #optyx.core.variable_dict.VariableDict.values }
+
+```python
+core.variable_dict.VariableDict.values()
+```
+
+Return the variables of this VariableDict.

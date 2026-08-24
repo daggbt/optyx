@@ -7,3 +7,9 @@ core.expressions.Constant(value)
 A constant numerical value in an expression.
 
 Wraps scalars or numpy arrays as expression nodes.
+
+## Example {.doc-section .doc-section-example}
+
+>>> c = Constant(5.0)
+>>> c.evaluate({})  # No variables needed
+5.0

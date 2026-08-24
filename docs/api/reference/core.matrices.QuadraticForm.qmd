@@ -33,6 +33,7 @@ This represents the scalar expression xᵀQx, commonly used for:
 | --- | --- |
 | [evaluate](#optyx.core.matrices.QuadraticForm.evaluate) | Evaluate the quadratic form xᵀQx. |
 | [get_variables](#optyx.core.matrices.QuadraticForm.get_variables) | Return all variables this expression depends on. |
+| [jacobian_row](#optyx.core.matrices.QuadraticForm.jacobian_row) | Return Jacobian row using O(1) gradient rule. |
 
 ### evaluate { #optyx.core.matrices.QuadraticForm.evaluate }
 
@@ -49,3 +50,21 @@ core.matrices.QuadraticForm.get_variables()
 ```
 
 Return all variables this expression depends on.
+
+### jacobian_row { #optyx.core.matrices.QuadraticForm.jacobian_row }
+
+```python
+core.matrices.QuadraticForm.jacobian_row(variables)
+```
+
+Return Jacobian row using O(1) gradient rule.
+
+For QuadraticForm(x, Q), gradient is (Q + Q.T) @ x.
+This computes the gradient vector in O(n²) but avoids n separate
+gradient() calls which each do O(n²) work.
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                                        | Description                                                  |
+|--------|-----------------------------------------------------------------------------|--------------------------------------------------------------|
+|        | [list](`list`)\[[Expression](`optyx.core.expressions.Expression`)\] \| None | List of expressions, or None if optimization not applicable. |

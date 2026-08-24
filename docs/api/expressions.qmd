@@ -16,7 +16,7 @@ For creating arrays of variables (e.g., `x[0]`, `x[1]`), use [VectorVariable](ve
 ```python
 from optyx import Variable
 
-x = Variable(name, lb=None, ub=None, domain="continuous")
+x = Variable(name, lb=None, ub=None, domain="continuous", obj=0.0)
 ```
 
 ### Parameters
@@ -27,6 +27,7 @@ x = Variable(name, lb=None, ub=None, domain="continuous")
 | `lb` | `float | None` | Lower bound | `None` (unbounded) |
 | `ub` | `float | None` | Upper bound | `None` (unbounded) |
 | `domain` | `str` | One of `"continuous"`, `"integer"`, `"binary"` | `"continuous"` |
+| `obj` | `float` | Mutable linear objective coefficient added to the problem objective | `0.0` |
 
 ::: {.callout-tip}
 ## Integer/Binary Domains Supported
@@ -41,6 +42,7 @@ The `"integer"` and `"binary"` domains are fully supported for **linear** proble
 | `.lb` | `float | None` | Lower bound |
 | `.ub` | `float | None` | Upper bound |
 | `.domain` | `str` | Variable domain |
+| `.obj` | `float` | Mutable linear objective coefficient used on the next solve |
 
 ### Examples
 
@@ -56,9 +58,25 @@ y = Variable("y", lb=0)
 # Bounded variable
 z = Variable("z", lb=-10, ub=10)
 
-# Binary variable (relaxed to [0, 1])
+# Binary variable (enforced by the MILP solver for linear models)
 b = Variable("b", domain="binary")
 print(f"Binary: lb={b.lb}, ub={b.ub}")
+```
+
+Invalid domains, non-finite bounds, or bounds where `lb > ub` raise a
+descriptive validation error immediately. Mutating `lb` or `ub` applies the
+same validation and leaves the previous value unchanged if validation fails.
+
+For linear models, `obj` can be used alongside the expression passed to
+`minimize()` or `maximize()`. Updating it is reflected on the next solve:
+
+```python
+x = Variable("x", lb=0, ub=10, obj=1)
+problem = Problem().minimize(0).subject_to(x >= 0)
+first = problem.solve()
+
+x.obj = -1
+second = problem.solve()
 ```
 
 ---

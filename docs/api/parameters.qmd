@@ -47,7 +47,7 @@ prob.solve()
 from optyx import VectorParameter
 
 # Create vector parameter
-prices = VectorParameter("prices", values=[10, 20, 30])
+prices = VectorParameter("prices", 3, values=[10, 20, 30])
 
 # Use in objective (dot product)
 revenue = prices @ x  # x is a VectorVariable
@@ -73,7 +73,11 @@ x = VectorVariable("x", 3, lb=0, ub=1)
 risk = x.dot(cov @ x)
 
 # Update matrix
-new_cov = np.array([[1.0, 0.2], [0.2, 1.0]])
+new_cov = np.array([
+    [1.0, 0.2, 0.1],
+    [0.2, 1.0, 0.3],
+    [0.1, 0.3, 1.0],
+])
 cov.set(new_cov)
 ```
 

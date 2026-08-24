@@ -54,17 +54,15 @@ def solve_lp(
             - None or "highs" (default): Automatic HiGHS method selection
             - "highs-ds": HiGHS dual simplex
             - "highs-ipm": HiGHS interior point method
-        strict: If True, raise ValueError when the problem contains features
-            that the solver cannot handle exactly (e.g., integer/binary
-            variables). If False (default), emit a warning and relax.
+        strict: Retained for API compatibility. Linear integer and binary
+            variables are handled by the MILP path regardless of this value.
         **kwargs: Additional arguments passed to scipy.optimize.linprog.
 
     Returns:
         Solution object with optimization results.
 
     Raises:
-        ValueError: If the problem is not a valid linear program, or if
-            strict=True and the problem contains unsupported features.
+        NonLinearError: If the problem is not a valid linear program.
     """
     from scipy.optimize import linprog
 

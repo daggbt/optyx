@@ -1,13 +1,17 @@
 {
   "benchmark_suite": "run_benchmarks",
-  "cpu_count": 2,
-  "machine": "x86_64",
+  "core_configuration": "4 performance + 4 efficiency",
+  "cpu_count": 8,
+  "machine": "arm64",
+  "memory_gb": 8,
+  "model_identifier": "MacBookAir10,1",
   "numpy_version": "2.3.5",
   "optyx_version": "1.3.1",
-  "platform": "Linux-6.8.0-1044-azure-x86_64-with-glibc2.39",
-  "processor": "x86_64",
+  "platform": "macOS-26.3.1-arm64-arm-64bit",
+  "processor": "Apple M1",
   "python_implementation": "CPython",
-  "python_version": "3.12.1",
+  "python_version": "3.12.10",
   "scipy_version": "1.16.3",
-  "timestamp_utc": "2026-05-14T15:39:50.351535+00:00"
+  "system_name": "MacBook Air (M1, 2020)",
+  "timestamp_utc": "2026-08-24T12:38:35.301877+00:00"
 }

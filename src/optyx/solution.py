@@ -263,7 +263,7 @@ class Solution:
             print(f"  {name}: {value:.6g}")
 
     def __getitem__(
-        self, var: Variable | VectorVariable | MatrixVariable | str
+        self, var: Variable | VectorVariable | MatrixVariable | VariableDict | str
     ) -> float | NDArray[np.floating] | dict[str, float]:
         """Get the optimal value of a variable.
 
@@ -360,7 +360,7 @@ class Solution:
 
     def get(
         self,
-        var: Variable | VectorVariable | MatrixVariable | str,
+        var: Variable | VectorVariable | MatrixVariable | VariableDict | str,
         default: float | NDArray[np.floating] | dict[str, float] | None = None,
     ) -> float | NDArray[np.floating] | dict[str, float] | None:
         """Get the optimal value of a variable with a default.
@@ -368,9 +368,11 @@ class Solution:
         For scalar Variable: returns float.
         For VectorVariable: returns 1D numpy array.
         For MatrixVariable: returns 2D numpy array.
+        For VariableDict: returns a dictionary keyed by its logical keys.
 
         Args:
-            var: Variable, VectorVariable, MatrixVariable, or variable name.
+            var: Variable, VectorVariable, MatrixVariable, VariableDict, or
+                variable name.
             default: Value to return if variable not found.
 
         Returns:

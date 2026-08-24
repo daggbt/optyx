@@ -197,7 +197,7 @@ solution = prob.solve(method="auto", strict=False, warm_start=True,
 | Parameter | Type | Description | Default |
 |-----------|------|-------------|---------|
 | `method` | `str` | Solver method (see below) | `"auto"` |
-| `strict` | `bool` | Raise error for unsupported features | `False` |
+| `strict` | `bool` | Retained for API compatibility; unsupported nonlinear discrete models are rejected regardless of this value | `False` |
 | `warm_start` | `bool` | Reuse previous solution as initial point | `True` |
 | `callback` | `Callable[[SolverProgress], bool \| None] \| None` | Called each iteration; return `True` to stop | `None` |
 | `time_limit` | `float \| None` | Wall-clock time budget in seconds | `None` |
@@ -215,12 +215,10 @@ When `method="auto"` (default), Optyx automatically selects the best solver base
 |--------------|-----------------|
 | Linear with integer/binary variables | `milp` (HiGHS MILP solver) |
 | Linear objective and constraints | `linprog` (HiGHS LP solver) |
-| Unconstrained, n ≤ 3 | `Nelder-Mead` |
-| Unconstrained, n > 1000 | `L-BFGS-B` |
-| Unconstrained, else | `BFGS` |
-| Bounds only (no general constraints) | `L-BFGS-B` |
-| Has equality constraints | `trust-constr` |
-| Inequality constraints only | `SLSQP` |
+| Unconstrained or bounds-only nonlinear problem | `L-BFGS-B` |
+| Large sparse constrained nonlinear problem | `trust-constr` |
+| Higher-degree or transcendental constrained problem | `trust-constr` |
+| Linear/quadratic constrained nonlinear problem | `SLSQP`, with validation and a `trust-constr` retry when needed |
 
 **Available methods:**
 
@@ -254,25 +252,22 @@ When `method="auto"` (default), Optyx automatically selects the best solver base
 
 ::: {.callout-note}
 ## Performance
-- **LP problems**: ~1.1x overhead vs raw SciPy (near parity)
-- **CQP problems**: ~1.2-2.2x overhead (with exact Jacobians)
-- **Repeated solves**: 2x-900x speedup due to caching
+- **LP and MILP**: warm solves approach raw SciPy at larger benchmark sizes
+- **CQP**: exact Jacobians keep warm solves near raw SciPy in the bundled suite
+- **Repeated solves**: cached structure avoids recompilation, but solver work remains
 
-See the [Benchmarks](../benchmarks.qmd) page for detailed performance analysis.
+Results depend on model structure, size, solver iterations, and hardware. See
+the [Benchmarks](../benchmarks.qmd) page for versioned measurements.
 :::
 
 ---
 
-## Strict Mode
+## Strict Compatibility Parameter
 
-Use `strict=True` to enforce that the solver can handle all problem features exactly:
-
-```python
-# Strict: fail early if problem can't be solved exactly
-solution = prob.solve(strict=True)  # Raises ValueError for unsupported configurations
-```
-
-This is useful for production code where you want to catch configurations that the solver cannot handle (e.g., nonlinear objectives with integer variables / MIQP).
+`strict` remains in the public signature for compatibility. Linear discrete
+models are solved as MILPs, while nonlinear discrete models (MIQP/MINLP) raise
+`UnsupportedOperationError` regardless of the value of `strict`. Continuous
+models are unaffected by it.
 
 ---
 
@@ -281,10 +276,15 @@ This is useful for production code where you want to catch configurations that t
 | Property | Type | Description |
 |----------|------|-------------|
 | `.name` | `str | None` | Problem name |
-| `.objective` | `Expression` | Objective function |
+| `.objective` | `Expression \| None` | Objective function, or `None` before one is set |
 | `.sense` | `str` | `"minimize"` or `"maximize"` |
-| `.constraints` | `list[Constraint]` | All constraints |
+| `.constraints` | `list[Constraint]` | A copy of scalar constraints; structured matrix blocks are not included |
 | `.variables` | `list[Variable]` | All decision variables |
+| `.n_constraints` | `int` | Scalar constraints plus all structured matrix-block rows |
+
+`n_constraints` and `summary()` count both scalar constraints and every row in
+structured matrix constraint blocks. `remove_constraint()` currently operates
+only on scalar constraints, by scalar-list index or name.
 
 ### Examples
 

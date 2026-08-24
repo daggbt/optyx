@@ -13,7 +13,7 @@ of the vector elements weighted by the corresponding matrix row.
 
 | Name   | Type                                                                                                               | Description                                     | Default    |
 |--------|--------------------------------------------------------------------------------------------------------------------|-------------------------------------------------|------------|
-| matrix | [np](`numpy`).[ndarray](`numpy.ndarray`)                                                                           | 2D NumPy array (constant coefficients).         | _required_ |
+| matrix | [Any](`typing.Any`)                                                                                                | 2D NumPy array (constant coefficients).         | _required_ |
 | vector | [VectorVariable](`optyx.core.vectors.VectorVariable`) \| [VectorExpression](`optyx.core.vectors.VectorExpression`) | VectorVariable or VectorExpression to multiply. | _required_ |
 
 ## Example {.doc-section .doc-section-example}
@@ -29,7 +29,7 @@ of the vector elements weighted by the corresponding matrix row.
 
 | Name | Description |
 | --- | --- |
-| [evaluate](#optyx.core.matrices.MatrixVectorProduct.evaluate) | Evaluate the matrix-vector product. |
+| [evaluate](#optyx.core.matrices.MatrixVectorProduct.evaluate) | Evaluate the matrix-vector product using BLAS. |
 | [get_variables](#optyx.core.matrices.MatrixVectorProduct.get_variables) | Return all variables this expression depends on. |
 
 ### evaluate { #optyx.core.matrices.MatrixVectorProduct.evaluate }
@@ -38,7 +38,7 @@ of the vector elements weighted by the corresponding matrix row.
 core.matrices.MatrixVectorProduct.evaluate(values)
 ```
 
-Evaluate the matrix-vector product.
+Evaluate the matrix-vector product using BLAS.
 
 ### get_variables { #optyx.core.matrices.MatrixVectorProduct.get_variables }
 

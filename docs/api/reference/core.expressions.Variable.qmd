@@ -1,16 +1,32 @@
 # core.expressions.Variable { #optyx.core.expressions.Variable }
 
 ```python
-core.expressions.Variable(name, lb=None, ub=None, domain='continuous')
+core.expressions.Variable(
+    name,
+    lb=None,
+    ub=None,
+    domain='continuous',
+    obj=0.0,
+    sort_key=None,
+    metadata_callback=None,
+)
 ```
 
 A decision variable in an optimization problem.
 
 ## Parameters {.doc-section .doc-section-parameters}
 
-| Name   | Type                                                                   | Description                                           | Default        |
-|--------|------------------------------------------------------------------------|-------------------------------------------------------|----------------|
-| name   | [str](`str`)                                                           | Unique identifier for this variable.                  | _required_     |
-| lb     | [float](`float`) \| None                                               | Lower bound (None for unbounded).                     | `None`         |
-| ub     | [float](`float`) \| None                                               | Upper bound (None for unbounded).                     | `None`         |
-| domain | [Literal](`typing.Literal`)\[\'continuous\', \'integer\', \'binary\'\] | Variable type - 'continuous', 'integer', or 'binary'. | `'continuous'` |
+| Name   | Type                                                                   | Description                                                                                                                      | Default        |
+|--------|------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|----------------|
+| name   | [str](`str`)                                                           | Unique identifier for this variable.                                                                                             | _required_     |
+| lb     | [float](`float`) \| None                                               | Lower bound (None for unbounded).                                                                                                | `None`         |
+| ub     | [float](`float`) \| None                                               | Upper bound (None for unbounded).                                                                                                | `None`         |
+| domain | [Literal](`typing.Literal`)\[\'continuous\', \'integer\', \'binary\'\] | Variable type - 'continuous', 'integer', or 'binary'.                                                                            | `'continuous'` |
+| obj    | [float](`float`) \| [int](`int`)                                       | Mutable linear objective coefficient. Changes are applied on the next solve, including when solver data has already been cached. | `0.0`          |
+
+## Example {.doc-section .doc-section-example}
+
+>>> x = Variable("x", lb=0, ub=10)
+>>> y = Variable("y", domain="binary")
+>>> x.evaluate({"x": 5.0})
+5.0

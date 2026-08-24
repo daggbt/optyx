@@ -29,6 +29,7 @@ This is a scalar expression representing the inner product.
 | --- | --- |
 | [evaluate](#optyx.core.vectors.DotProduct.evaluate) | Evaluate the dot product given variable values. |
 | [get_variables](#optyx.core.vectors.DotProduct.get_variables) | Return all variables this expression depends on. |
+| [jacobian_row](#optyx.core.vectors.DotProduct.jacobian_row) | Return Jacobian row in O(n) for special cases. |
 
 ### evaluate { #optyx.core.vectors.DotProduct.evaluate }
 
@@ -45,3 +46,21 @@ core.vectors.DotProduct.get_variables()
 ```
 
 Return all variables this expression depends on.
+
+### jacobian_row { #optyx.core.vectors.DotProduct.jacobian_row }
+
+```python
+core.vectors.DotProduct.jacobian_row(variables)
+```
+
+Return Jacobian row in O(n) for special cases.
+
+For DotProduct(x, x) (same VectorVariable), gradient is 2*x[i].
+For DotProduct(x, y) with two different VectorVariables, gradient
+is y[i] for x[i] and x[i] for y[i].
+
+#### Returns {.doc-section .doc-section-returns}
+
+| Name   | Type                                                                        | Description                                                  |
+|--------|-----------------------------------------------------------------------------|--------------------------------------------------------------|
+|        | [list](`list`)\[[Expression](`optyx.core.expressions.Expression`)\] \| None | List of expressions, or None if optimization not applicable. |
