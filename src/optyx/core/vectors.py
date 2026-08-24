@@ -1401,8 +1401,9 @@ class VectorVariable:
     def _get_variable(self, index: int) -> Variable:
         cache = self._variable_cache
         if cache is None:
-            cache = [None] * self.size
-            self._variable_cache = cache
+            new_cache: list[Variable | None] = [None] * self.size
+            self._variable_cache = new_cache
+            cache = new_cache
 
         variable = cache[index]
         if variable is None:
@@ -1414,9 +1415,11 @@ class VectorVariable:
     def _variables(self) -> list[Variable]:
         cache = self._variable_cache
         if cache is None:
-            variables = [self._create_variable(index) for index in range(self.size)]
+            variables: list[Variable | None] = [
+                self._create_variable(index) for index in range(self.size)
+            ]
             self._variable_cache = variables
-            return variables
+            return cast(list[Variable], variables)
 
         for index, variable in enumerate(cache):
             if variable is None:
@@ -1426,11 +1429,11 @@ class VectorVariable:
 
     @_variables.setter
     def _variables(self, value: list[Variable]) -> None:
-        cache = list(value)
+        cache: list[Variable | None] = list(value)
         self._variable_cache = cache
         self._has_bound_overrides = False
 
-        for index, variable in enumerate(cache):
+        for index, variable in enumerate(value):
             variable._metadata_callback = self._mark_bound_override
             if not self._matches_default_bounds(variable, index):
                 self._has_bound_overrides = True
@@ -1471,8 +1474,8 @@ class VectorVariable:
 
         elif isinstance(key, slice):
             # Get the sliced variables
-            indices = range(*key.indices(self.size))
-            sliced_vars = [self._get_variable(i) for i in indices]
+            slice_indices = range(*key.indices(self.size))
+            sliced_vars = [self._get_variable(i) for i in slice_indices]
             if len(sliced_vars) == 0:
                 raise IndexError("Slice results in empty VectorVariable")
 
