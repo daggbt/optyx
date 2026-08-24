@@ -121,16 +121,10 @@ class TestRemoveConstraintByName:
         prob = Problem()
         prob.minimize(x)
 
-        c1 = Constraint(
-            expr=(x - 3).expr if hasattr(x - 3, "expr") else (x - 3),
-            sense=">=",
-            name="lower",
-        )
-        c2 = Constraint(
-            expr=(x - 7).expr if hasattr(x - 7, "expr") else (x - 7),
-            sense="<=",
-            name="upper",
-        )
+        lower = x >= 3
+        upper = x <= 7
+        c1 = Constraint(lower.expr, lower.sense, name="lower")
+        c2 = Constraint(upper.expr, upper.sense, name="upper")
         prob.subject_to(c1)
         prob.subject_to(c2)
 

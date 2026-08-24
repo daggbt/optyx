@@ -1520,13 +1520,7 @@ class VectorVariable:
             )
 
         else:
-            # Original error fallback
             raise TypeError(f"Invalid index type: {type(key)}")
-            raise InvalidOperationError(
-                operation="vector indexing",
-                operand_types=(type(key).__name__,),
-                suggestion="Use integers for single elements or slices for subvectors.",
-            )
 
     @classmethod
     def _from_variables(

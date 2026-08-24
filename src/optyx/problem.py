@@ -44,12 +44,6 @@ class _MatrixConstraint:
     variables: list[Variable]  # The VectorVariable's individual variables
 
 
-# Threshold for "small" problems where gradient-free methods are faster
-SMALL_PROBLEM_THRESHOLD = 3
-
-# Threshold for "large" problems where memory-efficient methods are preferred
-LARGE_PROBLEM_THRESHOLD = 1000
-
 # Thresholds for preferring trust-constr on large sparse NLPs
 SPARSE_NLP_ROW_THRESHOLD = 32
 SPARSE_NLP_VARIABLE_THRESHOLD = 64
@@ -429,9 +423,10 @@ class Problem:
             KeyError: If no constraint with the given name is found.
 
         Example:
-            >>> prob.subject_to((x + y <= 10).name == "cap")
+            >>> from optyx import Constraint
+            >>> capacity = x + y <= 10
+            >>> prob.subject_to(Constraint(capacity.expr, capacity.sense, name="cap"))
             >>> prob.remove_constraint("cap")
-            >>> prob.remove_constraint(0)  # Remove first constraint
         """
         if isinstance(index_or_name, int):
             idx = index_or_name
@@ -794,27 +789,6 @@ class Problem:
         self._is_linear_cache = True
         return True
 
-    def _only_simple_bounds(self) -> bool:
-        """Check if all constraints are simple variable bounds.
-
-        Simple bounds are constraints on a single variable like x >= 0 or x <= 10.
-        """
-        if self._matrix_constraints:
-            return False
-
-        if not self._constraints:
-            return True
-
-        from optyx.analysis import is_simple_bound
-
-        return all(is_simple_bound(c, self.variables) for c in self._constraints)
-
-    def _has_equality_constraints(self) -> bool:
-        """Check if problem has any equality constraints."""
-        return any(c.sense == "==" for c in self._constraints) or any(
-            mc.sense == "==" for mc in self._matrix_constraints
-        )
-
     def _has_general_constraints(self) -> bool:
         """Check if the problem has any non-bound constraints."""
         return bool(self._constraints or self._matrix_constraints)
@@ -902,13 +876,6 @@ class Problem:
 
         if self._prefer_trust_constr_for_sparse_constraints():
             return "trust-constr"
-
-        # Only variable bounds (no general constraints)
-        # FIXME: L-BFGS-B does not support constraints passed via the 'constraints' argument.
-        # Until we implement merging of simple bound constraints into the variable bounds,
-        # we must avoid L-BFGS-B if there are any constraints in the list.
-        # if self._only_simple_bounds():
-        #     return "L-BFGS-B"
 
         # Check if objective is non-linear (degree > 2 or contains transcendental functions)
         obj = self.objective
@@ -1177,11 +1144,11 @@ class Problem:
             >>> x = VectorVariable("x", 100, lb=0)
             >>> prob = Problem("portfolio")
             >>> prob.minimize(x.dot(x))
-            >>> prob.subject_to(x.sum() == 1)
+            >>> prob.subject_to(x.sum().eq(1))
             >>> print(prob.summary())
             Optyx Problem: portfolio
               Variables: 100
-              Constraints: 1 (0 equality, 1 inequality)
+              Constraints: 1 (1 equality, 0 inequality)
               Objective: minimize
         """
         # Count constraints by type

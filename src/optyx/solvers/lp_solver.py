@@ -7,11 +7,9 @@ and using the HiGHS solver for efficient LP solving.
 from __future__ import annotations
 
 import time
-import warnings
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import scipy
 
 from optyx.core.errors import (
     NoObjectiveError,
@@ -28,10 +26,6 @@ if TYPE_CHECKING:
     from optyx.solution import Solution
 
 
-# Minimum SciPy version for HiGHS solver
-MIN_SCIPY_VERSION = "1.6.0"
-
-
 def _lp_cache_is_current(problem: Problem) -> bool:
     """Return whether cached LP numerics match all mutable model inputs."""
     return bool(
@@ -40,13 +34,6 @@ def _lp_cache_is_current(problem: Problem) -> bool:
         and problem._lp_cache.objective_coefficient_signature
         == problem._objective_coefficient_signature()
     )
-
-
-def _check_scipy_version() -> bool:
-    """Check if SciPy version supports HiGHS solver."""
-    from packaging import version
-
-    return version.parse(scipy.__version__) >= version.parse(MIN_SCIPY_VERSION)
 
 
 def solve_lp(
@@ -138,19 +125,8 @@ def solve_lp(
         assert variables is not None
         return solve_milp(lp_data, variables, **kwargs)
 
-    # Check SciPy version and select method
     if method is None:
         method = "highs"
-
-    if not _check_scipy_version():
-        warnings.warn(
-            f"HiGHS solver requires SciPy >= {MIN_SCIPY_VERSION}. "
-            f"Current version: {scipy.__version__}. Falling back to 'highs-ds'.",
-            UserWarning,
-            stacklevel=2,
-        )
-        # For older scipy, highs-ds is usually available
-        method = "highs-ds"
 
     # Extract LP coefficients (use cache if available)
     if _lp_cache_is_current(problem):
