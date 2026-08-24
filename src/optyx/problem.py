@@ -636,9 +636,7 @@ class Problem:
                 second_values = (*bounds, domain, obj)
                 conflicts = {
                     field: (first, second)
-                    for field, first, second in zip(
-                        fields, first_values, second_values
-                    )
+                    for field, first, second in zip(fields, first_values, second_values)
                     if first != second
                 }
                 raise VariableConflictError(name, conflicts)

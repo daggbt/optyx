@@ -92,7 +92,11 @@ class TestVariableNameConflicts:
     @pytest.mark.parametrize(
         ("first", "second", "field"),
         [
-            (Variable("x", domain="continuous"), Variable("x", domain="integer"), "domain"),
+            (
+                Variable("x", domain="continuous"),
+                Variable("x", domain="integer"),
+                "domain",
+            ),
             (Variable("x", obj=1), Variable("x", obj=2), "obj"),
         ],
     )

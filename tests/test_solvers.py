@@ -138,9 +138,7 @@ class TestScopedWarningCapture:
         monkeypatch.setattr(scipy_solver, "minimize", fake_minimize)
 
         x = Variable("x")
-        solution = Problem().minimize(x**2).solve(
-            method="L-BFGS-B", x0=np.array([0.0])
-        )
+        solution = Problem().minimize(x**2).solve(method="L-BFGS-B", x0=np.array([0.0]))
 
         assert solution.is_optimal
         assert warnings.showwarning is original_showwarning
@@ -158,8 +156,8 @@ class TestScopedWarningCapture:
         x = Variable("x")
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            solution = Problem().minimize(x**2).solve(
-                method="L-BFGS-B", x0=np.array([0.0])
+            solution = (
+                Problem().minimize(x**2).solve(method="L-BFGS-B", x0=np.array([0.0]))
             )
 
         assert caught == []
@@ -174,8 +172,8 @@ class TestScopedWarningCapture:
 
         x = Variable("x")
         with pytest.warns(UserWarning, match="unrelated solver warning"):
-            solution = Problem().minimize(x**2).solve(
-                method="L-BFGS-B", x0=np.array([0.0])
+            solution = (
+                Problem().minimize(x**2).solve(method="L-BFGS-B", x0=np.array([0.0]))
             )
 
         assert solution.is_optimal
@@ -192,8 +190,8 @@ class TestScopedWarningCapture:
 
         x = Variable("x")
         with pytest.warns(UserWarning, match="warning before failure"):
-            solution = Problem().minimize(x**2).solve(
-                method="L-BFGS-B", x0=np.array([0.0])
+            solution = (
+                Problem().minimize(x**2).solve(method="L-BFGS-B", x0=np.array([0.0]))
             )
 
         assert solution.status == SolverStatus.FAILED

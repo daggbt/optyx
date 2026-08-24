@@ -157,9 +157,7 @@ def _compute_degree_iterative(expr: Expression) -> Optional[int]:
                 if any(degree is None for degree in child_degrees):
                     result_stack.append(None)
                 else:
-                    degrees = [
-                        degree for degree in child_degrees if degree is not None
-                    ]
+                    degrees = [degree for degree in child_degrees if degree is not None]
                     if isinstance(node, NarySum):
                         result_stack.append(max(degrees, default=0))
                     else:
@@ -1013,7 +1011,10 @@ def _try_extract_fast_binop(
             if vec_n == n:
                 first_name = expr.left.vector._name_at(0)
                 first_idx = var_index.get(first_name, -1)
-                if first_idx == 0 and _get_scalar_constant_value(expr.right) is not None:
+                if (
+                    first_idx == 0
+                    and _get_scalar_constant_value(expr.right) is not None
+                ):
                     return np.ones(n, dtype=np.float64)
 
         # Try left side as LinearCombination
@@ -1024,7 +1025,10 @@ def _try_extract_fast_binop(
             if vec_n == n:
                 first_name = expr.left.vector._name_at(0)
                 first_idx = var_index.get(first_name, -1)
-                if first_idx == 0 and _get_scalar_constant_value(expr.right) is not None:
+                if (
+                    first_idx == 0
+                    and _get_scalar_constant_value(expr.right) is not None
+                ):
                     return np.asarray(expr.left.coefficients, dtype=np.float64).copy()
 
     # Handle: constant * VectorSum, VectorSum * constant
@@ -1103,9 +1107,7 @@ def _extract_all_coefficients_impl(
             vec_n = expr.vector.size
             first_idx = var_index.get(expr.vector._name_at(0), -1)
             if vec_n == result.size and first_idx == 0:
-                result += multiplier * np.asarray(
-                    expr.coefficients, dtype=np.float64
-                )
+                result += multiplier * np.asarray(expr.coefficients, dtype=np.float64)
                 return
             for i, name in enumerate(expr.vector._iter_variable_names()):
                 idx = var_index.get(name)

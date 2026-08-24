@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-08-24
+
+### Fixed
+- **Solver cache correctness**: Rebuild cached solver state when a problem's variable layout changes, including variables introduced by later constraints.
+- **Feasibility reporting**: Validate returned values against bounds and constraints before mapping solver status, and base `Solution.is_feasible` on recorded feasibility evidence rather than optimal status alone.
+- **SLSQP stationarity**: Detect feasible but non-stationary SLSQP results and retry with `trust-constr` instead of reporting a false optimum.
+- **Polynomial degree analysis**: Use one consistent degree engine across scalar, vector, matrix, parameter, and n-ary expressions so solver routing classifies models correctly.
+- **Model validation**: Reject invalid scalar and vector bounds, invalid variable domains, and conflicting declarations that reuse a variable name with incompatible metadata.
+- **Objective cache invalidation**: Refresh compiled objective state after changing a variable's objective coefficient.
+- **Warning isolation**: Capture solver warnings locally without replacing Python's process-wide warning handler.
+- **Problem summaries**: Count rows from matrix constraints in equality and inequality subtotals.
+- **Typing and cleanup**: Resolve source Pyright errors and remove obsolete compatibility and unreachable cleanup paths.
+
+### Changed
+- **Documentation and branding**: Align guides and API reference pages with the current code, refresh benchmark results and reference hardware, and add the project wordmark, favicon, and AI-generated-content disclaimer.
+
 ## [1.3.1] - 2026-05-14
 
 ### Changed

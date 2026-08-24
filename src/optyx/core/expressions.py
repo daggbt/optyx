@@ -789,7 +789,13 @@ def get_all_variables_by_identity(expr: Expression) -> list[Variable]:
                     continue
                 if isinstance(
                     value,
-                    (Expression, VectorVariable, VectorExpression, MatrixVariable, MatrixExpression),
+                    (
+                        Expression,
+                        VectorVariable,
+                        VectorExpression,
+                        MatrixVariable,
+                        MatrixExpression,
+                    ),
                 ):
                     children.append(value)
                 elif isinstance(value, (list, tuple)):

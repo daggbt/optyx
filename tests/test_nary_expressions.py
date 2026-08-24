@@ -317,9 +317,7 @@ def test_flattened_linear_sum_extracts_all_coefficients():
     expr = flatten_expression(sum(variables[1:], start=variables[0]))
     var_index = {variable.name: i for i, variable in enumerate(variables)}
 
-    coefficients = extract_all_linear_coefficients(
-        expr, var_index, len(variables)
-    )
+    coefficients = extract_all_linear_coefficients(expr, var_index, len(variables))
 
     assert is_linear(expr)
     np.testing.assert_array_equal(coefficients, np.ones(len(variables)))
