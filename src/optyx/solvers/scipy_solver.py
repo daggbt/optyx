@@ -33,6 +33,44 @@ class _EarlyTermination(Exception):
         self.message = message
 
 
+_LINEAR_PROBLEM_WARNING = "delta_grad == 0.0"
+
+
+def _minimize_with_scoped_warning_capture(**kwargs: Any) -> tuple[Any, bool]:
+    """Run SciPy while locally capturing its linear-problem warning.
+
+    Unrelated warnings are re-emitted after leaving the local context so they
+    continue through the caller's warning filters without replacing the
+    process-wide ``warnings.showwarning`` handler.
+    """
+    captured_warnings: list[warnings.WarningMessage] = []
+    linear_problem_detected = False
+
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            captured_warnings = caught
+            warnings.filterwarnings(
+                "always",
+                message=r"delta_grad == 0\.0",
+                category=UserWarning,
+            )
+            result = minimize(**kwargs)
+    finally:
+        for warning in captured_warnings:
+            if _LINEAR_PROBLEM_WARNING in str(warning.message):
+                linear_problem_detected = True
+                continue
+            warnings.warn_explicit(
+                warning.message,
+                warning.category,
+                warning.filename,
+                warning.lineno,
+                source=warning.source,
+            )
+
+    return result, linear_problem_detected
+
+
 def _variable_layout_signature(variables: list[Any]) -> tuple[Any, ...]:
     """Return the ordered variable identity expected by compiled callables."""
     return ("variables", tuple((id(variable), variable.name) for variable in variables))
@@ -398,19 +436,6 @@ def solve_scipy(
     # Solve
     start_time = time.perf_counter()
 
-    # Track if we see the linear problem warning
-    linear_problem_detected = False
-
-    def warning_handler(message, category, filename, lineno, file=None, line=None):
-        nonlocal linear_problem_detected
-        if "delta_grad == 0.0" in str(message):
-            linear_problem_detected = True
-            return  # Suppress this specific warning
-        # Let other warnings through using the original handler
-        old_showwarning(message, category, filename, lineno, file, line)
-
-    old_showwarning = warnings.showwarning
-
     # Determine if gradient should be passed (not for derivative-free methods)
     use_gradient = method not in DERIVATIVE_FREE_METHODS
 
@@ -452,10 +477,7 @@ def solve_scipy(
     )
 
     try:
-        # Temporarily override warning handling during solve
-        warnings.showwarning = warning_handler
-
-        result = minimize(
+        result, linear_problem_detected = _minimize_with_scoped_warning_capture(
             fun=objective,
             x0=x0,
             method=method,
@@ -469,7 +491,6 @@ def solve_scipy(
             **kwargs,
         )
     except _EarlyTermination as et:
-        warnings.showwarning = old_showwarning
         solve_time = time.perf_counter() - start_time
         obj_value = float(obj_fn(et.x))
         if problem.sense == "maximize":
@@ -503,14 +524,11 @@ def solve_scipy(
             _raw_layout_signature=layout_signature,
         )
     except Exception as e:
-        warnings.showwarning = old_showwarning
         return Solution(
             status=SolverStatus.FAILED,
             message=str(e),
             solve_time=time.perf_counter() - start_time,
         )
-    finally:
-        warnings.showwarning = old_showwarning
 
     solve_time = time.perf_counter() - start_time
 

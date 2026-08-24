@@ -205,6 +205,13 @@ class TestVectorVariableIndexing:
         with pytest.raises(IndexError):
             x[-6]
 
+    def test_invalid_index_type_raises_type_error(self):
+        """Unsupported index types preserve the existing TypeError contract."""
+        x = VectorVariable("x", 3)
+
+        with pytest.raises(TypeError, match="Invalid index type"):
+            x["invalid"]  # type: ignore[call-overload]
+
 
 class TestVectorVariableSlicing:
     """Tests for slicing operations."""

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 import numpy as np
 
@@ -376,8 +376,9 @@ def _try_build_nary_sum_fast_evaluator(
         return lambda x: 0.0
 
     if all(isinstance(term, Variable) for term in terms):
+        variable_terms = cast("tuple[Variable, ...]", terms)
         indices = np.array(
-            [_lookup_var_index(var_indices, term.name) for term in terms],
+            [_lookup_var_index(var_indices, term.name) for term in variable_terms],
             dtype=np.intp,
         )
         return lambda x, idx=indices: float(np.sum(x[idx]))

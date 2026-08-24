@@ -114,6 +114,92 @@ class TestStrictMode:
         assert abs(sol["b"]) < 1e-6
 
 
+class TestScopedWarningCapture:
+    """SciPy warning handling remains local to the current solve."""
+
+    @staticmethod
+    def _successful_result(kwargs):
+        x0 = np.asarray(kwargs["x0"], dtype=float)
+        return OptimizeResult(
+            x=x0,
+            fun=float(kwargs["fun"](x0)),
+            success=True,
+            message="ok",
+            nit=0,
+        )
+
+    def test_showwarning_is_unchanged_during_and_after_solve(self, monkeypatch):
+        original_showwarning = warnings.showwarning
+
+        def fake_minimize(*args, **kwargs):
+            assert warnings.showwarning is original_showwarning
+            return self._successful_result(kwargs)
+
+        monkeypatch.setattr(scipy_solver, "minimize", fake_minimize)
+
+        x = Variable("x")
+        solution = Problem().minimize(x**2).solve(
+            method="L-BFGS-B", x0=np.array([0.0])
+        )
+
+        assert solution.is_optimal
+        assert warnings.showwarning is original_showwarning
+
+    def test_targeted_warning_is_suppressed_and_recorded(self, monkeypatch):
+        def fake_minimize(*args, **kwargs):
+            warnings.warn(
+                "delta_grad == 0.0. Check if the approximated function is linear.",
+                UserWarning,
+            )
+            return self._successful_result(kwargs)
+
+        monkeypatch.setattr(scipy_solver, "minimize", fake_minimize)
+
+        x = Variable("x")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            solution = Problem().minimize(x**2).solve(
+                method="L-BFGS-B", x0=np.array([0.0])
+            )
+
+        assert caught == []
+        assert "problem appears linear" in solution.message
+
+    def test_unrelated_warning_reaches_outer_warning_context(self, monkeypatch):
+        def fake_minimize(*args, **kwargs):
+            warnings.warn("unrelated solver warning", UserWarning)
+            return self._successful_result(kwargs)
+
+        monkeypatch.setattr(scipy_solver, "minimize", fake_minimize)
+
+        x = Variable("x")
+        with pytest.warns(UserWarning, match="unrelated solver warning"):
+            solution = Problem().minimize(x**2).solve(
+                method="L-BFGS-B", x0=np.array([0.0])
+            )
+
+        assert solution.is_optimal
+
+    def test_failure_preserves_handler_and_unrelated_warnings(self, monkeypatch):
+        original_showwarning = warnings.showwarning
+
+        def failing_minimize(*args, **kwargs):
+            assert warnings.showwarning is original_showwarning
+            warnings.warn("warning before failure", UserWarning)
+            raise RuntimeError("solver failed")
+
+        monkeypatch.setattr(scipy_solver, "minimize", failing_minimize)
+
+        x = Variable("x")
+        with pytest.warns(UserWarning, match="warning before failure"):
+            solution = Problem().minimize(x**2).solve(
+                method="L-BFGS-B", x0=np.array([0.0])
+            )
+
+        assert solution.status == SolverStatus.FAILED
+        assert warnings.showwarning is original_showwarning
+
+
 class TestUnconstrainedOptimization:
     """Tests for unconstrained optimization problems."""
 
