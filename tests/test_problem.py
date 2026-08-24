@@ -218,6 +218,34 @@ class TestProblemRepr:
         assert "minimize" in repr_str
 
 
+class TestProblemSummary:
+    """Tests for complete scalar and matrix constraint counts."""
+
+    def test_matrix_inequality_rows_are_included(self):
+        x = VectorVariable("x", 2)
+        prob = Problem("matrix-summary").minimize(x.sum())
+        prob.subject_to(np.eye(2) @ x <= np.ones(2))
+
+        assert "Constraints: 2 (0 equality, 2 inequality)" in prob.summary()
+
+    def test_matrix_equality_rows_are_included(self):
+        x = VectorVariable("x", 3)
+        prob = Problem().minimize(x.sum())
+        prob.subject_to((np.eye(3) @ x).eq(np.ones(3)))
+
+        assert "Constraints: 3 (3 equality, 0 inequality)" in prob.summary()
+
+    def test_mixed_scalar_and_matrix_subtotals_match_total(self):
+        x = VectorVariable("x", 3)
+        prob = Problem().minimize(x.sum())
+        prob.subject_to(x[0] >= 0)
+        prob.subject_to((np.eye(3) @ x).eq(np.ones(3)))
+        prob.subject_to(np.ones((2, 3)) @ x <= np.ones(2))
+
+        assert prob.n_constraints == 6
+        assert "Constraints: 6 (3 equality, 3 inequality)" in prob.summary()
+
+
 class TestProblemInputValidation:
     """Tests for input validation in Problem methods."""
 

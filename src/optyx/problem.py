@@ -1187,6 +1187,12 @@ class Problem:
         # Count constraints by type
         n_eq = sum(1 for c in self._constraints if c.sense == "==")
         n_ineq = len(self._constraints) - n_eq
+        for matrix_constraint in self._matrix_constraints:
+            row_count = matrix_constraint.A.shape[0]
+            if matrix_constraint.sense == "==":
+                n_eq += row_count
+            else:
+                n_ineq += row_count
 
         # Build summary lines
         name_str = self.name or "Unnamed"
