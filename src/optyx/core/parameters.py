@@ -346,7 +346,9 @@ class MatrixParameter:
                 got_ndim=arr.ndim,
             )
 
-        self._shape = arr.shape
+        # Preserve the validated 2D shape in a fixed-length tuple so type
+        # checkers do not treat it as NumPy's arbitrary-length ``_Shape``.
+        self._shape = (arr.shape[0], arr.shape[1])
         self._symmetric = symmetric
 
         if symmetric:
