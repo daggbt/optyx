@@ -590,6 +590,10 @@ class TestPerformance:
 
             assert grad.evaluate({}) == 1.0
 
+            # Computing one component must not materialize every vector element.
+            assert x._variable_cache is not None
+            assert sum(var is not None for var in x._variable_cache) == 1
+
             # Should be very fast regardless of n
             assert elapsed < 0.1, f"n={n} took {elapsed * 1000:.1f}ms"
 

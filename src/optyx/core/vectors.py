@@ -1411,6 +1411,37 @@ class VectorVariable:
             cache[index] = variable
         return variable
 
+    def _index_of_variable(self, variable: Variable) -> int | None:
+        """Return a variable's vector index without materializing the vector.
+
+        Regular ``VectorVariable`` elements have canonical ``name[index]`` names,
+        so the common lookup path is constant time. Sliced and fancy-indexed
+        vectors keep an explicit variable cache and use a linear fallback.
+        """
+        variable_name = variable.name
+        prefix = f"{self.name}["
+
+        if variable_name.startswith(prefix) and variable_name.endswith("]"):
+            index_text = variable_name[len(prefix) : -1]
+            try:
+                index = int(index_text)
+            except ValueError:
+                pass
+            else:
+                if 0 <= index < self.size:
+                    cache = self._variable_cache
+                    cached = None if cache is None else cache[index]
+                    if cached is None or cached.name == variable_name:
+                        return index
+
+        cache = self._variable_cache
+        if cache is not None:
+            for index, cached in enumerate(cache):
+                if cached is not None and cached.name == variable_name:
+                    return index
+
+        return None
+
     @property
     def _variables(self) -> list[Variable]:
         cache = self._variable_cache

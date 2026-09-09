@@ -1385,14 +1385,11 @@ def _register_vector_gradient_rules() -> None:
         - If wrt is x_j for some j, gradient is 1
         - If wrt is not in x, gradient is 0
 
-        This is an O(n) lookup in the worst case, but typically O(1) for
-        early matches.
+        Lookup is O(1) for regular vectors and falls back to O(n) for sliced
+        or fancy-indexed vectors that contain aliased variables.
         """
         vec = expr.vector
-        for var in vec._variables:
-            if var.name == wrt.name:
-                return Constant(1.0)
-        return Constant(0.0)
+        return Constant(1.0 if vec._index_of_variable(wrt) is not None else 0.0)
 
     @register_gradient(VectorExpressionSum)
     def gradient_vector_expression_sum(

@@ -43,16 +43,16 @@ jobs:
           uv pip install numpy==1.22.0 scipy==1.8.0
       
       - name: Run ruff linting
-        run: uv run ruff check src tests
+        run: uv run --python ${{ matrix.python-version }} ruff check src tests
       
       - name: Run ruff formatting check
-        run: uv run ruff format --check src tests
+        run: uv run --python ${{ matrix.python-version }} ruff format --check src tests
       
       - name: Run pyright type checking
-        run: uv run pyright src
+        run: uv run --python ${{ matrix.python-version }} pyright src
       
       - name: Run tests with coverage
-        run: uv run pytest --cov=optyx --cov-report=xml --cov-report=term
+        run: uv run --python ${{ matrix.python-version }} pytest --cov=optyx --cov-report=xml --cov-report=term
       
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.12'
